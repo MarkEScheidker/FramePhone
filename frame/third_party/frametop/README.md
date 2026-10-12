@@ -24,6 +24,24 @@ https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb28199
 
 The rigid multi-tag consensus and joint two-view pixel optimization are
 FramePhone code, using OpenCV's SVD and Levenberg–Marquardt solver. Neural hand
-models, articulated priors, gesture code and privileged capture code are not
-included. Use upstream `ft-camd` as the separate camera supplier; its own
-FrameEyeCameraFeed notice must accompany any broker you redistribute.
+models, articulated priors and gesture code are not included.
+
+## Bundled camera broker
+
+`camd/` vendors `hands/camd/{camd.c,tp.c,tp.h,xrcams.c,xrcams.h,fhring.h}`
+from the same pinned commit, plus its [FrameEyeCameraFeed MIT notice](camd/LICENSE.FrameEyeCameraFeed).
+Upstream archive SHA-256:
+`7b366ba7d022a79ca98a12839098808fc5d8b82bec270e3e6b0d36937d89c522`.
+The broker is compiled statically and runs on the headset host. Local adaptations:
+
+- Accept authenticated `PKEXEC_UID` (with sudo UID fallback), validate it strictly,
+  and resolve the caller's primary group from the host passwd file before dropping
+  privileges. Static passwd-file parsing avoids loading host NSS modules.
+- Use `framephone-camera/cam-ring` and an exclusive writer lock, independent of
+  Frametop's ring directory; byte layout and sequence protocol remain version 1.
+- Arm a parent-death signal before camera setup and again after dropping privileges
+  so the GUI owns the broker lifetime; adjust help/errors for desktop authorization.
+
+Retain both MIT notices in source and binary distributions. The Python preview
+reader also implements this ABI and sequence protocol using bounded read-only
+copies. No hand models or upstream desktop/SteamVR integration are bundled.

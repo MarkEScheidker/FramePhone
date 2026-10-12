@@ -14,11 +14,12 @@ hardware validation. There is no tracked VR display or screen streaming yet.
 | --- | --- |
 | [Android companion](phone/) | Configurable tag36h11 overlays, measured display calibration and phone geometry export. Android 12+. |
 | [Native tracker](frame/) | AprilTag detection, calibrated single-camera and stereo phone poses, desktop diagnostics, recording and replay. Linux, C++20. |
-| [Steam Frame integration](frame/docs/HEADSET_TEST.md) | Read-only Frametop camera-ring input, factory KB4 calibration and an on-headset build/test procedure. Experimental and hardware-unverified. |
+| [Steam Frame integration](frame/docs/HEADSET_TEST.md) | Read-only Frametop camera-ring input, factory KB4 calibration and a shared Linux desktop/headset build procedure. Experimental and hardware-unverified. |
 
-The stereo tracker reports **head-relative** poses in a terminal. It requires
-a separately configured Frametop camera broker; camera access is not a standard
-OpenXR API. The Android app does not need Frametop and does not transmit data.
+The desktop app reports **head-relative** poses and bundles its own camera
+broker, adapted from Frametop. No Frametop installation is needed. Camera access
+uses internal headset interfaces and a desktop authorization prompt. The Android
+app does not transmit data.
 
 ## Start here
 
@@ -52,8 +53,12 @@ it does not establish real-world tracking accuracy. Dependencies are installed
 separately and are not bundled with the source.
 
 For the Steam Frame, follow the [headset build and test guide](frame/docs/HEADSET_TEST.md).
-It explains the host camera broker, ARM64 container build, camera mapping and
-first recorded trial. An x86_64 desktop executable cannot run on the headset.
+**`bash frame/build.sh`** produces **`frame/build/dist/FramePhone-arm64.run`**
+on a Linux PC or directly on the headset. Copy this single executable to the
+headset, allow execution in file Properties, and open it. The window provides
+self-test, phone layout selection, camera setup/previews and tracking controls.
+Runtime libraries and the camera broker are bundled; the headset does not need
+Docker or Frametop. See the [build guide](frame/docs/BUILD.md) for build-machine setup.
 
 ## Documentation
 
@@ -71,4 +76,3 @@ see [third-party notices](THIRD_PARTY_NOTICES.md). Thanks to the AprilRobotics
 and Frametop projects for the detection and camera/calibration foundations.
 
 FramePhone is an independent project and is not affiliated with Valve.
-# FramePhone

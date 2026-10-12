@@ -4,7 +4,7 @@
 loader, Gray8/replay sources, Frametop ring adapter and CSV exporter. It builds
 when both AprilTag and OpenCV/JSON are available. The headset build requires
 these dependencies; it cannot fall back to a detector-free executable.
-See [HEADSET_TEST.md](HEADSET_TEST.md) for on-device building and running.
+See [HEADSET_TEST.md](HEADSET_TEST.md) for the bundled desktop app and camera setup.
 
 ## Reused Frametop components
 

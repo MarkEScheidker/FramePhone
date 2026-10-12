@@ -197,6 +197,8 @@ class Recorder {
 };
 } // namespace
 int main(int argc, char **argv) {
+    // The desktop frontend reads a pipe; publish each status line immediately.
+    std::cout.setf(std::ios::unitbuf);
     try {
         if (argc == 2 && std::string(argv[1]) == "--help") {
             help();

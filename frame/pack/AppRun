@@ -1,0 +1,30 @@
+#!/bin/sh
+# Runs against the bundled loader/libc, independent of the host's glibc version.
+set -eu
+bundle=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+root="$bundle/rootfs"
+arch=$(cat "$bundle/architecture.txt")
+case "$arch:$(uname -m)" in
+    arm64:aarch64|arm64:arm64) triplet=aarch64-linux-gnu ;;
+    amd64:x86_64|amd64:amd64) triplet=x86_64-linux-gnu ;;
+    *) echo "This FramePhone package is for $arch, not $(uname -m)." >&2; exit 1 ;;
+esac
+loader="$root/usr/lib/$triplet/$(cat "$bundle/loader.txt")"
+libs="$root/usr/lib/$triplet:$root/lib/$triplet:$root/usr/lib"
+# Makeself starts us inside its temporary payload. Preserve the caller's data
+# paths for optional terminal diagnostics instead of deleting outputs on exit.
+if [ -n "${USER_PWD:-}" ]; then cd -- "$USER_PWD"; fi
+export FRAMEPHONE_RUNTIME_ROOT="$root" FRAMEPHONE_LOADER="$loader" FRAMEPHONE_LIBRARY_PATH="$libs"
+if [ "${1:-}" = --self-test ]; then
+    [ "$#" = 1 ] || exit 2
+    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-diagnostic" --headless --frames 3 --fps 240
+fi
+case "${1:-}" in
+    --diagnostic|--stereo)
+        tool=${1#--}; shift
+        exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-$tool" "$@" ;;
+esac
+export PYTHONHOME="$root/usr" TCL_LIBRARY="$root/usr/share/tcltk/tcl8.6" TK_LIBRARY="$root/usr/share/tcltk/tk8.6"
+export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
+unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
+exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/app.py" "$@"

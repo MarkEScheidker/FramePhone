@@ -14,6 +14,9 @@ tracking experiment, not a complete virtual phone product.
   ambiguity/loss states, and explicit capture/camera/calibration identities.
 - Opt-in detection/pose logs and paired grayscale recording for repeatable analysis.
 - Automated software tests and build workflows; a separate OpenVR rendering demo.
+- Shared Linux build recipe producing one self-extracting desktop executable,
+  with bundled libraries, camera broker, layout chooser, live previews, tracking
+  controls and a camera-independent startup test.
 
 ## Next: validate the headset path
 

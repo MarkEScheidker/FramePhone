@@ -1,0 +1,50 @@
+FROM docker.io/library/ubuntu:24.04 AS builder
+ARG BUILD_JOBS=2
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++ cmake make python3 libapriltag-dev libopencv-calib3d-dev \
+    libopencv-imgproc-dev nlohmann-json3-dev makeself \
+    && rm -rf /var/lib/apt/lists/*
+COPY LICENSE /src/LICENSE
+COPY frame /src/frame
+RUN FRAMEPHONE_BUILD_JOBS="$BUILD_JOBS" FRAMEPHONE_INSTALL_DIR=/opt/framephone \
+    bash /src/frame/pack/build-native.sh
+RUN install -Dm644 /usr/share/doc/nlohmann-json3-dev/copyright \
+    /opt/framephone/share/framephone/third_party/nlohmann-json-copyright
+RUN cc -O2 -std=gnu11 -static -Wall -Wextra -o /opt/framephone/bin/framephone-camd \
+    /src/frame/third_party/frametop/camd/camd.c \
+    /src/frame/third_party/frametop/camd/tp.c \
+    /src/frame/third_party/frametop/camd/xrcams.c -lm \
+    && /opt/framephone/bin/framephone-camd --help
+RUN cp -a /src/frame/desktop /opt/framephone/desktop \
+    && cp -a /src/frame/third_party/frametop /opt/framephone/share/framephone/third_party/
+
+FROM docker.io/library/ubuntu:24.04 AS runtime
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libapriltag3 libopencv-calib3d406t64 python3-tk \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /opt/framephone /opt/framephone
+RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
+    > /opt/framephone/share/framephone/runtime-packages.txt
+LABEL org.opencontainers.image.title="FramePhone" \
+      org.opencontainers.image.description="Experimental head-relative phone fiducial tracker" \
+      org.opencontainers.image.licenses="MIT"
+ENTRYPOINT ["/opt/framephone/bin/framephone-stereo"]
+CMD ["--help"]
+
+FROM builder AS package
+ARG TARGET_ARCH
+COPY --from=runtime / /payload/rootfs/
+COPY frame/pack/AppRun /payload/AppRun
+RUN python3 /src/frame/pack/prepare-runtime.py /payload/rootfs \
+    && printf '%s\n' "$TARGET_ARCH" > /payload/architecture.txt \
+    && chmod 755 /payload/AppRun \
+    && mkdir /out \
+    && cp /usr/share/doc/makeself/copyright /payload/makeself-copyright \
+    && cp /usr/share/common-licenses/GPL-2 /payload/makeself-GPL-2 \
+    && makeself --quiet --nox11 --gzip --sha256 /payload /out/FramePhone.run "FramePhone" ./AppRun
+
+FROM scratch AS executable
+COPY --from=package /out/FramePhone.run /out/FramePhone.run
+CMD ["/out/FramePhone.run"]

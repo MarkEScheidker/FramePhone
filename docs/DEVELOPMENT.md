@@ -59,10 +59,15 @@ work independently of that local cache.
 
 ### Steam Frame
 
-See [HEADSET_TEST.md](../frame/docs/HEADSET_TEST.md). Build and run the tracker
-inside an ARM64 Linux development container; run the compatible Frametop camera
-broker separately on the SteamOS host. ARM64 CI compilation does not validate
-SteamOS runtime compatibility, camera access or tracking accuracy.
+Use **`bash frame/build.sh`** on either Linux desktop or headset. The default
+output is the single ARM64 executable `FramePhone-arm64.run`, including its runtime
+libraries, Python/Tk desktop controls and static camera broker. Follow
+[BUILD.md](../frame/docs/BUILD.md) for the shared build/run/update procedure,
+then [HEADSET_TEST.md](../frame/docs/HEADSET_TEST.md) for live camera input.
+`--arch native` builds a package for the Linux PC's own architecture. The
+app starts its own bundled broker on SteamOS through graphical authorization;
+no Frametop or runtime container is needed on the target.
+Container/ARM64 CI does not validate camera access or tracking accuracy.
 
 ## Android
 
@@ -92,6 +97,9 @@ headset-target build, and Android debug/unit/lint checks. Native tests use
 synthetic fixtures and an independent ring producer; no camera privileges are
 required. Actions are pinned to commits and run with read-only repository access.
 The first hosted results are available after the repository is pushed.
+The package jobs build, install and exercise the runtime on both AMD64 and
+ARM64. The desktop-to-ARM64 build additionally needs host QEMU/binfmt support.
+An additional package job exercises ARM64 emulation on an AMD64 Linux runner.
 
 ## Source handoffs
 

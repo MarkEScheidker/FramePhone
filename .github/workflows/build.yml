@@ -22,19 +22,14 @@ jobs:
         with:
           persist-credentials: false
       - run: make -C frame test all
+      - run: python3 frame/tests/test_linux_package.py
+      - run: python3 frame/tests/test_desktop.py
+      - run: python3 frame/tests/test_broker.py
       - run: python3 scripts/package-source.py
 
   native:
-    name: Native Linux (${{ matrix.arch }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            arch: x86_64
-          - runner: ubuntu-24.04-arm
-            arch: aarch64
-    runs-on: ${{ matrix.runner }}
+    name: Native Linux desktop
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -45,17 +40,65 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake python3 file libapriltag-dev libopencv-dev nlohmann-json3-dev libsdl2-dev clang-format-18 ripgrep
       - name: Check native formatting
-        if: matrix.arch == 'x86_64'
         run: rg --files frame/src frame/include frame/tests -g '*.cpp' -g '*.hpp' | xargs clang-format-18 --dry-run --Werror
       - name: Build and test desktop targets
-        if: matrix.arch == 'x86_64'
         run: |
           cmake -S frame -B frame/build/ci -DCMAKE_BUILD_TYPE=Release -DFRAMEPHONE_REQUIRE_TRACKER=ON
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
-      - name: Build and test ARM64 headset target
-        if: matrix.arch == 'aarch64'
-        run: bash frame/build-headset.sh
+
+  linux-package:
+    name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            kind: native
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            kind: native
+          - runner: ubuntu-24.04
+            arch: arm64
+            kind: emulated
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    env:
+      FRAMEPHONE_CONTAINER_ENGINE: docker
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Enable ARM64 emulation on desktop Linux
+        if: matrix.kind == 'emulated'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static binfmt-support
+          sudo update-binfmts --enable qemu-aarch64
+      - name: Build and test packaged runtime
+        run: bash frame/build.sh --arch ${{ matrix.arch }}
+      - name: Run the single executable without a runtime container
+        if: matrix.kind == 'native'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth
+          package="$PWD/frame/build/dist/FramePhone-${{ matrix.arch }}.run"
+          "$package" -- --self-test
+          "$package" -- --stereo --help
+          "$package" -- --diagnostic --headless --frames 3 --fps 240 --csv package-smoke.csv
+          python3 -c 'import csv; rows = list(csv.DictReader(open("package-smoke.csv"))); assert {row["frame"] for row in rows} == {"1", "2", "3"} and all(row["id"] and row["status"] == "tags_visible" for row in rows), rows'
+          xvfb-run -a "$package" -- --gui-smoke
+      - name: Keep tested Linux package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: framephone-linux-${{ matrix.arch }}-${{ matrix.kind }}
+          path: |
+            frame/build/dist/FramePhone-${{ matrix.arch }}.run
+            frame/build/dist/FramePhone-${{ matrix.arch }}.run.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
 
   android:
     name: Android debug, unit tests and lint

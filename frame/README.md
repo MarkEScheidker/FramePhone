@@ -9,6 +9,7 @@ compatibility and tracking accuracy remain unverified on hardware.
 
 | Target | Purpose | Entry point |
 | --- | --- | --- |
+| `FramePhone-*.run` | Self-extracting desktop app with bundled runtime and broker | `desktop/app.py`, `pack/AppRun` |
 | `framephone-stereo` | Two-camera head-relative pose, Frametop factory calibration, logs and paired recording/replay | `src/stereo_main.cpp` |
 | `framephone-diagnostic` | Single-camera detection/pose and optional SDL desktop preview; also works headlessly | `src/diagnostic_main.cpp` |
 | `framephone-frame` | Small synthetic recording/replay utility; optional real detection | `src/tracker_main.cpp` |
@@ -19,6 +20,15 @@ phone meters into head axes right/up/back. It does not supply a world pose or
 render the tracked phone in VR.
 
 ## Build and run
+
+For the supported Steam Frame package, run **`bash frame/build.sh`** from the
+repository root on either Linux desktop or headset. Both produce the same ARM64
+single-file executable, `FramePhone-arm64.run`. Follow [BUILD.md](docs/BUILD.md),
+copy the file to the headset and open it. The GUI includes a self-test, camera
+authorization/previews and tracking controls. Libraries and the broker are
+bundled; Docker/Podman is needed only on the build machine.
+
+### Direct desktop development build
 
 Install the dependencies in [DEVELOPMENT.md](../docs/DEVELOPMENT.md), then run
 from the repository root:
@@ -41,9 +51,9 @@ It does not include real detection or pose estimation. The convenience launcher
 diagnostic using installed libraries or optional ignored local SDK caches.
 
 For a real headset trial, use [HEADSET_TEST.md](docs/HEADSET_TEST.md).
-`bash frame/build-headset.sh` builds in an ARM64 Linux container; the camera
-broker runs separately on the host. `bash frame/package-headset.sh` creates a
-native source handoff. `build.sh` is only for the optional OpenVR renderer demo.
+The app starts its bundled camera broker through graphical authorization.
+`bash frame/package-headset.sh` creates a source handoff; `bash frame/build.sh`
+creates the single executable. `build-openvr-demo.sh` builds only the optional OpenVR renderer demo.
 
 ## Pipeline and contracts
 

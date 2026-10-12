@@ -20,11 +20,20 @@ results are available only after pushing the repository.
 | AprilTag integration tests | Real decoding of the synthetic tag rasters. |
 | Calibrated pose tests | Pinhole/KB4, rotated exports/rasters, independent projections, perspective images, noise, outliers and ambiguity. |
 | Stereo geometry/CLI tests | Factory transform composition/units, pairing skew/queue bounds, independent projections, two decoded views, explicit ring mapping, paired recording/replay and loss. |
+| Linux package script checks | Clean source handoff, default/native architecture, executable/checksum export, failed-update preservation and build-container cleanup using a simulated engine. |
+| Desktop frontend checks | Layout/stream handoff, fresh result directories, host-tool library isolation, preview bounds/torn writes/stopped broker. |
+| Broker checks | Static linking and strict caller UID/primary-group resolution without opening cameras or requesting privileges. |
+| Linux package CI | Native AMD64/ARM64 and emulated ARM64 image build/CTest; extracted executable detector/CSV and virtual-display GUI startup on native runners. |
 
 `make -C frame test all` covers only the portable subset. Full CMake/CTest checks
 require AprilTag, OpenCV and JSON. SDL's preview smoke test uses its dummy driver,
 which tests rendering code without establishing desktop/VR display behavior.
 Android device instrumentation is separate from host unit/lint checks.
+Run the package script checks with `python3 frame/tests/test_linux_package.py`
+and desktop checks with `python3 frame/tests/test_desktop.py`. The broker's static
+build/identity checks use `python3 frame/tests/test_broker.py` (C compiler required).
+These simulated-engine checks do not establish container or ARM64 compatibility;
+the real image jobs and headset run cover those separately.
 
 ## Android device checks
 

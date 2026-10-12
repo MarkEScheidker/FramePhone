@@ -6,7 +6,7 @@ replace notices for third-party code, generated family data or linked libraries.
 | Component | Use | Notice |
 | --- | --- | --- |
 | AprilRobotics AprilTag 3, tag36h11 v3.4.5 | Phone and native synthetic marker family data; optional native detector library | [Phone notice](phone/app/src/main/assets/APRILTAG_LICENSE.txt), [native notices](frame/THIRD_PARTY_NOTICES.md) |
-| Frametop, commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` | Adapted factory calibration/ray math and pairing policy; implemented camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
+| Frametop, commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` | Bundled camera broker; adapted calibration/ray math and pairing policy; camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
 | OpenCV and nlohmann JSON | Native pose estimation and JSON parsing | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
 | SDL2 | Optional desktop diagnostic window | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
 | Valve OpenVR SDK | Optional, separate rendering demo | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
@@ -16,7 +16,8 @@ Android dependencies are declared in `phone/gradle/libs.versions.toml` and
 distributed under [Apache 2.0, with upstream notices](phone/gradle/wrapper/LICENSE).
 Retain the applicable upstream notices when distributing dependencies or binaries.
 
-Frametop's privileged `ft-camd` broker is a separate prerequisite, not vendored
-or installed by this repository. Its upstream FrameEyeCameraFeed attribution
-must accompany any broker distribution. See the pinned upstream repository
-linked in the adaptation provenance.
+The bundled Frametop-derived camera broker retains both its project MIT license
+and the [FrameEyeCameraFeed MIT notice](frame/third_party/frametop/camd/LICENSE.FrameEyeCameraFeed).
+The self-extracting executable also bundles Python/Tk, libc and runtime dependencies;
+Ubuntu copyright files and common licenses remain in its payload. Makeself's
+GPL-2 notice is retained beside AppRun. See [native notices](frame/THIRD_PARTY_NOTICES.md).

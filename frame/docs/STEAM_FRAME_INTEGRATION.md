@@ -1,9 +1,9 @@
 # Steam Frame integration
 
 The tracker targets native Linux ARM64. The Android app remains the marker
-source; it does not read headset cameras. Current integration uses an external
-Frametop camera broker and a read-only local ring, not a verified standard
-OpenXR raw-camera interface.
+source; it does not read headset cameras. The single-file desktop app bundles
+a broker adapted from Frametop and reads its local camera ring. This uses
+internal firmware interfaces rather than a standard OpenXR raw-camera API.
 
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the complete build/run procedure.
 Factory import, ring input and stereo geometry are implemented; compatibility
@@ -17,7 +17,7 @@ The integration is audited against Frametop commit
 
 | Frametop component | FramePhone use |
 | --- | --- |
-| `hands/camd/` | External `ft-camd` camera supplier, built/started separately on the host. No privileged capture implementation is included here. |
+| `hands/camd/` | Vendored camera broker, statically compiled and started by the GUI through pkexec; adapted caller identity, lifetime and private ring path. |
 | `hands/camd/fhring.h` | FHRING01 v1 contract implemented by the bounded read-only ring adapter. |
 | `hands/track/calib.cpp` | Adapted KB4 factory importer, CAD/head transforms, projection/rays and least-squares intersection. |
 | `hands/track/main.cpp` | Adapted fresh-frame/3 ms capture-spread policy for two explicit views. |
@@ -37,14 +37,18 @@ requires host privileges; it drops them before processing. It is experimental
 and depends on internal firmware/kernel interfaces. Do not assume compatibility
 from a matching source build alone.
 
-The broker runs on SteamOS; the dynamically linked tracker runs in its ARM64
-Linux development container. This avoids assuming container glibc/OpenCV libraries
-are available on the host. The source handoff does not bundle either environment.
+The broker runs directly on SteamOS. The GUI and dynamically linked tracker
+use the libc/libraries inside the self-extracting executable, without a runtime
+container. [BUILD.md](BUILD.md) defines the same build process for PC and headset.
+No Frametop installation, system service or persistent capability is installed.
+The broker uses `/run/user/UID/framephone-camera/cam-ring`, preventing ring-path
+collisions with Frametop; simultaneous capture coexistence is deferred.
 
 Ring names are sensor/video slugs, whereas factory `sourceCamera` fields use names
 such as `slam_left`. FramePhone requires an explicit mapping. Verify current
 XRService sensor/device logs and prefer exact `VIDIOC_QUERYBUF` bindings over
-queue-order fallbacks. The tracker does not automatically exchange camera names.
+queue-order fallbacks. GUI previews support identifying the front lenses; the
+tracker does not automatically exchange camera names.
 
 ## Calibration and time
 
@@ -56,7 +60,9 @@ which records its origin rather than measured accuracy.
 
 Stereo requires fresh captures from a verified shared clock and accepts at most
 3 ms skew. Upstream's mono tracker assumes `CLOCK_MONOTONIC_RAW`; the ring does
-not encode that claim. Color-camera clocks and cropped/scaled calibration need
+not encode that claim. The initial GUI labels its mono V4L2 timestamps as one
+shared camera domain, an explicit assumption still requiring hardware validation;
+it does not claim a measured capture-to-XR mapping. Color-camera clocks and cropped/scaled calibration need
 separate work and are outside the current mono test procedure.
 
 Head-relative T_HP is not a world pose. Historical headset poses and a verified

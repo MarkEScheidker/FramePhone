@@ -102,7 +102,7 @@ if(TARGET framephone_pose AND TARGET framephone_apriltag)
     install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE" DESTINATION share/framephone)
     install(FILES third_party/frametop/LICENSE third_party/frametop/README.md
         DESTINATION share/framephone/third_party/frametop)
-    install(FILES docs/HEADSET_TEST.md docs/STEREO.md DESTINATION share/framephone/docs)
+    install(FILES docs/BUILD.md docs/HEADSET_TEST.md docs/STEREO.md DESTINATION share/framephone/docs)
 elseif(FRAMEPHONE_REQUIRE_TRACKER)
     message(FATAL_ERROR "Tracker requires AprilTag 3, OpenCV core/calib3d and nlohmann JSON development files. No detector-free fallback is allowed for this build.")
 endif()

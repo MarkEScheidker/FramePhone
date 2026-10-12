@@ -1,35 +1,66 @@
 #!/usr/bin/env bash
+# The same packaged Linux build on a desktop or the headset.
 set -euo pipefail
-
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-build="$root/build"
-sdk="$build/include"
-openvr_tag=v2.15.6
-openvr_header_sha256=1e6ed57199896cc1f7c5484e50fa18955e97be15be690beb28d998c877ead7fd
-
-for tool in cmake curl sha256sum; do
-    command -v "$tool" >/dev/null || {
-        echo "Missing $tool. Build in an ARM64 Linux development environment with CMake installed." >&2
-        exit 1
-    }
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+arch=arm64
+usage() {
+    echo "Usage: bash frame/build.sh [--arch arm64|amd64|native]"
+    echo "Default: ARM64 headset package. Requires Linux, Python 3 and Podman or Docker."
+    echo "On x86_64, ARM64 builds also require QEMU/binfmt (see frame/docs/BUILD.md)."
+}
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --help|-h) usage; exit 0 ;;
+        --arch) [ "$#" -ge 2 ] || { usage >&2; exit 2; }; arch=$2; shift 2 ;;
+        *) usage >&2; exit 2 ;;
+    esac
 done
-
-mkdir -p "$sdk"
-header="$sdk/openvr.h"
-if ! echo "$openvr_header_sha256  $header" | sha256sum -c --status 2>/dev/null; then
-    part="$header.part"
-    curl -fsSL "https://raw.githubusercontent.com/ValveSoftware/openvr/$openvr_tag/headers/openvr.h" -o "$part"
-    echo "$openvr_header_sha256  $part" | sha256sum -c --status || {
-        rm -f "$part"
-        echo "OpenVR header checksum mismatch for $openvr_tag" >&2
-        exit 1
-    }
-    mv "$part" "$header"
+[ "$(uname -s)" = Linux ] || { echo "Build from Linux (including WSL2)." >&2; exit 1; }
+if [ "$arch" = native ]; then
+    case "$(uname -m)" in
+        aarch64|arm64) arch=arm64 ;;
+        x86_64|amd64) arch=amd64 ;;
+        *) echo "Unsupported native architecture." >&2; exit 2 ;;
+    esac
 fi
-
-cmake -S "$root" -B "$build/cmake" -DCMAKE_BUILD_TYPE=Release \
-    -DFRAMEPHONE_BUILD_OPENVR_OVERLAY=ON \
-    -DOPENVR_INCLUDE_DIR="$sdk" \
-    -DOPENVR_LIBRARY_DIR="${OPENVR_LIBRARY_DIR:-/opt/steamvr/bin/linuxarm64}"
-cmake --build "$build/cmake" --parallel
-echo "Built native sources under $build/cmake"
+case "$arch" in arm64|amd64) ;; *) usage >&2; exit 2 ;; esac
+for tool in python3 tar sha256sum; do
+    command -v "$tool" >/dev/null || { echo "Missing $tool." >&2; exit 1; }
+done
+source "$root/frame/pack/engine.sh"
+choose_engine
+jobs=${FRAMEPHONE_BUILD_JOBS:-2}
+[[ "$jobs" =~ ^[1-9][0-9]?$ ]] || { echo "FRAMEPHONE_BUILD_JOBS must be 1–99." >&2; exit 2; }
+mkdir -p "$root/frame/build/dist"
+work=$(mktemp -d "$root/frame/build/package.XXXXXX")
+container=
+cleanup() {
+    if [ -n "$container" ]; then "$engine" rm "$container" >/dev/null 2>&1 || true; fi
+    rm -rf "$work"
+}
+trap cleanup EXIT
+context="$work/context"
+mkdir "$context"
+python3 "$root/scripts/package-source.py" --output "$work/source.tar.gz"
+tar -xzf "$work/source.tar.gz" -C "$context"
+image="localhost/framephone:$arch"
+echo "Building linux/$arch with $engine; tests run inside the build image."
+if ! "$engine" build --platform "linux/$arch" --build-arg "BUILD_JOBS=$jobs" \
+    --build-arg "TARGET_ARCH=$arch" \
+    --tag "$image" --file "$context/frame/pack/Containerfile" "$context"; then
+    echo "Container build failed. For a foreign architecture, configure QEMU/binfmt once." >&2
+    echo "See frame/docs/BUILD.md. No package was produced by this attempt." >&2
+    exit 1
+fi
+actual=$("$engine" image inspect --format '{{.Architecture}}' "$image")
+[ "$actual" = "$arch" ] || { echo "Expected $arch image, got $actual." >&2; exit 1; }
+# Export without running a container on the target desktop.
+container=$("$engine" create "$image")
+"$engine" cp "$container:/out/FramePhone.run" "$work/FramePhone.run"
+chmod 755 "$work/FramePhone.run"
+archive="$root/frame/build/dist/FramePhone-$arch.run"
+mv "$work/FramePhone.run" "$archive"
+(cd "$(dirname "$archive")" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
+echo "Ready: $archive"
+echo "Copy this one file to the target desktop, allow execution, and open it."
+echo "The target needs neither Podman/Docker nor Frametop."

@@ -5,6 +5,11 @@ factory-to-ring name mapping and ARM64 headset instructions, see
 [HEADSET_TEST.md](HEADSET_TEST.md) and [STEREO.md](STEREO.md). The commands below
 describe the existing single-camera diagnostic.
 
+The desktop app now starts its own bundled broker through **Enable cameras**,
+using `/run/user/UID/framephone-camera/cam-ring`. The direct CLI below remains
+useful for development and can consume either that ring or an external compatible
+broker. No Frametop installation is needed for the desktop app.
+
 `framephone-diagnostic --frametop-ring FILE` consumes an **existing** Frametop
 camera broker ring. It opens the file read-only; it does not install or start
 `ft-camd`, open V4L2 nodes, attach to XRService, set capabilities, or SSH anywhere.
@@ -21,7 +26,7 @@ Example on a host where the operator has already configured the broker:
 
 ```bash
 bash frame/run-diagnostic.sh \
-  --frametop-ring /run/user/1000/frametop-hands/cam-ring \
+  --frametop-ring /run/user/1000/framephone-camera/cam-ring \
   --camera EXACT_RING_CAMERA_NAME \
   --calibration-id YOUR_CAMERA_CALIBRATION_ID \
   --capture-clock YOUR_CAMERA_CAPTURE_CLOCK \
