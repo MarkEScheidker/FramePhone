@@ -1,0 +1,74 @@
+{
+  "cameras": [
+    {
+      "sourceCamera": "slam_left",
+      "width": 640,
+      "height": 480,
+      "intrinsics": [
+        {
+          "cameraModel": "kb",
+          "fx": 800,
+          "fy": 800,
+          "cx": 319.5,
+          "cy": 239.5,
+          "k1": 0.02,
+          "k2": -0.003,
+          "k3": 0.0004,
+          "k4": -5e-05
+        }
+      ],
+      "extrinsics": {
+        "plus_x": [
+          1,
+          0,
+          0
+        ],
+        "plus_z": [
+          0,
+          0,
+          1
+        ],
+        "position": [
+          -32,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "sourceCamera": "slam_right",
+      "width": 640,
+      "height": 480,
+      "intrinsics": [
+        {
+          "cameraModel": "kb",
+          "fx": 800,
+          "fy": 800,
+          "cx": 319.5,
+          "cy": 239.5,
+          "k1": 0.02,
+          "k2": -0.003,
+          "k3": 0.0004,
+          "k4": -5e-05
+        }
+      ],
+      "extrinsics": {
+        "plus_x": [
+          1,
+          0,
+          0
+        ],
+        "plus_z": [
+          0,
+          0,
+          1
+        ],
+        "position": [
+          32,
+          0,
+          0
+        ]
+      }
+    }
+  ]
+}

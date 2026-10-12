@@ -1,0 +1,17 @@
+name: Feature proposal
+description: Discuss a focused improvement before starting a large change.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and scope
+      description: Explain how the result could be tested and any hardware required.
+    validations:
+      required: true
