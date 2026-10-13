@@ -28,7 +28,7 @@ Repeat across distance, tilt, lighting and headset sleep/restart. The
 [validation guide](../frame/docs/TRACKING_VALIDATION.md) define the starting point.
 
 Factory calibration import and synthetic tests do not establish real camera
-accuracy. Tag visibility in color passthrough does not establish detectability
+accuracy. Tag visibility in headset passthrough does not establish detectability
 in the monochrome tracking cameras. Record these separately.
 
 ## Then: tracked VR visualization

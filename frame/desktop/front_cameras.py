@@ -1,22 +1,32 @@
-"""Front-camera selection and display of native detector progress.
+"""Camera discovery and display of native detector progress.
 
-Pinned Frametop names the OG0VE10 pair upper_left/right; slam_left/right are
-the side cameras. Ring slugs/video numbers still need physical identification.
+Physical front/side identity must be checked on the headset. Sensor names and
+video numbers alone are not a verified factory-calibration mapping.
 """
 import math
 import re
 
-FRONT_FACTORY = ("upper_left", "upper_right")
-FRONT_SENSOR = "og0ve10"
+MAPPING_VERSION = 2  # Discard the earlier hard-coded front/side assumptions.
 
 
-def front_streams(text):
-    result = []
+def mono_streams(text):
+    result = {}
     for line in text.splitlines():
-        fields = line.split()
-        if (fields and re.search(rf"\bsensor={FRONT_SENSOR}\b", line) and
-                re.search(r"\bflags=0$", line)):
-            result.append(fields[0])
+        match = re.fullmatch(r"(\S+) sensor=(.+) video(\d+) (\d+)x(\d+) flags=0", line.strip())
+        if match:
+            name, sensor, node, width, height = match.groups()
+            if 0 < int(width) <= 16384 and 0 < int(height) <= 16384:
+                result[name] = dict(sensor=sensor, node=int(node), width=int(width), height=int(height))
+    return result
+
+
+def factory_cameras(text):
+    result = {}
+    for line in text.splitlines():
+        match = re.match(r"^(\S+)\s+(\d+)x(\d+)\s+KB4\b", line)
+        if match:
+            name, width, height = match.groups()
+            result[name] = dict(width=int(width), height=int(height))
     return result
 
 

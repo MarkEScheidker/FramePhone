@@ -7,8 +7,9 @@ internal firmware interfaces rather than a standard OpenXR raw-camera API.
 
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the complete build/run procedure.
 Factory import, ring input and stereo geometry are implemented. The owner has
-run the app, self-test and camera previews on a Steam Frame; live fiducial
-detectability, pose accuracy and sustained performance remain unverified.
+run the app and observed up to six fiducials updating live on a Steam Frame.
+Physical front-camera mapping, pose accuracy and sustained performance remain
+unverified.
 
 ## Reuse boundary
 
@@ -45,13 +46,20 @@ No Frametop installation, system service or persistent capability is installed.
 The broker uses `/run/user/UID/framephone-camera/cam-ring`, preventing ring-path
 collisions with Frametop; simultaneous capture coexistence is deferred.
 
-The desktop and broker use only the OG0VE10 front pair; side cameras are excluded
-from the test workflow. Front factory names are `upper_left` and `upper_right`;
-`slam_left/right` refer to side cameras. Ring names are sensor/video slugs.
-FramePhone requires an explicit mapping. Verify current
+The broker exposes all normal mono candidates so the actual front views can be
+identified. The desktop detects/previews/tracks only the selected two views;
+side views should remain unselected. The previous fixed OG0VE10 / `upper_left/right`
+choice selected side views on the owner's headset. Sensor models, upstream
+factory names and video numbers do not establish physical placement here.
+Ring names are sensor/video slugs. FramePhone requires an explicit mapping.
+Verify current
 XRService sensor/device logs and prefer exact `VIDIOC_QUERYBUF` bindings over
 queue-order fallbacks. GUI previews support identifying the front lenses; the
 tracker does not automatically exchange camera names.
+The GUI displays reported stream identity/dimensions and offers all discovered
+KB4 calibrations without choosing a factory pair automatically. It rejects a
+stream/calibration dimension mismatch before creating a tracking session; equal
+dimensions still require a correct identity mapping.
 
 Live marker counts use native AprilTag detection without a phone layout. During
 stereo tracking the same detectors provide the counts; separate workers run

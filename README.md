@@ -5,8 +5,9 @@ displays AprilTag fiducials; a native C++ application estimates the phone's
 position and rotation from calibrated headset camera images.
 
 **Early development:** the phone companion and native software tests work.
-The desktop app, self-test and camera previews have run on a Steam Frame;
-live fiducial detection and tracking accuracy still need hardware validation.
+The owner has run the desktop app and observed up to six fiducials updating
+live on a Steam Frame. Front-camera mapping, detection range and tracking
+accuracy still need hardware validation.
 There is no tracked VR display or screen streaming yet.
 
 ## What is here

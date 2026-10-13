@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from front_cameras import FRONT_FACTORY, FRONT_SENSOR, front_streams, marker_text, parse_progress, pose_text
+from front_cameras import MAPPING_VERSION, factory_cameras, mono_streams, marker_text, parse_progress, pose_text
 
 
 def host_environment():
@@ -46,7 +46,7 @@ class Runtime:
             raise ValueError("The desktop's pkexec authorization tool is missing.")
         return [pkexec, "--disable-internal-agent",
                 str(self.root / "opt/framephone/bin/framephone-camd"),
-                "--sensor", FRONT_SENSOR, "--status", "2"]
+                "--status", "2"]
 
     def detection_command(self, stream):
         return self.command("diagnostic", "--headless", "--live-status",
@@ -58,8 +58,6 @@ class Runtime:
     def tracking_command(self, layout, left, right, left_stream, right_stream, session, record):
         if not Path(layout).is_file():
             raise ValueError("Choose the measured phone layout exported from the Android app.")
-        if (left, right) != FRONT_FACTORY:
-            raise ValueError("Tracking uses only the upper_left / upper_right front cameras.")
         if not all((left, right, left_stream, right_stream)):
             raise ValueError("Select both calibrated cameras and both corresponding live streams.")
         if left == right or left_stream == right_stream:
@@ -102,7 +100,8 @@ class Window:
         self.telemetry_lock = threading.Lock()
         self.worker_streams = {}
         self.detector_errors = {}
-        self.factories, self.available_streams = [], []
+        self.factories, self.available_streams = {}, []
+        self.stream_info = {}
         self.native_views = {}
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
@@ -122,11 +121,13 @@ class Window:
         except (OSError, ValueError):
             saved = {}
         self.layout = tk.StringVar(value=saved.get("layout", ""))
-        # Migrate old defaults: slam_left/right are the side cameras.
-        self.left = tk.StringVar(value=FRONT_FACTORY[0])
-        self.right = tk.StringVar(value=FRONT_FACTORY[1])
-        self.left_stream = tk.StringVar(value=saved.get("left_stream", ""))
-        self.right_stream = tk.StringVar(value=saved.get("right_stream", ""))
+        # Old releases assigned a physical camera pair from upstream names.
+        # Re-identify the front lenses rather than reusing that unverified map.
+        mapping = saved if saved.get("mapping_version") == MAPPING_VERSION else {}
+        self.left = tk.StringVar(value=mapping.get("left", ""))
+        self.right = tk.StringVar(value=mapping.get("right", ""))
+        self.left_stream = tk.StringVar(value=mapping.get("left_stream", ""))
+        self.right_stream = tk.StringVar(value=mapping.get("right_stream", ""))
         self.record = tk.BooleanVar(value=False)
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_views", False)))
         self.status = tk.StringVar(value="Enable cameras for live marker detection. A phone layout is needed only for pose tracking.")
@@ -155,16 +156,18 @@ class Window:
         self.test_button = ttk.Button(actions, text="Self-test", command=self.self_test)
         self.test_button.pack(side="left")
         ttk.Button(actions, text="Open test results", command=lambda: self.open_folder(self.sessions)).pack(side="right")
-        cameras = ttk.LabelFrame(panel, text="Front cameras only — cover each front lens to verify left/right", padding=8)
+        cameras = ttk.LabelFrame(panel, text="Select the two physical front cameras — verify by covering each lens", padding=8)
         cameras.grid(row=4, column=0, sticky="ew")
         cameras.columnconfigure(1, weight=1)
         cameras.columnconfigure(2, weight=1)
-        ttk.Label(cameras, text="Front calibration").grid(row=0, column=1)
-        ttk.Label(cameras, text="Live stream").grid(row=0, column=2)
-        self.stream_boxes, self.previews, self.preview_titles = [], [], []
+        ttk.Label(cameras, text="Factory calibration (for pose)").grid(row=0, column=1)
+        ttk.Label(cameras, text="Live stream (all mono candidates)").grid(row=0, column=2)
+        self.factory_boxes, self.stream_boxes, self.previews, self.preview_titles = [], [], [], []
         for row, (label, factory, stream) in enumerate((("Front left", self.left, self.left_stream), ("Front right", self.right, self.right_stream)), 1):
             ttk.Label(cameras, text=label).grid(row=row, column=0, padx=4)
-            ttk.Label(cameras, textvariable=factory).grid(row=row, column=1, sticky="w", padx=4)
+            calibration = ttk.Combobox(cameras, textvariable=factory, state="readonly", width=18)
+            calibration.grid(row=row, column=1, sticky="ew", padx=4, pady=4)
+            self.factory_boxes.append(calibration)
             box = ttk.Combobox(cameras, textvariable=stream, state="readonly")
             box.grid(row=row, column=2, sticky="ew", padx=4, pady=4)
             self.stream_boxes.append(box)
@@ -219,8 +222,10 @@ class Window:
     def save(self):
         self.config.parent.mkdir(parents=True, exist_ok=True)
         temp = self.config.with_suffix(".tmp")
-        temp.write_text(json.dumps({key: getattr(self, key).get() for key in
-                                  ("layout", "left", "right", "left_stream", "right_stream", "show_views")}, indent=2) + "\n")
+        settings = {key: getattr(self, key).get() for key in
+                    ("layout", "left", "right", "left_stream", "right_stream", "show_views")}
+        settings["mapping_version"] = MAPPING_VERSION
+        temp.write_text(json.dumps(settings, indent=2) + "\n")
         temp.replace(self.config)
 
     def toggle_views(self):
@@ -300,6 +305,10 @@ class Window:
         for label, value in zip(("Front left", "Front right"), views):
             size = f" • {value['width']}×{value['height']} input" if value else ""
             details.append(label + ": " + marker_text(value) + size)
+        for index, stream in enumerate((self.left_stream, self.right_stream)):
+            info = self.stream_info.get(stream.get())
+            if info:
+                details[index] += f" • video{info['node']} • {info['sensor']} • {info['width']}×{info['height']} ring"
         self.marker_details.configure(text="\n".join(details))
         active = [value for value in views if value and value["evaluated"]]
         visible = set(marker for value in active for marker in value["ids"])
@@ -402,7 +411,12 @@ class Window:
             factory = self.factories
             streams = self.available_streams
             if self.left.get() not in factory or self.right.get() not in factory or self.left_stream.get() not in streams or self.right_stream.get() not in streams:
-                raise ValueError("Enable and refresh cameras, then match the front left and right streams.")
+                raise ValueError("Select the front streams and their matching factory calibrations. Marker detection needs only the streams.")
+            for calibration, stream in ((self.left.get(), self.left_stream.get()), (self.right.get(), self.right_stream.get())):
+                source = self.stream_info[stream]
+                expected = factory[calibration]
+                if (source["width"], source["height"]) != (expected["width"], expected["height"]):
+                    raise ValueError(f"{calibration} is calibrated at {expected['width']}×{expected['height']}, but {stream} supplies {source['width']}×{source['height']}. Choose matching calibration; marker detection remains available.")
             session = self.sessions / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
             command = self.runtime.tracking_command(self.layout.get(), self.left.get(), self.right.get(), self.left_stream.get(), self.right_stream.get(), session, self.record.get())
             self.save()
@@ -413,7 +427,7 @@ class Window:
             if "tracker" in self.processes:
                 for name in ("detect-left", "detect-right"):
                     self.terminate(name)
-                for box in self.stream_boxes:
+                for box in self.stream_boxes + self.factory_boxes:
                     box.configure(state="disabled")
                 self.swap_button.configure(state="disabled")
                 self.refresh_button.configure(state="disabled")
@@ -464,7 +478,7 @@ class Window:
                     self.status.set("Camera broker stopped. Enable cameras to retry; details are below.")
                     self.stop_tracking()
                 elif name == "tracker":
-                    for box in self.stream_boxes:
+                    for box in self.stream_boxes + self.factory_boxes:
                         box.configure(state="readonly")
                     self.swap_button.configure(state="normal")
                     self.refresh_button.configure(state="normal")
@@ -481,19 +495,24 @@ class Window:
                     self.status.set("Self-test passed: detector processed three synthetic frames." if value == 0 else "Self-test failed; see log below.")
             elif kind == "scan":
                 self.jobs.discard("scan")
-                factories = [line.split()[0] for line in name.splitlines()
-                             if line.strip() and line.split()[0] in FRONT_FACTORY]
-                streams = front_streams(value)
+                factories = factory_cameras(name)
+                self.stream_info = mono_streams(value)
+                streams = list(self.stream_info)
                 self.factories, self.available_streams = factories, streams
                 self.detector_errors.clear()
                 for box in self.stream_boxes:
                     box.configure(values=streams)
+                for box in self.factory_boxes:
+                    box.configure(values=list(factories))
+                for selected in (self.left, self.right):
+                    if selected.get() not in factories:
+                        selected.set("")
                 for selected in (self.left_stream, self.right_stream):
                     if selected.get() not in streams:
                         selected.set("")
                 self.log("Factory cameras:\n" + name + "Live streams:\n" + value)
-                self.status.set("Select the two front streams and use Show front camera views to verify left/right. Marker detection starts automatically; choose a layout for stereo tracking."
-                                if len(streams) == 2 else "Front camera pair unavailable. Expected two OG0VE10 streams; see discovery log.")
+                self.status.set("All mono candidates are available. Select only the two physical front views; verify each lens. Detection uses only your selected streams. Factory calibration is needed only for pose."
+                                if len(streams) >= 2 else "Fewer than two mono streams available; see discovery log.")
             else:
                 self.jobs.discard("scan")
                 self.log("Camera discovery: " + str(value))
@@ -516,14 +535,16 @@ class Window:
                     image = tk.PhotoImage(data=pgm, format="PPM")
                     if index in self.native_views:
                         window, label = self.native_views[index]
-                        window.title(("Front left", "Front right")[index] + f" — {width}×{height} native pixels")
+                        window.title(("Front left", "Front right")[index] + f" — {stream.get()} — {width}×{height} native pixels")
                         label.configure(image=image, text="")
                         label.image = image
                     if self.show_views.get():
                         scaled = image.subsample(max(1, (width + 399) // 400, (height + 299) // 300))
                         widget.configure(image=scaled, text="")
                         widget.image = scaled
-                    self.preview_titles[index].configure(text=("Front left", "Front right")[index] + f" • {width}×{height} source")
+                    info = self.stream_info.get(stream.get())
+                    identity = f"video{info['node']}" if info else stream.get()
+                    self.preview_titles[index].configure(text=("Front left", "Front right")[index] + f" • {identity} • {width}×{height} source")
                 else:
                     widget.configure(image="", text="Waiting for selected stream")
                     if index in self.native_views:

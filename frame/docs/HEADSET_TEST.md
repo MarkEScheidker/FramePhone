@@ -15,11 +15,13 @@ Docker, development containers and separate libraries are not needed to run it.
    real detector. This checks software startup and does not need the phone.
 4. Click **Enable cameras** and approve the desktop's authorization prompt.
    This starts FramePhone's bundled broker; there is no separate broker install.
-5. Select the two front streams in the left/right dropdowns. Only normal-exposure
-   OG0VE10 front streams are offered; side cameras are excluded. Their factory
-   calibration names are fixed to **upper_left / upper_right**. The old defaults
-   `slam_left / slam_right` describe the side cameras and are no longer used.
-   **Refresh cameras** updates discovery after authorization.
+5. Select the two physical front streams in the left/right dropdowns.
+   **Refresh cameras** lists all normal-exposure mono candidates, including
+   their sensor, video device and actual ring dimensions in the log. Detection
+   and previews use only the two streams you select; leave the side views unused.
+   The owner observed side views on OG0VE10 video13/video9 and recalls the front
+   views on video0/video3. Check those candidates physically; device numbers and
+   upstream factory names are not a verified mapping for every headset.
 6. Enable **Show front camera views** and cover each physical front lens briefly
    to identify its stream. Use **Swap left/right streams** if needed. Do not infer
    camera identity from dropdown order or sensor/video numbers. Click a preview
@@ -34,6 +36,12 @@ Docker, development containers and separate libraries are not needed to run it.
 8. For position/rotation, transfer the measured layout JSON exported by the
    Android app and use **Choose phone layout…**. Keep the matching fiducial
    layout on the phone, with the measured physical display calibration.
+   Select each stream's matching **Factory calibration** using the headset's
+   XRService sensor/device mapping. Names such as `upper_left` or `slam_left`
+   alone do not prove front/side identity. Calibration dimensions must match the
+   live image; the GUI rejects mismatches before starting pose tracking. Matching
+   dimensions alone do not establish camera identity. Detection does not require
+   these calibration selections.
    Click **Start tracking** and hold the phone where both front cameras see the
    tags. Marker counts remain visible; a separate pose line reports accepted
    tracking/distance, insufficient shared tags or ambiguity. Stream selection is
@@ -42,17 +50,25 @@ Docker, development containers and separate libraries are not needed to run it.
 
 If your user has no administrator password yet, desktop authorization may need
 that account configured first. If authorization or camera discovery fails, the
-window shows the broker error. Leave that log available for debugging. This
+window shows the broker error. Leave that log available for debugging.
 Hardware compatibility can vary with headset firmware/kernel versions.
 
 ## Resolution and marker visibility
 
-There is no 640×640 capture setting in FramePhone. The broker copies the mono
-stream XRService already produces, and detection runs on those source pixels.
-The pinned Frametop integration identifies the front pair as OG0VE10 sensors;
-OMNIVISION specifies **640×480** for the [OG0VE sensor](https://www.ovt.com/products/og0ve/).
-FramePhone reports the actual dimensions beside each view and detection count
-so that the stream on your headset can be checked directly.
+The broker copies the mono stream XRService already produces, and detection runs
+on those source pixels. There is no fixed 640×640 resize or capture limit in
+FramePhone. The owner reports 640×640 from the currently selected pair. Preserve
+that observation rather than replacing it with a sensor datasheet's dimensions.
+Each selected view now shows its reported sensor/video identity and ring size,
+and the actual detector input dimensions are shown separately.
+
+OMNIVISION specifies **1280×1024** for the [OG01A1B sensor](https://www.ovt.com/products/og01a1b/)
+and **640×480** for the [OG0VE sensor](https://www.ovt.com/products/og0ve/).
+These describe sensor capabilities, not a measured mapping of front lenses or
+the active XRService mode on this headset. The pinned broker also contains
+observations of 1056×1024 mono streams. Sensor maximum, current stream/crop and
+displayed preview size must be checked separately; selecting the other pair
+does not itself guarantee 1280×1024 capture.
 
 The old embedded preview reduced 640×480 to approximately 213×160. The new
 embedded views are larger, and the full-size windows display native pixels
@@ -60,6 +76,11 @@ without that reduction. Changing preview size does not improve capture detail.
 FramePhone does not change XRService's camera modes. The appearance of the
 headset's passthrough view does not establish the resolution or contrast of
 these raw mono tracking streams.
+
+Older saved camera mappings are cleared once on upgrade because the previous
+release forced OG0VE10 and `upper_left/right` based on upstream naming, which
+selected the side views on the owner's headset. Select and verify the front
+streams again; the new selections are remembered.
 
 If both counts stay at zero, inspect the full-size images first: all tag cells,
 the black boundary and the surrounding white quiet zone must be distinguishable.
@@ -79,7 +100,7 @@ camera choices in `~/.config/framephone/settings.json`.
 Enable **Record paired images** when collecting evidence for debugging. It
 records grayscale image pairs and their manifest and can use substantial disk
 space. Check actual images for complete tag boundaries and quiet zones. Phone
-visibility in color passthrough alone does not establish visibility in these
+visibility in headset passthrough alone does not establish visibility in these
 mono tracking cameras.
 
 The GUI uses the pinned broker's mono V4L2 timestamp convention as a shared

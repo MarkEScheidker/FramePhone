@@ -16,10 +16,10 @@ Retain [LICENSE](LICENSE) with redistributed source and binaries.
   clocks must match and no clock-domain inference is copied.
 - `src/frametop_ring.cpp` implements the ABI/sequence protocol from
   `hands/camd/fhring.h` with bounded read-only `pread` copies.
-- `desktop/front_cameras.py` uses the camera identities documented in
-  `hands/README.md`: `upper_left/right` are the OG0VE10 front pair;
-  `slam_left/right` are the side pair. Live stream identity still requires a
-  physical left/right check rather than assuming video-device order.
+- `desktop/front_cameras.py` parses reported ring and factory camera identities.
+  The initial front/side naming inference from `hands/README.md` contradicted the
+  owner's physical observations. No sensor model or factory pair is forced;
+  physical front/left/right and factory-to-stream identity must be verified.
 
 Upstream source URLs:
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/track/calib.cpp
@@ -46,9 +46,10 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   Frametop's ring directory; byte layout and sequence protocol remain version 1.
 - Arm a parent-death signal before camera setup and again after dropping privileges
   so the GUI owns the broker lifetime; adjust help/errors for desktop authorization.
-- Default the mono sensor filter to `og0ve10` so FramePhone borrows only the front
-  pair. The desktop passes this filter explicitly too; `--sensor` remains available
-  for manual diagnostics. XRService's camera modes and buffers are not modified.
+- Expose all mono streams for discovery, with the GUI processing only its selected
+  pair. The earlier OG0VE10-only default hid the other pair on the owner's headset;
+  `--sensor` remains available for manual diagnostics. XRService's camera modes
+  and buffers are not modified.
 
 Retain both MIT notices in source and binary distributions. The Python preview
 reader also implements this ABI and sequence protocol using bounded read-only

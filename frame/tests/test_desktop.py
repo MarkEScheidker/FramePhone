@@ -46,23 +46,28 @@ class DesktopTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 runtime.tracking_command(str(layout), "upper_left", "upper_right", "same", "same", Path(folder) / "bad", False)
             self.assertFalse((Path(folder) / "bad").exists())
-            with self.assertRaises(ValueError):
-                runtime.tracking_command(str(layout), "slam_left", "slam_right", "stream0", "stream1", Path(folder) / "sides", False)
-            self.assertFalse((Path(folder) / "sides").exists())
+            # Neither family of factory names proves physical front/side identity.
+            runtime.tracking_command(str(layout), "slam_left", "slam_right", "stream0", "stream1", Path(folder) / "other-pair", False)
             command = runtime.detection_command("front0")
             self.assertIn("--live-status", command)
             self.assertNotIn("--phone-layout", command)
             with patch.object(app.shutil, "which", return_value="/usr/bin/pkexec"):
                 command = runtime.camera_command()
-            self.assertEqual(command[command.index("--sensor") + 1], "og0ve10")
+            self.assertNotIn("--sensor", command)  # Must not hide the owner's front pair.
 
     def test_front_selection_and_detector_feedback(self):
-        cameras = ("side_video0 sensor=og01a1b 3-0036 video0 1056x1024 flags=0\n"
-                   "front_video6 sensor=og0ve10 4-0060 video6 640x480 flags=0\n"
-                   "front_video7 sensor=og0ve10 4-0036 video7 640x480 flags=0\n"
+        cameras = ("candidate_video0 sensor=og01a1b 3-0036 video0 1280x1024 flags=0\n"
+                   "candidate_video3 sensor=og01a1b 3-0060 video3 1056x1024 flags=0\n"
+                   "candidate_video13 sensor=og0ve10 4-0060 video13 640x640 flags=0\n"
+                   "candidate_video9 sensor=og0ve10 4-0036 video9 640x640 flags=0\n"
                    "front_dark sensor=og0ve10 4-0036 video7 640x480 flags=1\n"
                    "color sensor=imx616 video8 2464x2464 flags=2\n")
-        self.assertEqual(front.front_streams(cameras), ["front_video6", "front_video7"])
+        found = front.mono_streams(cameras)
+        self.assertEqual(list(found), ["candidate_video0", "candidate_video3", "candidate_video13", "candidate_video9"])
+        self.assertEqual((found["candidate_video0"]["width"], found["candidate_video0"]["height"]), (1280, 1024))
+        self.assertEqual(found["candidate_video13"]["height"], 640)  # Preserve reported dimensions.
+        self.assertEqual(front.factory_cameras("slam_left  1280x1024 KB4 origin_H_m=0 0 0\nupper_left  640x640 KB4 origin_H_m=0 0 0\n"),
+                         {"slam_left": {"width": 1280, "height": 1024}, "upper_left": {"width": 640, "height": 640}})
         line = "detection frame=42 evaluated=1 tags=3 ids=0,2,5 width=640 height=480 processing_ms=3.5"
         progress = front.parse_progress(line)
         self.assertEqual(front.marker_text(progress["views"][0]), "3 markers — IDs 0, 2, 5")
@@ -88,6 +93,7 @@ class DesktopTests(unittest.TestCase):
         window = app.Window.__new__(app.Window)
         window.processes = {"detect-left": object(), "detect-right": object()}
         window.worker_streams = {"detect-left": "left", "detect-right": "right"}
+        window.stream_info = {}
         window.left_stream, window.right_stream = Display("left"), Display("right")
         window.markers, window.pose = Display(), Display()
         window.marker_label, window.marker_details = Display(), Display()
