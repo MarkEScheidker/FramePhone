@@ -59,6 +59,16 @@ DetectionBatch observations(const PhoneLayout &layout, const CameraCalibration &
     }
     return batch;
 }
+void candidate_accuracy(const PoseCandidate &pose, const cv::Matx33d &expected,
+                        cv::Vec3d translation, double meters, double radians) {
+    double trace{}, square{};
+    for (std::size_t i = 0; i < 9; ++i)
+        trace += pose.rotation_row_major[i] * expected.val[i];
+    for (std::size_t i = 0; i < 3; ++i)
+        square += std::pow(pose.translation_m[i] - translation[int(i)], 2);
+    check(std::sqrt(square) < meters, "translation error: " + std::to_string(std::sqrt(square)));
+    check(std::acos(std::clamp((trace - 1) / 2, -1.0, 1.0)) < radians, "rotation error");
+}
 void accuracy(const PoseResult &result, const cv::Matx33d &expected, cv::Vec3d translation,
               double meters, double radians) {
     check(
@@ -67,14 +77,21 @@ void accuracy(const PoseResult &result, const cv::Matx33d &expected, cv::Vec3d t
             (result.candidates.empty() ? "none" : std::to_string(result.candidates[0].rms_px)) +
             " second " +
             (result.candidates.size() < 2 ? "none" : std::to_string(result.candidates[1].rms_px)));
-    const auto &pose = result.candidates.at(0);
-    double trace{}, square{};
-    for (std::size_t i = 0; i < 9; ++i)
-        trace += pose.rotation_row_major[i] * expected.val[i];
-    for (std::size_t i = 0; i < 3; ++i)
-        square += std::pow(pose.translation_m[i] - translation[int(i)], 2);
-    check(std::sqrt(square) < meters, "translation error: " + std::to_string(std::sqrt(square)));
-    check(std::acos(std::clamp((trace - 1) / 2, -1.0, 1.0)) < radians, "rotation error");
+    candidate_accuracy(result.candidates.at(0), expected, translation, meters, radians);
+}
+void frontal_raster_accuracy(const PoseResult &result, const cv::Matx33d &expected) {
+    // AprilTag versions refine raster edges differently. At a frontal view,
+    // IPPE's two fits can straddle the duplicate-orientation threshold while
+    // having nearly equal residuals. Both accepted and ambiguous are valid;
+    // candidates on ambiguous frames remain diagnostic, not usable poses.
+    check(result.status == "accepted" || result.status == "ambiguous",
+          "frontal raster produced " + result.status);
+    check(!result.candidates.empty(), "frontal raster missing candidates");
+    if (result.status == "ambiguous")
+        check(result.candidates.size() == 2, "ambiguous raster missing second hypothesis");
+    const auto &best = result.candidates.front();
+    check(best.inlier_ids.size() == 4 && best.rms_px < 1, "frontal raster lost marker consensus");
+    candidate_accuracy(best, expected, {0, 0, 0.2}, 0.001, 0.05);
 }
 struct TemporaryJson {
     std::filesystem::path path = std::filesystem::temp_directory_path() /
@@ -97,7 +114,7 @@ int main() {
         const auto actual = detector.detect(frame);
         check(actual.detections.size() == 4, "real synthetic detector missing tags");
         stage = "real frontal raster";
-        accuracy(estimator.estimate(frame, actual), base, {0, 0, 0.2}, 0.001, 0.05);
+        frontal_raster_accuracy(estimator.estimate(frame, actual), base);
         const auto rotation = tilted();
         const cv::Vec3d translation(0.01, -0.005, 0.28);
         auto detected = observations(layout, c, frame, rotation, translation);
@@ -201,8 +218,9 @@ int main() {
             rc.cy = (rc.height - 1) / 2.0;
             cv::Matx33d roll;
             cv::Rodrigues(cv::Vec3d(0, 0, q * CV_PI / 2), roll);
-            accuracy(PlanarPoseEstimator(layout, rc).estimate(rotated, detector.detect(rotated)),
-                     roll * base, {0, 0, 0.2}, 0.001, 0.05);
+            frontal_raster_accuracy(
+                PlanarPoseEstimator(layout, rc).estimate(rotated, detector.detect(rotated)),
+                roll * base);
         }
 
         // Project the complete raster through a known homography; use decoded

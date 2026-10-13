@@ -1,6 +1,7 @@
 """End-to-end checks of real CLI output, recordings and optional real decoding."""
 import csv
 import json
+import math
 import os
 import pathlib
 import struct
@@ -25,6 +26,30 @@ def rows(path):
         result = list(csv.DictReader(stream))
     assert all(None not in row and all(value is not None for value in row.values()) for row in result)
     return result
+
+
+def tilted_raster(image):
+    """Independently project the fixture plane with a 30-degree optical X tilt.
+
+    Inverse pinhole projection, nearest-neighbor sampling, no OpenCV dependency.
+    The source uses 0.25 mm/px; T_CP = Rx(30 degrees) * diag(1,-1,-1),
+    translation (0,0,0.24) meters. Perspective separates the planar hypotheses.
+    """
+    cosine, sine = math.cos(math.pi / 6), math.sin(math.pi / 6)
+    result = bytearray([24]) * (640 * 480)
+    for v in range(480):
+        ny = (v - 239.5) / 800
+        y = -ny * 0.24 / (cosine - ny * sine)
+        depth = 0.24 - sine * y
+        source_v = math.floor(239.5 - y / 0.00025 + 0.5)
+        if not 0 <= source_v < 480:
+            continue
+        for u in range(640):
+            x = (u - 319.5) / 800 * depth
+            source_u = math.floor(x / 0.00025 + 319.5 + 0.5)
+            if 0 <= source_u < 640:
+                result[v * 640 + u] = image[source_v * 640 + source_u]
+    return bytes(result)
 
 
 with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
@@ -86,15 +111,36 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
         result = run("--headless", "--frames", 1, ok=False)
         assert "AprilTag 3 is unavailable" in result.stderr
 
+    image = (recording / "frame-0.pgm").read_bytes().split(b"\n", 3)[3]
+    assert len(image) == 640 * 480
+
     fixtures = pathlib.Path(__file__).parent / "fixtures"
     pose_args = ["--phone-layout", str(fixtures / "synthetic-phone-layout.json"),
                  "--camera-calibration", str(fixtures / "synthetic-camera.json")]
     has_pose = "pose_6dof=camera_relative" in capabilities and "AprilTag3=available" in capabilities
     if has_pose:
         pose_path = root / "pose.jsonl"
-        run("--headless", "--frames", 4, "--blank-every", 2, *pose_args, "--pose-jsonl", pose_path)
+        # Acceptance/loss/reacquisition needs a well-conditioned perspective
+        # view. A frontal raster can correctly be marked ambiguous across SDKs.
+        image = tilted_raster(image)
+        pose_recording = root / "tilted-recording"
+        pose_recording.mkdir()
+        manifest = ["framephone-recording-v1"]
+        for index in range(4):
+            pixels = image if index % 2 == 0 else bytes([24]) * (640 * 480)
+            filename = f"pose-{index}.pgm"
+            (pose_recording / filename).write_bytes(b"P5\n640 480\n255\n" + pixels)
+            manifest.append(f"synthetic-front-left\t{index + 1}\tfixture-camera-clock\t"
+                            f"synthetic-not-calibrated\t-\t{filename}")
+        (pose_recording / "manifest.tsv").write_text("\n".join(manifest) + "\n")
+        run("--headless", "--replay", pose_recording, *pose_args, "--pose-jsonl", pose_path)
         poses = [json.loads(line) for line in pose_path.read_text().splitlines()]
-        assert [p["status"] for p in poses] == ["accepted", "insufficient_tags", "accepted", "insufficient_tags"]
+        assert [p["status"] for p in poses] == ["accepted", "insufficient_tags", "accepted", "insufficient_tags"], poses
+        for pose in (poses[0], poses[2]):
+            best = pose["candidates"][0]
+            assert set(best["inlier_ids"]) == {0, 1, 2, 3}, pose
+            assert abs(best["translation_m"][2] - 0.24) < 0.004, pose
+        assert not poses[1]["candidates"] and not poses[3]["candidates"], poses
         assert all(p["transform"] == "T_CP" and p["calibration_status"] == "synthetic" for p in poses)
         original_pose = pose_path.read_bytes()
         run("--headless", *pose_args, "--pose-jsonl", pose_path, ok=False)
@@ -102,8 +148,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
 
     # Independent binary ABI producer: write while the real diagnostic reads.
     # This tests source selection/polling/export, without a headset or broker.
-    image = (recording / "frame-0.pgm").read_bytes().split(b"\n", 3)[3]
-    assert len(image) == 640 * 480
+    # Use that same tilted raster for strict live-ring acceptance checks.
     slot_bytes = 64 + len(image)
     ring_path = root / "cam-ring"
     ring_bytes = bytearray(1344 + 4 * slot_bytes)
@@ -153,7 +198,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
         assert int(row["dequeue_monotonic_ns"]) == 1000+n and int(row["publish_monotonic_ns"]) == 2000+n
     if has_pose:
         live_poses = [json.loads(line) for line in live_pose.read_text().splitlines()]
-        assert len(live_poses) == 3 and all(p["status"] == "accepted" for p in live_poses)
+        assert len(live_poses) == 3 and all(p["status"] == "accepted" for p in live_poses), live_poses
         assert all("ring_transport" in p for p in live_poses)
     # Fresh, valid producer heartbeat but no new frames is a timeout, never EOF.
     struct.pack_into("<Q", ring_bytes, 40, time.monotonic_ns())

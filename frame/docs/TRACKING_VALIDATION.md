@@ -29,6 +29,14 @@ results are available only after pushing the repository.
 require AprilTag, OpenCV and JSON. SDL's preview smoke test uses its dummy driver,
 which tests rendering code without establishing desktop/VR display behavior.
 Android device instrumentation is separate from host unit/lint checks.
+
+Pose acceptance/loss/reacquisition checks use a tilted raster so the two planar
+pose hypotheses are distinguishable. Frontal raster checks allow `accepted` or
+`ambiguous`: AprilTag versions can refine edges enough to change that decision.
+Those checks still require all four markers, low reprojection error and the
+original pose accuracy bounds. Separate tests require ambiguous poses to be
+rejected; the estimator's production acceptance thresholds are unchanged.
+
 Run the package script checks with `python3 frame/tests/test_linux_package.py`
 and desktop checks with `python3 frame/tests/test_desktop.py`. The broker's static
 build/identity checks use `python3 frame/tests/test_broker.py` (C compiler required).
