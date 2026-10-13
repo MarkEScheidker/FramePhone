@@ -48,7 +48,7 @@ jobs:
           ctest --test-dir frame/build/ci --output-on-failure
 
   linux-package:
-    name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }})
+    name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }}, ${{ matrix.engine }})
     strategy:
       fail-fast: false
       matrix:
@@ -56,20 +56,32 @@ jobs:
           - runner: ubuntu-24.04
             arch: amd64
             kind: native
+            engine: docker
           - runner: ubuntu-24.04-arm
             arch: arm64
             kind: native
+            engine: docker
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            kind: native
+            engine: podman
           - runner: ubuntu-24.04
             arch: arm64
             kind: emulated
+            engine: docker
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     env:
-      FRAMEPHONE_CONTAINER_ENGINE: docker
+      FRAMEPHONE_CONTAINER_ENGINE: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
+      - name: Install rootless Podman build tools
+        if: matrix.engine == 'podman'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman uidmap
       - name: Enable ARM64 emulation on desktop Linux
         if: matrix.kind == 'emulated'
         run: |
@@ -92,7 +104,7 @@ jobs:
       - name: Keep tested Linux package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: framephone-linux-${{ matrix.arch }}-${{ matrix.kind }}
+          name: framephone-linux-${{ matrix.arch }}-${{ matrix.kind }}-${{ matrix.engine }}
           path: |
             frame/build/dist/FramePhone-${{ matrix.arch }}.run
             frame/build/dist/FramePhone-${{ matrix.arch }}.run.sha256

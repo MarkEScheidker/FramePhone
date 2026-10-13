@@ -42,6 +42,40 @@ On x86_64 this produces `FramePhone-amd64.run`. Build jobs default to two;
 fetches Ubuntu 24.04 and its compiler/library packages; later builds reuse
 cached layers. Emulated ARM64 builds take longer than native builds.
 
+Building ARM64 directly on Steam Frame needs no QEMU. The script prints the
+host and target architectures and saves container output to a new
+`frame/build/build-arm64.*.log` file for each attempt. On failure, it repeats the
+last 25 lines and prints the log path. Look for the engine's `Error:` or failed
+build step there; `Container build failed` is only the script's summary. The
+QEMU hint is shown only when host and target architectures differ; it does not
+diagnose the underlying failure.
+
+### Podman systemd/cgroup errors
+
+The build script invokes Podman with `--cgroup-manager=cgroupfs` and
+`--events-backend=file` for building and exporting the executable. This avoids
+requiring systemd's user service for container cgroup management or event logs;
+it does not edit your container configuration. Docker uses its normal defaults.
+Rootless cgroupfs does not enforce container resource limits; this build does
+not request any. See the [Podman options](https://docs.podman.io/en/latest/markdown/podman.1.html).
+
+Podman build steps also use `--isolation=chroot`, Buildah's internal runner, to
+bypass `crun` startup failures such as `error running container ... /usr/bin/crun
+creating container` at the first `RUN apt-get update ...` step. Packages are
+installed into the build image's filesystem; the script installs no host
+packages. The [Podman build options](https://docs.podman.io/en/latest/markdown/podman-build.1.html#isolation-type)
+describe chroot mode. It uses fewer isolation features than an OCI runtime.
+Run the build as your normal user. This workaround still needs headset testing;
+the abbreviated error report does not establish the exact startup failure.
+
+If an older checkout fails with `org.freedesktop.systemd1` errors, update the
+checkout and retry `bash frame/build.sh` as your normal desktop user. Podman can
+still print `Failed to add pause process to systemd sandbox cgroup` while
+initializing its rootless namespace; that warning alone does not mean the build
+failed. Let it continue if build steps are progressing. If it stops, retain the
+last build step and accompanying `Error:`/runtime messages for diagnosis. The
+same warning appears in this [upstream Buildah report](https://github.com/podman-container-tools/buildah/issues/4293).
+
 ## What gets bundled
 
 The build compiles/tests the tracker and statically compiles the pinned camera
@@ -75,8 +109,9 @@ Build again and replace the `.run` file while the app is closed. Settings and
 results live in your user profile, outside the executable. An adjacent `.sha256`
 file is also generated for transfer verification; it is not needed to launch.
 
-GitHub Actions uses this recipe on native AMD64 and ARM64, plus an emulated
-ARM64 build. Native jobs execute the resulting `.run` outside Docker, run the
+GitHub Actions uses this recipe with Docker on native AMD64 and ARM64, plus an
+emulated ARM64 build. A native ARM64 job also exercises the rootless Podman
+chroot build. Native jobs execute the resulting `.run` outside a container, run the
 real detector/CSV checks, and open/close the GUI under a virtual display.
 Artifacts are kept for 14 days. Download an **ARM64** artifact for the headset.
 Hosted results exist only after the repository is pushed and the workflow runs.

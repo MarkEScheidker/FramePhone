@@ -23,7 +23,7 @@ results are available only after pushing the repository.
 | Linux package script checks | Clean source handoff, default/native architecture, executable/checksum export, failed-update preservation and build-container cleanup using a simulated engine. |
 | Desktop frontend checks | Layout/stream handoff, fresh result directories, host-tool library isolation, preview bounds/torn writes/stopped broker. |
 | Broker checks | Static linking and strict caller UID/primary-group resolution without opening cameras or requesting privileges. |
-| Linux package CI | Native AMD64/ARM64 and emulated ARM64 image build/CTest; extracted executable detector/CSV and virtual-display GUI startup on native runners. |
+| Linux package CI | Docker native AMD64/ARM64 and emulated ARM64, plus rootless Podman chroot on native ARM64; image build/CTest and extracted executable detector/CSV and virtual-display GUI startup on native runners. |
 
 `make -C frame test all` covers only the portable subset. Full CMake/CTest checks
 require AprilTag, OpenCV and JSON. SDL's preview smoke test uses its dummy driver,
