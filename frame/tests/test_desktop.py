@@ -13,6 +13,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
 import front_cameras as front
+from tracking_visualizer import phone_outline, project, transform
 
 
 def load(name):
@@ -26,6 +27,34 @@ app, reader = load("app"), load("ring_preview")
 
 
 class DesktopTests(unittest.TestCase):
+    def test_requested_defaults_preserve_explicit_selection(self):
+        left, right = front.DEFAULT_CAMERAS
+        self.assertEqual(left, ("slam_left", "og01a1b_4-0060_video3"))
+        self.assertEqual(right, ("slam_right", "og01a1b_4-0036_video0"))
+        available = [left[1], right[1], "custom"]
+        self.assertEqual(front.default_selection("", available, left[1]), left[1])
+        self.assertEqual(front.default_selection("custom", available, left[1]), "custom")
+        self.assertEqual(front.default_selection("old", ["unrelated_video3"], left[1]), "")
+
+    def test_visualizer_protocol_and_head_transform(self):
+        raw = "detection frame=1 evaluated=1 tags=1 ids=2 width=640 height=480 corners=10,20,30,20,30,40,10,40"
+        self.assertEqual(front.parse_progress(raw)["views"][0]["corners"][0][0], [10, 20])
+        self.assertIsNone(front.parse_progress(raw.replace("10,20,30,20", "nan,20,30,20")))
+        self.assertIsNone(front.parse_progress(raw.replace("corners=", "corners=0;")))
+        pair = ("pair=1 tags=0/0 shared=0 skew_us=0 status=accepted left_ids=- left_size=640x480 "
+                "right_ids=- right_size=640x480 left_corners=- right_corners=- distance_m=0.5 "
+                "xyz_H_m=0,0,-0.5 rotation_H=0,-1,0,1,0,0,0,0,1")
+        pose = front.parse_progress(pair)
+        self.assertEqual(transform((.1, 0, 0), pose["rotation"], pose["translation"]), [0, .1, -.5])
+        self.assertIsNone(front.parse_progress(pair.replace("xyz_H_m=0,0,-0.5", "xyz_H_m=inf,0,0")))
+        rejected = front.parse_progress(pair.replace("status=accepted", "status=ambiguous"))
+        self.assertNotIn("translation", rejected)
+        outline = phone_outline({"calibration": {"portrait_width_m": .06, "portrait_height_m": .12}})
+        self.assertEqual(outline[0], (-.03, .06, 0))
+        x, y = project((0, 0, 0), 600, 400, 1)
+        self.assertGreater(project((.1, 0, 0), 600, 400, 1)[0], x)
+        self.assertLess(project((0, .1, 0), 600, 400, 1)[1], y)
+
     def test_tracking_handoff_and_fresh_results(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {
                 "FRAMEPHONE_RUNTIME_ROOT": folder, "FRAMEPHONE_LOADER": "/bundled/loader",

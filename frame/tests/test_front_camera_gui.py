@@ -103,6 +103,13 @@ with tempfile.TemporaryDirectory(prefix="framephone-front-gui-") as directory:
                               (temp / "state/framephone/desktop.log").read_text()))
 
     try:
+        defaults = ("og01a1b_4-0060_video3 sensor=og01a1b 4-0060 video3 1280x1024 flags=0\n"
+                    "og01a1b_4-0036_video0 sensor=og01a1b 4-0036 video0 1280x1024 flags=0\n")
+        window.events.put(("scan", "slam_left 1280x1024 KB4\nslam_right 1280x1024 KB4\n", defaults))
+        until(lambda: len(window.available_streams) == 2)
+        assert window.left_stream.get() == "og01a1b_4-0060_video3"
+        assert window.right_stream.get() == "og01a1b_4-0036_video0"
+        assert (window.left.get(), window.right.get()) == ("slam_left", "slam_right")
         discovery = ("candidate_video0 sensor=og01a1b 3-0036 video0 1280x1024 flags=0\n"
                      "candidate_video3 sensor=og01a1b 3-0060 video3 1280x1024 flags=0\n"
                      "candidate_video13 sensor=og0ve10 4-0036 video13 640x640 flags=0\n"
@@ -116,6 +123,19 @@ with tempfile.TemporaryDirectory(prefix="framephone-front-gui-") as directory:
         window.right_stream.set(streams[1])
         window.spawn("camera", ["sleep", "30"])
         until(lambda: "4 tracking marker IDs" in window.markers.get())
+        window.open_visualizer()
+        until(lambda: any(window.visualizer.images[0].type(item) == "polygon"
+                          for item in window.visualizer.images[0].find_all()))
+        visualizer = window.visualizer
+        # Independently specified rigid pose exercises actual Tk phone drawing.
+        from tracking_visualizer import phone_outline
+        visualizer.outline = phone_outline({"calibration": {"portrait_width_m": .06, "portrait_height_m": .12}})
+        progress = {"status": "accepted", "distance": .5, "translation": [0, 0, -.5],
+                    "rotation": [1, 0, 0, 0, 1, 0, 0, 0, 1]}
+        visualizer.render([None, None], progress)
+        assert any(visualizer.scene.type(item) == "polygon" for item in visualizer.scene.find_all())
+        visualizer.render([None, None], {"status": "ambiguous"})
+        assert not any(visualizer.scene.type(item) == "polygon" for item in visualizer.scene.find_all())
         assert not window.layout.get()  # Detection requires neither layout nor pose calibration.
         assert "1280×1024 input" in window.marker_details.cget("text")
         assert "video0 • og01a1b" in window.marker_details.cget("text")
@@ -136,10 +156,12 @@ with tempfile.TemporaryDirectory(prefix="framephone-front-gui-") as directory:
         assert not window.preview_panel.winfo_ismapped()
         blank.set()
         until(lambda: window.markers.get() == "0 tracking markers detected")
+        assert not any(visualizer.images[0].type(item) == "polygon" for item in visualizer.images[0].find_all())
         blank.clear()
         until(lambda: "4 tracking marker IDs" in window.markers.get())
         paused.set()
         until(lambda: "Waiting" in window.markers.get())
+        assert not any(visualizer.images[0].type(item) == "polygon" for item in visualizer.images[0].find_all())
         paused.clear()
         until(lambda: "4 tracking marker IDs" in window.markers.get())
     finally:
@@ -152,4 +174,4 @@ with tempfile.TemporaryDirectory(prefix="framephone-front-gui-") as directory:
         window.logfile.close()
         window.lock.close()
     assert not failures, failures
-print("Front-camera GUI: all mono candidates, old mapping reset, 1280x1024 native decoding, calibration mismatch, selected-pair counts, loss/stale/reacquisition and view controls passed.")
+print("Front-camera GUI: requested defaults, all mono candidates, old mapping reset, 1280x1024 native decoding, calibration mismatch, live visualizer outlines/pose clearing, selected-pair counts, loss/stale/reacquisition and view controls passed.")

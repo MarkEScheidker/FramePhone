@@ -61,6 +61,9 @@ headset, allow execution in file Properties, and open it. The window provides
 self-test, a toggle for the two front camera views, live marker counts and IDs,
 phone layout selection and tracking controls. Marker detection needs no layout;
 stereo pose tracking requires the measured phone layout.
+The tracking visualizer plots raw marker outlines and a calibrated, head-relative
+3D phone view. Front-camera defaults use the owner's video3/video0 pair with
+`slam_left`/`slam_right`; the factory pairing remains provisional and editable.
 Runtime libraries and the camera broker are bundled; the headset does not need
 Docker or Frametop. See the [build guide](frame/docs/BUILD.md) for build-machine setup.
 

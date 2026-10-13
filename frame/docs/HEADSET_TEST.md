@@ -19,9 +19,12 @@ Docker, development containers and separate libraries are not needed to run it.
    **Refresh cameras** lists all normal-exposure mono candidates, including
    their sensor, video device and actual ring dimensions in the log. Detection
    and previews use only the two streams you select; leave the side views unused.
-   The owner observed side views on OG0VE10 video13/video9 and recalls the front
-   views on video0/video3. Check those candidates physically; device numbers and
-   upstream factory names are not a verified mapping for every headset.
+   Defaults use the owner's observed front-left `og01a1b_4-0060_video3` with
+   `slam_left`, and front-right `og01a1b_4-0036_video0` with `slam_right`.
+   These defaults apply when no available saved selection exists. Missing default
+   streams stay unselected; another video device is never silently substituted.
+   The owner observed side views on OG0VE10 video13/video9. Check the selected
+   lenses physically; the default factory association remains provisional.
 6. Enable **Show front camera views** and cover each physical front lens briefly
    to identify its stream. Use **Swap left/right streams** if needed. Do not infer
    camera identity from dropdown order or sensor/video numbers. Click a preview
@@ -81,6 +84,28 @@ Older saved camera mappings are cleared once on upgrade because the previous
 release forced OG0VE10 and `upper_left/right` based on upstream naming, which
 selected the side views on the owner's headset. Select and verify the front
 streams again; the new selections are remembered.
+
+## Live tracking visualizer
+
+Click **Tracking visualizer…** to open a separate, resizable diagnostic window.
+It updates while the camera previews are hidden and can be closed and reopened
+without stopping detection or tracking.
+
+- **Uncalibrated:** each panel plots decoded marker outlines and IDs in its
+  raw camera image coordinates. This needs neither factory calibration nor a
+  phone layout. It shows image-space movement; it does not estimate metric
+  distance or a 3D phone pose. Use the camera views alongside it for actual imagery.
+- **Calibrated:** after choosing the measured layout and clicking **Start
+  tracking**, an accepted stereo pose draws the measured screen outline and
+  phone axes in a fixed oblique 3D view relative to the head. Head axes are
+  X right, Y up, Z back; forward is negative Z. Position and distance are in
+  meters. **View span (m)** changes the drawing scale without changing tracking.
+  Calibration is factory imported; this visualization does not verify its
+  camera association or metric accuracy.
+
+Marker loss clears the corresponding image outlines. Ambiguous/rejected, stopped
+or stale tracking clears the 3D phone rather than holding its previous pose.
+This is a desktop diagnostic view; no VR overlay or world-space tracking is added.
 
 If both counts stay at zero, inspect the full-size images first: all tag cells,
 the black boundary and the surrounding white quiet zone must be distinguishable.

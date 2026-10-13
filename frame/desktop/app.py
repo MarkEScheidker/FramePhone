@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from front_cameras import MAPPING_VERSION, factory_cameras, mono_streams, marker_text, parse_progress, pose_text
+from front_cameras import DEFAULT_CAMERAS, MAPPING_VERSION, default_selection, factory_cameras, mono_streams, marker_text, parse_progress, pose_text
 
 
 def host_environment():
@@ -103,6 +103,8 @@ class Window:
         self.factories, self.available_streams = {}, []
         self.stream_info = {}
         self.native_views = {}
+        self.visualizer = None
+        self.tracking_outline = None
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
         state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "framephone"
@@ -155,6 +157,7 @@ class Window:
         self.refresh_button.pack(side="left", padx=8)
         self.test_button = ttk.Button(actions, text="Self-test", command=self.self_test)
         self.test_button.pack(side="left")
+        ttk.Button(actions, text="Tracking visualizer…", command=self.open_visualizer).pack(side="left", padx=8)
         ttk.Button(actions, text="Open test results", command=lambda: self.open_folder(self.sessions)).pack(side="right")
         cameras = ttk.LabelFrame(panel, text="Select the two physical front cameras — verify by covering each lens", padding=8)
         cameras.grid(row=4, column=0, sticky="ew")
@@ -260,6 +263,19 @@ class Window:
         window.protocol("WM_DELETE_WINDOW", lambda: (self.native_views.pop(index, None), window.destroy()))
         self.native_views[index] = (window, label)
 
+    def open_visualizer(self):
+        from tracking_visualizer import TrackingVisualizer
+        if self.visualizer:
+            self.visualizer.window.lift()
+            return
+        self.visualizer = TrackingVisualizer(self.root)
+        self.visualizer.outline = self.tracking_outline
+        def close():
+            self.visualizer.window.destroy()
+            self.visualizer = None
+        self.visualizer.window.protocol("WM_DELETE_WINDOW", close)
+        self.update_markers()
+
     def update_detectors(self):
         if self.closing:
             return
@@ -292,7 +308,7 @@ class Window:
             if value and now - value[0] < 1.5:
                 return value[1]
             return None
-        progress = fresh("tracker") if "tracker" in self.processes else None
+        progress = fresh("tracker") if "tracker" in self.processes and "tracker" not in getattr(self, "stopping", ()) else None
         if "tracker" in self.processes:
             views = progress["views"] if progress else [None, None]
             self.pose.set(pose_text(progress))
@@ -321,6 +337,8 @@ class Window:
         else:
             self.markers.set("Waiting for live front-camera detection")
             self.marker_label.configure(foreground="")
+        if getattr(self, "visualizer", None):
+            self.visualizer.render(views, progress)
 
     def choose_layout(self):
         from tkinter import filedialog
@@ -419,6 +437,14 @@ class Window:
                     raise ValueError(f"{calibration} is calibrated at {expected['width']}×{expected['height']}, but {stream} supplies {source['width']}×{source['height']}. Choose matching calibration; marker detection remains available.")
             session = self.sessions / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
             command = self.runtime.tracking_command(self.layout.get(), self.left.get(), self.right.get(), self.left_stream.get(), self.right_stream.get(), session, self.record.get())
+            from tracking_visualizer import phone_outline
+            try:
+                self.tracking_outline = phone_outline(json.loads((session / "layout.json").read_text()))
+            except (KeyError, TypeError, ValueError):
+                # The native layout loader reports full validation errors.
+                self.tracking_outline = None
+            if self.visualizer:
+                self.visualizer.outline = self.tracking_outline
             self.save()
             self.log("Test results: " + str(session))
             with self.telemetry_lock:
@@ -504,14 +530,13 @@ class Window:
                     box.configure(values=streams)
                 for box in self.factory_boxes:
                     box.configure(values=list(factories))
-                for selected in (self.left, self.right):
-                    if selected.get() not in factories:
-                        selected.set("")
-                for selected in (self.left_stream, self.right_stream):
-                    if selected.get() not in streams:
-                        selected.set("")
+                for calibration, stream, (default_calibration, default_stream) in zip(
+                        (self.left, self.right), (self.left_stream, self.right_stream), DEFAULT_CAMERAS):
+                    calibration.set(default_selection(calibration.get(), factories, default_calibration))
+                    stream.set(default_selection(stream.get(), streams, default_stream))
+                self.save()
                 self.log("Factory cameras:\n" + name + "Live streams:\n" + value)
-                self.status.set("All mono candidates are available. Select only the two physical front views; verify each lens. Detection uses only your selected streams. Factory calibration is needed only for pose."
+                self.status.set("Front defaults: video3/slam_left and video0/slam_right when available. Verify the provisional pairing; saved selections take priority. Open Tracking visualizer for detections and phone pose."
                                 if len(streams) >= 2 else "Fewer than two mono streams available; see discovery log.")
             else:
                 self.jobs.discard("scan")

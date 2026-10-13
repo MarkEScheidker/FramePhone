@@ -320,6 +320,8 @@ int main(int argc, char **argv) {
                     std::cout << (i ? "," : "") << batches[v].detections[i].id;
                 std::cout << (v ? " right_size=" : " left_size=") << pair->frames[v].width << 'x'
                           << pair->frames[v].height;
+                std::cout << (v ? " right_corners=" : " left_corners=");
+                write_detection_corners(std::cout, batches[v]);
             }
             if (result.status == "accepted") {
                 const auto &p = result.candidates[0];
@@ -327,6 +329,9 @@ int main(int argc, char **argv) {
                 std::cout << " xyz_H_m=" << t[0] << ',' << t[1] << ',' << t[2]
                           << " distance_m=" << std::sqrt(t[0] * t[0] + t[1] * t[1] + t[2] * t[2])
                           << " rms_px=" << p.rms_px;
+                std::cout << " rotation_H=";
+                for (std::size_t i = 0; i < p.rotation_row_major.size(); ++i)
+                    std::cout << (i ? "," : "") << p.rotation_row_major[i];
             }
             std::cout << " processing_ms=" << ms << '\n';
         }

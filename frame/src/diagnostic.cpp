@@ -95,6 +95,19 @@ void write_diagnostic_csv(std::ostream &output, std::uint64_t session, std::uint
         throw std::runtime_error("failed writing diagnostic CSV");
 }
 
+void write_detection_corners(std::ostream &output, const DetectionBatch &batch) {
+    if (batch.detections.empty())
+        output << '-';
+    for (std::size_t i = 0; i < batch.detections.size(); ++i) {
+        if (i)
+            output << ';';
+        for (std::size_t j = 0; j < 4; ++j) {
+            const auto &p = batch.detections[i].corners[j];
+            output << (j ? "," : "") << p.x << ',' << p.y;
+        }
+    }
+}
+
 void write_detection_status(std::ostream &output, std::uint64_t frame_index,
                             const CameraFrame &frame, const DetectionBatch &batch,
                             bool detection_enabled, double processing_ms) {
@@ -104,6 +117,8 @@ void write_detection_status(std::ostream &output, std::uint64_t frame_index,
         output << '-';
     for (std::size_t i = 0; i < batch.detections.size(); ++i)
         output << (i ? "," : "") << batch.detections[i].id;
+    output << " corners=";
+    write_detection_corners(output, batch);
     output << " width=" << frame.width << " height=" << frame.height
            << " processing_ms=" << processing_ms << '\n';
     output.flush();
