@@ -95,4 +95,20 @@ void write_diagnostic_csv(std::ostream &output, std::uint64_t session, std::uint
         throw std::runtime_error("failed writing diagnostic CSV");
 }
 
+void write_detection_status(std::ostream &output, std::uint64_t frame_index,
+                            const CameraFrame &frame, const DetectionBatch &batch,
+                            bool detection_enabled, double processing_ms) {
+    output << "detection frame=" << frame_index << " evaluated=" << detection_enabled
+           << " tags=" << batch.detections.size() << " ids=";
+    if (batch.detections.empty())
+        output << '-';
+    for (std::size_t i = 0; i < batch.detections.size(); ++i)
+        output << (i ? "," : "") << batch.detections[i].id;
+    output << " width=" << frame.width << " height=" << frame.height
+           << " processing_ms=" << processing_ms << '\n';
+    output.flush();
+    if (!output)
+        throw std::runtime_error("failed writing detection status");
+}
+
 } // namespace framephone

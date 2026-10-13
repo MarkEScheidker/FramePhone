@@ -41,6 +41,7 @@ struct Options {
     bool headless{};
     bool detect{true};
     bool quit_at_end{};
+    bool live_status{};
 };
 
 void help() {
@@ -54,6 +55,7 @@ void help() {
                  "  --fps N              Preview playback rate, 1..240 (default 30)\n"
                  "  --headless           Process without a window, unpaced; print summary\n"
                  "  --no-detect          Preview only; never reports fabricated detections\n"
+                 "  --live-status        Flush marker counts/IDs and input size each frame\n"
                  "  --csv FILE           Explicit local CSV export; refuses existing files\n"
                  "  --snapshot FILE.bmp  Save the final preview on end of stream\n"
                  "  --quit-at-end        Close preview at end (otherwise stays open)\n"
@@ -122,6 +124,8 @@ Options parse(int argc, char **argv) {
             result.headless = true;
         else if (arg == "--no-detect")
             result.detect = false;
+        else if (arg == "--live-status")
+            result.live_status = true;
         else if (arg == "--quit-at-end")
             result.quit_at_end = true;
         else if (arg == "--csv") {
@@ -445,6 +449,9 @@ int run(int argc, char **argv) {
                 processing_ms =
                     std::chrono::duration<double, std::milli>(Clock::now() - started).count();
                 ++frame_index;
+                if (options.live_status)
+                    framephone::write_detection_status(std::cout, frame_index, *frame, batch,
+                                                       options.detect, processing_ms);
                 if (!batch.detections.empty())
                     ++detected_frames;
                 if (csv.is_open())

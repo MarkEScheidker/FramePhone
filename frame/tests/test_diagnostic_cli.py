@@ -13,6 +13,8 @@ import time
 
 diagnostic = pathlib.Path(sys.argv[1]).resolve()
 tracker = pathlib.Path(sys.argv[2]).resolve()
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "desktop"))
+from front_cameras import parse_progress
 
 
 def run(*args, ok=True):
@@ -56,7 +58,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
     root = pathlib.Path(folder)
     capabilities = run("--capabilities").stdout
     preview = root / "preview.csv"
-    run("--headless", "--no-detect", "--frames", 3, "--csv", preview)
+    result = run("--headless", "--no-detect", "--live-status", "--frames", 3, "--csv", preview)
+    progress = [parse_progress(line) for line in result.stdout.splitlines() if line.startswith("detection ")]
+    assert len(progress) == 3 and all(not p["views"][0]["evaluated"] for p in progress)
     data = rows(preview)
     assert len(data) == 3
     assert all(row["status"] == "preview_only" and row["detection_us"] == "" and row["id"] == "" for row in data)
@@ -92,7 +96,11 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
 
     if "AprilTag3=available" in capabilities:
         detected = root / "detected.csv"
-        result = run("--headless", "--motion", "--frames", 12, "--blank-every", 4, "--csv", detected)
+        result = run("--headless", "--live-status", "--motion", "--frames", 12, "--blank-every", 4, "--csv", detected)
+        progress = [parse_progress(line) for line in result.stdout.splitlines() if line.startswith("detection ")]
+        assert len(progress) == 12 and all(progress)
+        assert [p["views"][0]["count"] for p in progress] == [4, 4, 4, 0] * 3
+        assert all((p["views"][0]["width"], p["views"][0]["height"]) == (640, 480) for p in progress)
         assert "9 frames with at least one tag" in result.stdout, result.stdout
         data = rows(detected)
         assert len(data) == 39, len(data)  # Nine four-tag frames, three misses.
@@ -159,7 +167,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
     ring_path.write_bytes(ring_bytes)
     live_csv = root / "live.csv"
     live_pose = root / "live.jsonl"
-    live_args = [str(diagnostic), "--headless", "--frametop-ring", str(ring_path), "--frames", "3",
+    live_args = [str(diagnostic), "--headless", "--live-status", "--frametop-ring", str(ring_path), "--frames", "3",
                  "--camera", "synthetic-front-left", "--calibration-id", "synthetic-not-calibrated",
                  "--capture-clock", "independent-live-clock", "--csv", str(live_csv)]
     if has_pose:
@@ -185,6 +193,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-cli-") as folder:
                 time.sleep(0.04)
         stdout, stderr = process.communicate(timeout=3)
         assert process.returncode == 0, (stdout, stderr)
+        progress = [parse_progress(line) for line in stdout.splitlines() if line.startswith("detection ")]
+        assert len(progress) == 3 and all(progress)
+        assert all(p["views"][0]["count"] == (4 if has_pose else 0) for p in progress)
     finally:
         if process.poll() is None:
             process.kill()

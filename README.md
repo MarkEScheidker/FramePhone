@@ -5,8 +5,9 @@ displays AprilTag fiducials; a native C++ application estimates the phone's
 position and rotation from calibrated headset camera images.
 
 **Early development:** the phone companion and native software tests work.
-Live Steam Frame capture, ARM64 deployment and tracking accuracy still need
-hardware validation. There is no tracked VR display or screen streaming yet.
+The desktop app, self-test and camera previews have run on a Steam Frame;
+live fiducial detection and tracking accuracy still need hardware validation.
+There is no tracked VR display or screen streaming yet.
 
 ## What is here
 
@@ -14,7 +15,7 @@ hardware validation. There is no tracked VR display or screen streaming yet.
 | --- | --- |
 | [Android companion](phone/) | Configurable tag36h11 overlays, measured display calibration and phone geometry export. Android 12+. |
 | [Native tracker](frame/) | AprilTag detection, calibrated single-camera and stereo phone poses, desktop diagnostics, recording and replay. Linux, C++20. |
-| [Steam Frame integration](frame/docs/HEADSET_TEST.md) | Read-only Frametop camera-ring input, factory KB4 calibration and a shared Linux desktop/headset build procedure. Experimental and hardware-unverified. |
+| [Steam Frame integration](frame/docs/HEADSET_TEST.md) | Front-camera previews and live marker counts, factory KB4 calibration and a shared Linux desktop/headset build procedure. Experimental; tracking accuracy unverified. |
 
 The desktop app reports **head-relative** poses and bundles its own camera
 broker, adapted from Frametop. No Frametop installation is needed. Camera access
@@ -56,7 +57,9 @@ For the Steam Frame, follow the [headset build and test guide](frame/docs/HEADSE
 **`bash frame/build.sh`** produces **`frame/build/dist/FramePhone-arm64.run`**
 on a Linux PC or directly on the headset. Copy this single executable to the
 headset, allow execution in file Properties, and open it. The window provides
-self-test, phone layout selection, camera setup/previews and tracking controls.
+self-test, a toggle for the two front camera views, live marker counts and IDs,
+phone layout selection and tracking controls. Marker detection needs no layout;
+stereo pose tracking requires the measured phone layout.
 Runtime libraries and the camera broker are bundled; the headset does not need
 Docker or Frametop. See the [build guide](frame/docs/BUILD.md) for build-machine setup.
 

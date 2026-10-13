@@ -38,7 +38,7 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 file libapriltag-dev libopencv-dev nlohmann-json3-dev libsdl2-dev clang-format-18 ripgrep
+          sudo apt-get install -y build-essential cmake python3 python3-tk xvfb xauth file libapriltag-dev libopencv-dev nlohmann-json3-dev libsdl2-dev clang-format-18 ripgrep
       - name: Check native formatting
         run: rg --files frame/src frame/include frame/tests -g '*.cpp' -g '*.hpp' | xargs clang-format-18 --dry-run --Werror
       - name: Build and test desktop targets
@@ -46,6 +46,7 @@ jobs:
           cmake -S frame -B frame/build/ci -DCMAKE_BUILD_TYPE=Release -DFRAMEPHONE_REQUIRE_TRACKER=ON
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
+          xvfb-run -a python3 frame/tests/test_front_camera_gui.py frame/build/ci
 
   linux-package:
     name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }}, ${{ matrix.engine }})

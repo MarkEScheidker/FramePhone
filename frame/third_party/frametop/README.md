@@ -16,11 +16,16 @@ Retain [LICENSE](LICENSE) with redistributed source and binaries.
   clocks must match and no clock-domain inference is copied.
 - `src/frametop_ring.cpp` implements the ABI/sequence protocol from
   `hands/camd/fhring.h` with bounded read-only `pread` copies.
+- `desktop/front_cameras.py` uses the camera identities documented in
+  `hands/README.md`: `upper_left/right` are the OG0VE10 front pair;
+  `slam_left/right` are the side pair. Live stream identity still requires a
+  physical left/right check rather than assuming video-device order.
 
 Upstream source URLs:
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/track/calib.cpp
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/track/main.cpp
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/camd/fhring.h
+https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/README.md
 
 The rigid multi-tag consensus and joint two-view pixel optimization are
 FramePhone code, using OpenCV's SVD and Levenberg–Marquardt solver. Neural hand
@@ -41,6 +46,9 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   Frametop's ring directory; byte layout and sequence protocol remain version 1.
 - Arm a parent-death signal before camera setup and again after dropping privileges
   so the GUI owns the broker lifetime; adjust help/errors for desktop authorization.
+- Default the mono sensor filter to `og0ve10` so FramePhone borrows only the front
+  pair. The desktop passes this filter explicitly too; `--sensor` remains available
+  for manual diagnostics. XRService's camera modes and buffers are not modified.
 
 Retain both MIT notices in source and binary distributions. The Python preview
 reader also implements this ABI and sequence protocol using bounded read-only

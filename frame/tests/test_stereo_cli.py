@@ -10,6 +10,8 @@ import threading
 import time
 
 binary, fixtures = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'desktop'))
+from front_cameras import parse_progress
 base = [str(binary), '--factory-root', str(fixtures / 'stereo-factory'),
         '--calibration-id', 'synthetic-factory-v1']
 
@@ -94,5 +96,8 @@ with tempfile.TemporaryDirectory(prefix='framephone-stereo-cli-') as directory:
     assert 'pairs=3 accepted=0' in run(replay).stdout
     run(replay + ['--pose-jsonl', str(root/'pose.jsonl')], False)
     assert 'pairs=3 accepted=0' in result.stdout
+    progress = [parse_progress(line) for line in result.stdout.splitlines() if line.startswith('pair=')]
+    assert len(progress) == 3 and all(p['status'] == 'insufficient_tags' for p in progress), result.stdout
+    assert all(p['views'][0]['count'] == 0 and p['views'][1]['ids'] == [] for p in progress)
 
 print('Stereo live ring, exports, raw recording, replay and CLI validation passed')

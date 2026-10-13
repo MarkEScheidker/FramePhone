@@ -139,7 +139,8 @@ static xr_state_t  xr;
 static tp_event_t  ev_dqbuf;
 static int         f_dq_minor, f_dq_index, f_dq_ts, f_dq_seq;
 
-static const char *opt_sensor = "";
+/* FramePhone tracks with the upper/front pair; side cameras are excluded. */
+static const char *opt_sensor = "og0ve10";
 static double      opt_dark   = 0.4;
 static bool        opt_with_dark;       /* also publish the near-black frames */
 static bool        opt_with_color;      /* also publish the Arcturus color cameras */
@@ -1150,7 +1151,7 @@ static void usage(const char *argv0)
 {
     printf("Usage: %s [options]\n"
            "FramePhone starts this through the desktop's pkexec authorization prompt.\n"
-           "  --sensor S     only cameras whose sensor name contains S (default: all mono cameras)\n"
+           "  --sensor S     only cameras whose sensor name contains S (default: og0ve10 front pair)\n"
            "  --dark R       a frame dimmer than R x the camera's recent brightest is dark (default 0.4)\n"
            "  --with-dark    also publish the dark frames, as extra ring cameras flagged FH_CAM_DARK\n"
            "  --with-color   also publish the Arcturus color cameras' luma, flagged FH_CAM_COLOR\n"

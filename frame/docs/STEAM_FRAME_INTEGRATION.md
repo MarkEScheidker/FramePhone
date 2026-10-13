@@ -6,8 +6,9 @@ a broker adapted from Frametop and reads its local camera ring. This uses
 internal firmware interfaces rather than a standard OpenXR raw-camera API.
 
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the complete build/run procedure.
-Factory import, ring input and stereo geometry are implemented; compatibility
-and performance on an actual Steam Frame remain unverified.
+Factory import, ring input and stereo geometry are implemented. The owner has
+run the app, self-test and camera previews on a Steam Frame; live fiducial
+detectability, pose accuracy and sustained performance remain unverified.
 
 ## Reuse boundary
 
@@ -44,11 +45,19 @@ No Frametop installation, system service or persistent capability is installed.
 The broker uses `/run/user/UID/framephone-camera/cam-ring`, preventing ring-path
 collisions with Frametop; simultaneous capture coexistence is deferred.
 
-Ring names are sensor/video slugs, whereas factory `sourceCamera` fields use names
-such as `slam_left`. FramePhone requires an explicit mapping. Verify current
+The desktop and broker use only the OG0VE10 front pair; side cameras are excluded
+from the test workflow. Front factory names are `upper_left` and `upper_right`;
+`slam_left/right` refer to side cameras. Ring names are sensor/video slugs.
+FramePhone requires an explicit mapping. Verify current
 XRService sensor/device logs and prefer exact `VIDIOC_QUERYBUF` bindings over
 queue-order fallbacks. GUI previews support identifying the front lenses; the
 tracker does not automatically exchange camera names.
+
+Live marker counts use native AprilTag detection without a phone layout. During
+stereo tracking the same detectors provide the counts; separate workers run
+before and after stereo sessions. The optional preview never resizes detector
+input. Capture dimensions come from XRService, and full-size windows show native
+pixels; the broker does not configure a higher-resolution camera mode.
 
 ## Calibration and time
 

@@ -312,6 +312,15 @@ int main(int argc, char **argv) {
             std::cout << "pair=" << processed << " tags=" << batches[0].detections.size() << '/'
                       << batches[1].detections.size() << " shared=" << result.shared_tags
                       << " skew_us=" << pair->skew_ns() / 1000 << " status=" << result.status;
+            for (std::size_t v = 0; v < 2; ++v) {
+                std::cout << (v ? " right_ids=" : " left_ids=");
+                if (batches[v].detections.empty())
+                    std::cout << '-';
+                for (std::size_t i = 0; i < batches[v].detections.size(); ++i)
+                    std::cout << (i ? "," : "") << batches[v].detections[i].id;
+                std::cout << (v ? " right_size=" : " left_size=") << pair->frames[v].width << 'x'
+                          << pair->frames[v].height;
+            }
             if (result.status == "accepted") {
                 const auto &p = result.candidates[0];
                 const auto &t = p.translation_m;

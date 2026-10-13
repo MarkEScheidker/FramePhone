@@ -37,4 +37,10 @@ void write_diagnostic_csv(std::ostream &output, std::uint64_t session, std::uint
                           const CameraFrame &frame, const DetectionBatch &batch,
                           bool detection_enabled, double processing_ms);
 
+// Numeric, one-line progress protocol for the desktop's live marker counters.
+// Image dimensions describe the full-resolution detector input, not the preview.
+void write_detection_status(std::ostream &output, std::uint64_t frame_index,
+                            const CameraFrame &frame, const DetectionBatch &batch,
+                            bool detection_enabled, double processing_ms);
+
 } // namespace framephone
