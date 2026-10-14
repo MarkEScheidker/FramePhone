@@ -135,11 +135,19 @@ class Window:
         self.status = tk.StringVar(value="Enable cameras for live marker detection. A phone layout is needed only for pose tracking.")
         self.pose = tk.StringVar(value="No phone pose yet")
         self.markers = tk.StringVar(value="Enable cameras to start live marker detection.")
-        root.title("FramePhone — tracking test")
+        root.title("FramePhone — phone telemetry")
         root.geometry("1000x850")
         root.minsize(720, 600)
         root.protocol("WM_DELETE_WINDOW", self.close)
-        panel = ttk.Frame(root, padding=16)
+        tabs = ttk.Notebook(root)
+        tabs.pack(fill="both", expand=True)
+        phone_tab = ttk.Frame(tabs)
+        tabs.add(phone_tab, text="Phone telemetry")
+        from phone_panel import PhonePanel
+        self.phone_panel = PhonePanel(phone_tab, self.config.parent)
+        camera_tab = ttk.Frame(tabs)
+        tabs.add(camera_tab, text="Camera / legacy tracking diagnostics")
+        panel = ttk.Frame(camera_tab, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(10, weight=1)
@@ -268,7 +276,7 @@ class Window:
         if self.visualizer:
             self.visualizer.window.lift()
             return
-        self.visualizer = TrackingVisualizer(self.root)
+        self.visualizer = TrackingVisualizer(self.root, self.choose_layout, self.start)
         self.visualizer.outline = self.tracking_outline
         def close():
             self.visualizer.window.destroy()
@@ -317,6 +325,7 @@ class Window:
             for name, stream in zip(("detect-left", "detect-right"), (self.left_stream, self.right_stream)):
                 value = fresh(name) if self.worker_streams.get(name) == stream.get() else None
                 views.append(value["views"][0] if value and name in self.processes else None)
+            self.pose.set(self.pose_setup_text())
         details = []
         for label, value in zip(("Front left", "Front right"), views):
             size = f" • {value['width']}×{value['height']} input" if value else ""
@@ -338,7 +347,15 @@ class Window:
             self.markers.set("Waiting for live front-camera detection")
             self.marker_label.configure(foreground="")
         if getattr(self, "visualizer", None):
-            self.visualizer.render(views, progress)
+            self.visualizer.render(views, progress, self.pose_setup_text() if "tracker" not in self.processes else None)
+
+    def pose_setup_text(self):
+        layout = getattr(self, "layout", None)
+        if not layout or not layout.get() or not Path(layout.get()).is_file():
+            return "Legacy 3D setup: choose an existing measured marker-layout JSON and matching physical markers. The current phone app provides telemetry."
+        if not all(value.get() for value in (self.left, self.right, self.left_stream, self.right_stream)):
+            return "3D setup: enable cameras and select both streams and their factory calibrations."
+        return "Ready for 3D: click Start tracking with at least two shared phone markers visible."
 
     def choose_layout(self):
         from tkinter import filedialog
@@ -435,6 +452,8 @@ class Window:
                 expected = factory[calibration]
                 if (source["width"], source["height"]) != (expected["width"], expected["height"]):
                     raise ValueError(f"{calibration} is calibrated at {expected['width']}×{expected['height']}, but {stream} supplies {source['width']}×{source['height']}. Choose matching calibration; marker detection remains available.")
+            if not self.layout.get() or not Path(self.layout.get()).is_file():
+                raise ValueError(self.pose_setup_text())
             session = self.sessions / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:8])
             command = self.runtime.tracking_command(self.layout.get(), self.left.get(), self.right.get(), self.left_stream.get(), self.right_stream.get(), session, self.record.get())
             from tracking_visualizer import phone_outline
@@ -591,6 +610,7 @@ class Window:
 
     def close(self):
         self.closing = True
+        self.phone_panel.close()
         for name in list(self.processes):
             self.terminate(name)
         # Let tracking flush before the self-extractor removes its runtime.

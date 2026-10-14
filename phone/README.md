@@ -1,9 +1,9 @@
 # Android companion
 
-The FramePhone companion displays tag36h11 fiducials and exports their measured
-phone-frame geometry for the native tracker. It requires Android 12+ and uses
-application ID `com.example.framephone`. It has no network, screen streaming,
-remote input or live IMU integration.
+FramePhone sends live gyroscope, accelerometer and magnetometer observations to
+the Frame desktop app over an authenticated TLS connection. Android 12+;
+application ID `com.example.framephone`. The old fiducial overlay, display
+calibration and layout-export UI have been removed.
 
 ## Build
 
@@ -14,43 +14,47 @@ cd phone
 bash gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-From a Windows terminal inside `phone/`, use `gradlew.bat` instead. The debug APK
-is `app/build/outputs/apk/debug/app-debug.apk`. SDK paths belong in the ignored
-`local.properties`; no developer-specific path is required by the source.
-See [development notes](../docs/DEVELOPMENT.md) for platform troubleshooting.
+On Windows use `gradlew.bat`. Install `app/build/outputs/apk/debug/app-debug.apk`.
+SDK paths belong in ignored `local.properties`. See [development notes](../docs/DEVELOPMENT.md).
 
-## Calibrate and display tags
+## Pair and stream
 
-1. Measure the active display's portrait width and height with a physical ruler,
-   excluding the bezel, and save both dimensions in the app.
-2. With markers disabled, open the high-contrast calibration ruler. Check both
-   50 mm axes against the physical ruler and correct the entered dimensions.
-3. Grant **Display over other apps**, return to FramePhone and enable markers.
-   Stop using the app control or the foreground notification.
-4. Confirm complete quiet zones and clearance from rounded corners/cutouts.
-   Export JSON once diagnostics report measured marker windows.
-5. Keep the phone configuration fixed during a tracking trial. Export again
-   after changing rotation, layout, size or placement.
+1. Put phone and headset on the same LAN.
+2. Measure the phone's **outside width, height and thickness**, including its
+   case, in portrait. Enter millimeters; these are not active-display dimensions.
+3. Tap **Save dimensions and start pairing**. Allow notifications so the Stop
+   control is visible while using other apps. Keep this screen open for pairing.
+4. On Frame, open **Phone telemetry → Find phones**, select this phone and click
+   **Pair new phone**. If discovery fails, type the IP shown on the phone.
+5. Compare **all four fingerprint groups** on the two physical screens. Only
+   choose **Fingerprints match** on both if they agree. Pairing closes after
+   90 seconds; use **Pair new headset** to reopen it.
+6. Telemetry starts immediately. The Frame displays dimensions, sensor values,
+   received rates, gaps and approximate sample age. Missing sensors are shown
+   explicitly; a missing magnetometer does not block the connection.
 
-The default four-corner layout uses IDs 0–3. Other choices are two diagonal
-corners (0, 2), four edge centers (0–3), and six markers (0–5). The marker size
-excludes the white quiet zone; the complete footprint is 25% larger. Quantized,
-measured exported corners are authoritative. Layouts that clip or overlap are
-rejected with diagnostics rather than silently resized.
+For subsequent sessions, start the phone connection and choose **Connect saved
+phone** on Frame. Find/select it again if its IP changed. Reconnect checks the
+full saved certificate fingerprint before transmitting the reconnect credential.
+This version remembers one headset; a newly approved pairing replaces it.
 
-Markers remain anchored in the canonical phone frame during display rotation.
-During rotation the service temporarily hides/repositions them and shows a
-200 ms white interval before restoring tag patterns. Export readiness waits for
-measured drawing. This behavior still needs broader device testing.
+**Stop connection** (or the notification's Stop) closes listeners and streams.
+**Forget headset and stop** also revokes the saved credential. Stop before editing
+dimensions. There is no automatic boot startup or background reconnect loop.
+The enabled connection uses a connected-device foreground service, not an overlay.
 
-## Limits
+## Current limits
 
-Marker regions can block touches; the rest of the display has no overlay window.
-Protected apps may hide overlays. The foreground service stops on explicit
-Disable, lock/display-off, or process death; it does not restart at boot.
-Calibration is based on manual measurements, not reported Android DPI.
+Pairing uses manual fingerprint comparison, not QR scanning. Discovery is IPv4
+UDP broadcast; telemetry uses TLS 1.3/TCP on port 47643. Guest Wi-Fi/client
+isolation, firewall rules or future Android local-network permission changes may
+block access. Manual IP entry bypasses blocked discovery, not blocked TCP access.
 
-The [phone-layout protocol](../frame/protocol/README.md) defines exported units,
-frames and corner order. The [calibration guide](../frame/docs/CALIBRATION.md)
-and [validation guide](../frame/docs/TRACKING_VALIDATION.md) cover hardware checks.
-AprilTag family attribution is retained in [APRILTAG_LICENSE.txt](app/src/main/assets/APRILTAG_LICENSE.txt).
+Gyro/accelerometer request 200 Hz; magnetometer requests 50 Hz. Actual rates and
+sensor availability depend on the phone. Uncalibrated channels are preferred,
+with vendor bias estimates separate; calibrated channels are explicit fallbacks.
+Original integer nanosecond timestamps and fixed natural-device axes are retained.
+Sampling during lock/sleep and power management still need device validation.
+
+No optical association, pose fusion, QR scanning, screen capture or remote input
+is included. See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).

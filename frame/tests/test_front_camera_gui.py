@@ -127,6 +127,11 @@ with tempfile.TemporaryDirectory(prefix="framephone-front-gui-") as directory:
         until(lambda: any(window.visualizer.images[0].type(item) == "polygon"
                           for item in window.visualizer.images[0].find_all()))
         visualizer = window.visualizer
+        assert "JSON" in visualizer.status.get()
+        assert any("JSON" in str(visualizer.scene.itemcget(item, "text"))
+                   for item in visualizer.scene.find_all() if visualizer.scene.type(item) == "text")
+        window.start()
+        assert "JSON" in window.status.get() and "tracker" not in window.processes
         # Independently specified rigid pose exercises actual Tk phone drawing.
         from tracking_visualizer import phone_outline
         visualizer.outline = phone_outline({"calibration": {"portrait_width_m": .06, "portrait_height_m": .12}})

@@ -7,11 +7,24 @@ Docker, development containers and separate libraries are not needed to run it.
 
 ## Open it without terminal commands
 
+The app opens on **Phone telemetry**. Install the updated Android companion,
+enter the phone's outside width/height/thickness and start pairing. Use
+**Find phones**, select it, then **Pair new phone**. Compare all four fingerprint
+groups and approve both screens. Live sensor values and measured dimensions
+should appear immediately. Next time choose **Connect saved phone** after
+starting the phone connection. If discovery fails, enter the IP shown on the
+phone. See [pairing and telemetry](PAIRING_AND_IMU.md) for troubleshooting and
+protocol limits. Cameras and administrator authorization are not needed for this.
+
+The following older camera workflow is on the **Camera / legacy tracking
+diagnostics** tab. The current Android app no longer displays or exports tags;
+fiducial pose experiments require an existing layout and matching markers.
+
 1. In the desktop file manager, right-click `FramePhone-arm64.run`, open
    **Properties → Permissions**, and enable **Is executable** / **Allow executing
    file as program**. A transfer or ZIP download may remove this permission.
 2. Open the file and choose **Execute/Run** if the file manager asks.
-3. Click **Self-test**. A passing test decodes three synthetic frames through the
+3. On **Camera / legacy tracking diagnostics**, click **Self-test**. A passing test decodes three synthetic frames through the
    real detector. This checks software startup and does not need the phone.
 4. Click **Enable cameras** and approve the desktop's authorization prompt.
    This starts FramePhone's bundled broker; there is no separate broker install.
@@ -90,6 +103,12 @@ streams again; the new selections are remembered.
 Click **Tracking visualizer…** to open a separate, resizable diagnostic window.
 It updates while the camera previews are hidden and can be closed and reopened
 without stopping detection or tracking.
+If the phone layout is missing, both the main pose line and the 3D panel explain
+how to export and choose the JSON. The visualizer includes **Choose phone
+layout…** and **Start 3D tracking** buttons. This is a local file transfer and
+selection; there is no network upload or automatic layout synchronization.
+After applying the phone's large-marker preset or changing its geometry,
+export and select a new layout before starting another calibrated trial.
 
 - **Uncalibrated:** each panel plots decoded marker outlines and IDs in its
   raw camera image coordinates. This needs neither factory calibration nor a

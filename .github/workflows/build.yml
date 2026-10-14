@@ -24,6 +24,7 @@ jobs:
       - run: make -C frame test all
       - run: python3 frame/tests/test_linux_package.py
       - run: python3 frame/tests/test_desktop.py
+      - run: python3 frame/tests/test_phone_link.py
       - run: python3 frame/tests/test_broker.py
       - run: python3 scripts/package-source.py
 
@@ -47,6 +48,7 @@ jobs:
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
           xvfb-run -a python3 frame/tests/test_front_camera_gui.py frame/build/ci
+          xvfb-run -a python3 frame/tests/test_phone_gui.py
 
   linux-package:
     name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }}, ${{ matrix.engine }})

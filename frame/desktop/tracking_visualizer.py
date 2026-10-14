@@ -26,7 +26,7 @@ def phone_outline(layout):
 
 
 class TrackingVisualizer:
-    def __init__(self, root):
+    def __init__(self, root, choose_layout=None, start_tracking=None):
         import tkinter as tk
         from tkinter import ttk
         self.window = tk.Toplevel(root)
@@ -57,10 +57,16 @@ class TrackingVisualizer:
         self.scene = tk.Canvas(self.window, background="#101c2c", highlightthickness=0)
         self.scene.grid(row=3, column=0, sticky="nsew", padx=12)
         self.status = tk.StringVar(value="Enable cameras for marker detection; Start tracking for a calibrated pose.")
-        ttk.Label(self.window, textvariable=self.status, padding=8, wraplength=900).grid(row=4, column=0, sticky="w")
+        actions = ttk.Frame(self.window, padding=8)
+        actions.grid(row=4, column=0, sticky="w")
+        if choose_layout:
+            ttk.Button(actions, text="Choose phone layout…", command=choose_layout).pack(side="left")
+        if start_tracking:
+            ttk.Button(actions, text="Start 3D tracking", command=start_tracking).pack(side="left", padx=8)
+        ttk.Label(self.window, textvariable=self.status, padding=8, wraplength=900).grid(row=5, column=0, sticky="w")
         self.outline = None
 
-    def render(self, views, progress):
+    def render(self, views, progress, setup_message=None):
         for index, (canvas, view) in enumerate(zip(self.images, views)):
             canvas.delete("all")
             width, height = canvas.winfo_width(), canvas.winfo_height()
@@ -92,7 +98,10 @@ class TrackingVisualizer:
         canvas.create_text(*origin, text="Head", fill="white", anchor="n")
         if not progress or progress["status"] != "accepted" or "rotation" not in progress:
             status = progress["status"].replace("_", " ") if progress else "no live pose"
-            self.status.set("No calibrated phone pose — " + status + ". Image-space detection needs no calibration.")
+            message = setup_message or "No calibrated phone pose — " + status
+            canvas.create_text(width / 2, height * .2, text=message, width=max(200, width - 60),
+                               fill="#bac6d6", font=("sans", 12))
+            self.status.set(message + ". Image-space detection needs no calibration.")
             return
         t, r = progress["translation"], progress["rotation"]
         center = screen(t)

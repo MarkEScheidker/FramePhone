@@ -12,8 +12,8 @@ results are available only after pushing the repository.
 
 | Suite | Coverage |
 | --- | --- |
-| Android `GeometryTest` | Physical units, display/phone rotation, layout clipping/overlap, raster orientation and exported marker geometry. |
-| Android `Tag36h11Test` | Official family raster fixtures and rotation. |
+| Android `ProtocolTest` | Measured body units/ranges, integer timestamps, bounded message parsing and fingerprint encoding. |
+| Phone link tests | Real loopback TLS pairing/reconnect/rejection, changed identity before credential transmission, private persistence, framing, clock probes and sensor gaps/staleness. |
 | Native camera source tests | Metadata/stride, PGM parsing, clock separation and deterministic synthetic tags. |
 | Native ring tests | Stable/torn slots, stale writer, malformed ABI, replacement, skips and timestamp precision. |
 | Diagnostic state/CLI tests | Detection histories, loss/reacquisition, CSV, replay and independent ring input. |

@@ -27,6 +27,26 @@ app, reader = load("app"), load("ring_preview")
 
 
 class DesktopTests(unittest.TestCase):
+    def test_3d_setup_explains_missing_layout_then_camera_then_start(self):
+        class Value:
+            def __init__(self, value=""):
+                self.value = value
+            def get(self):
+                return self.value
+        window = app.Window.__new__(app.Window)
+        window.layout = Value()
+        window.left, window.right = Value(), Value()
+        window.left_stream, window.right_stream = Value(), Value()
+        self.assertIn("JSON", window.pose_setup_text())
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "layout.json"
+            path.write_text("{}")
+            window.layout.value = str(path)
+            self.assertIn("enable cameras", window.pose_setup_text())
+            for var in (window.left, window.right, window.left_stream, window.right_stream):
+                var.value = "selected"
+            self.assertIn("Start tracking", window.pose_setup_text())
+
     def test_requested_defaults_preserve_explicit_selection(self):
         left, right = front.DEFAULT_CAMERAS
         self.assertEqual(left, ("slam_left", "og01a1b_4-0060_video3"))

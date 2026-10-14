@@ -1,7 +1,9 @@
 # Phone layout JSON v1
 
-Producer: `phone/app/.../geometry/LayoutExport.kt`. This is an offline geometry
-snapshot, not a transport, pose stream, or claim of current marker visibility.
+Legacy format produced by the earlier Android fiducial app. The current phone
+app no longer exports it; native consumers and fixtures retain support for old
+experiments. This is an offline marker-geometry snapshot, not the new sensor
+transport. See [LAN pairing and telemetry](../docs/PAIRING_AND_IMU.md).
 
 Required identifying fields are `schema = framephone.phone-layout`,
 `layout_version = 1`, opaque `revision`, `family = tag36h11`, `units = meters`.
@@ -44,8 +46,14 @@ Clock maps, camera recordings and future IMU samples remain separate contracts.
 No live networking is included and Android's game rotation vector is not assumed
 to share OpenXR's world frame.
 
-Supported `layout` values: `FOUR_CORNERS` (default, IDs 0–3), `TWO_DIAGONAL`
+Supported `layout` values: `FOUR_CORNERS` (IDs 0–3), `TWO_DIAGONAL`
 (IDs 0,2), `FOUR_EDGES` (IDs 0–3, phone-frame top/right/bottom/left), and
-`SIX_PHONE_FRAME` (IDs 0–5, corners plus right/left centers). Existing persisted
-six-tag settings remain supported. A consumer must use the exported layout and
+`SIX_PHONE_FRAME` (default, IDs 0–5, corners plus right/left centers). Existing
+saved layout choices remain supported. A consumer must use the exported layout and
 corners rather than assuming six detections or a fixed ID-to-position mapping.
+
+Optional informational fields `sizing_mode` (`auto_fit` or `manual`) and
+`overlay_opacity` describe rendering. In automatic mode, `requested_marker_size_m`
+retains the manual-size preference; consumers must use each marker's actual
+boundary size and measured corners. Cutout avoidance can shift nominal anchors.
+These additions do not change the v1 geometry contract.

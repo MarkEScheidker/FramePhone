@@ -1,7 +1,8 @@
-# Native tracker
+# Frame desktop app and native diagnostics
 
-C++20/Linux tools for detecting the phone's AprilTag markers and estimating its
-pose. The Android companion is a separate project under [phone/](../phone/).
+The desktop app pairs with the [Android companion](../phone/) and displays live
+motion sensors and measured phone dimensions. C++20/Linux tools retain the
+earlier AprilTag camera and pose diagnostics. Sensor fusion is future work.
 Software tests exercise synthetic and recorded inputs; Steam Frame camera
 compatibility and tracking accuracy remain unverified on hardware.
 
@@ -24,8 +25,9 @@ render the tracked phone in VR.
 For the supported Steam Frame package, run **`bash frame/build.sh`** from the
 repository root on either Linux desktop or headset. Both produce the same ARM64
 single-file executable, `FramePhone-arm64.run`. Follow [BUILD.md](docs/BUILD.md),
-copy the file to the headset and open it. The GUI includes a self-test, camera
-authorization/previews and tracking controls. Libraries and the broker are
+copy the file to the headset and open it. The GUI opens on **Phone telemetry**
+for discovery, pairing and live readings. A separate legacy diagnostics tab
+retains camera previews and tracking controls. Libraries and the broker are
 bundled; Docker/Podman is needed only on the build machine.
 
 ### Direct desktop development build

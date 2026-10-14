@@ -1,16 +1,18 @@
 # Architecture
 
-FramePhone has two independent applications. `phone/` is an Android app that
-renders markers and exports measured geometry. `frame/` is a native C++20/Linux
-tracker that consumes camera images and that export. There is no live network
-connection between them; an operator transfers the JSON layout for each fixed
-phone configuration.
+FramePhone has two applications. `phone/` captures Android motion sensors and
+serves manually measured body dimensions over an authenticated TLS link.
+`frame/desktop/` pairs with it and displays live telemetry. The native C++20
+camera and fiducial tracker remains a separate diagnostic path; fusion is future
+work. See the [LAN protocol](PAIRING_AND_IMU.md).
 
 ## Data flow
 
 ```mermaid
 flowchart LR
-    Phone[Android overlays] --> Layout[Measured phone layout JSON]
+    Phone[Android dimensions and sensors] --> TLS[Authenticated TLS link]
+    TLS --> Telemetry[Frame live sensor diagnostics]
+    Legacy[Legacy exports] --> Layout[Measured marker layout JSON]
     Camera[Frametop camera ring] --> Frames[Owned grayscale frames]
     Replay[PGM recordings] --> Frames
     Synthetic[Synthetic input] --> Frames
@@ -30,15 +32,15 @@ It does not demonstrate live tracked rendering.
 
 | Directory / class | Responsibility |
 | --- | --- |
-| `geometry/` | Physical layout math, Android display measurements and versioned JSON export. |
-| `markers/` | Pinned tag36h11 family data and whole-pixel raster drawing. |
-| `overlay/FiducialService` | Explicitly enabled foreground service with one small overlay window per tag. |
-| `MainActivity` / `SettingsStore` | Calibration, layout selection, permissions, local preferences and export. |
+| `link/Protocol`, `PhoneDimensions` | Bounded wire framing, certificate fingerprint formatting and measured body dimensions. |
+| `link/Identity`, `PhoneServer` | Keystore TLS identity, LAN discovery, approval, reconnect authentication and telemetry session. |
+| `link/SensorFeed`, `TelemetryService` | Bounded sensor capture, explicit connected-device foreground lifecycle and Stop. |
+| `MainActivity` / `SettingsStore` | Dimensions, pairing controls, private preferences and credential verifier. |
 
-Calibration is based on manually measured active display dimensions. Each axis
-has its own physical pixel scale. Phone-frame marker anchors and raster orientation
-remain stable across display rotation; measured bounds drive exported geometry.
-No Accessibility service, networking or IMU sampling is used.
+Dimensions describe the outside body/case, not active-display size. Sensor axes
+remain Android natural-device axes, independent of UI rotation. The old overlay,
+marker raster, screen calibration and layout-export code has been removed from
+the Android app. No Accessibility service or screen capture is used.
 
 ## Native modules
 
@@ -74,6 +76,10 @@ never turn an earlier pose into a current measurement. Whole markers, not
 individual convenient corners, determine consensus.
 
 ## Future integration
+
+The [LAN pairing and sensor link](PAIRING_AND_IMU.md) now implements fingerprint
+approval and timestamped streaming. QR association, precise clock drift modeling,
+canonical sensor transforms and visual-inertial pose estimation remain future work.
 
 World tracking needs capture-to-XR time mapping and historical headset poses:
 `T_WP(t) = T_WH(t) * T_HP(t)`. A current headset pose cannot replace the pose at

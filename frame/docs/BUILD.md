@@ -9,7 +9,8 @@ frame/build/dist/FramePhone-arm64.run
 
 Copy that **one executable** to the headset. No installer, runtime container,
 Frametop installation, Python installation or separate library download is
-needed there. It opens a desktop window with camera controls and a self-test.
+needed there. It opens a desktop window with phone pairing and live telemetry,
+plus a separate camera/legacy tracking tab with a self-test.
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the mouse-only test procedure.
 
 ## Build-machine setup

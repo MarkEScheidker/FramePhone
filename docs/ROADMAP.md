@@ -1,13 +1,17 @@
 # Roadmap
 
 FramePhone's goal is to locate a phone in Steam Frame's view and eventually draw
-its correctly sized screen in VR. The current milestone is a repeatable optical
-tracking experiment, not a complete virtual phone product.
+its correctly sized screen in VR. The current milestone is paired live phone
+telemetry as a foundation for markerless tracking.
 
 ## Implemented
 
-- Android tag36h11 overlays with physical display calibration, configurable
-  layouts and versioned measured-corner export.
+- Android manual body dimensions, user-started sensor service, LAN discovery,
+  TLS fingerprint pairing and revocable saved reconnect credentials.
+- Frame phone telemetry tab with live values, measured rates, sensor availability,
+  drops/gaps and rough clock-offset/sample-age diagnostics.
+- Removed the Android fiducial overlay and export UI. Native marker diagnostics
+  remain available for old exports, fixtures and camera experiments.
 - Native real AprilTag detection, desktop preview, synthetic input and local replay.
 - Read-only Frametop camera-ring adapter and factory KB4 camera/head calibration.
 - Calibrated planar and stereo rigid-phone estimation, whole-tag outlier checks,
@@ -18,7 +22,15 @@ tracking experiment, not a complete virtual phone product.
   with bundled libraries, camera broker, layout chooser, live previews, tracking
   controls and a camera-independent startup test.
 
-## Next: validate the headset path
+## Next: validate pairing and sensor delivery
+
+Pair on the real LAN, check sensor axes/rates, Stop/Forget, reconnect after IP
+changes, unavailable sensors, Wi-Fi loss and sleep/resume. Measure transport
+latency and power. Software tests do not validate Android Keystore/TLS behavior
+or sensor delivery on the owner's phone. Then add temporary visual association,
+off-the-shelf phone detection and physical outline estimation.
+
+## Camera validation
 
 Build on ARM64, establish the camera broker/identity/clock mapping, and collect
 paired captures with the actual phone export. Measure detection coverage,
@@ -46,7 +58,11 @@ measurements.
 
 ## Later experiments
 
-Phone IMU fusion and screen streaming are separate future features. They need
-explicit transport, clock and alignment contracts and are not included in the
-current apps. Multi-phone tracking, curved/folded screens, general hand tracking
+The next markerless experiment combines a pretrained phone detector and physical
+outline geometry with phone inertial data. [LAN pairing and IMU design](../frame/docs/PAIRING_AND_IMU.md)
+documents the implemented fingerprint pairing and sensor transport, plus the
+remaining QR association, precise timing and headset-owned fusion work. Measure
+the connection/clock diagnostics before integrating the estimator.
+Screen streaming is separate future work.
+Multi-phone tracking, curved/folded screens, general hand tracking
 and a full desktop compositor are outside the current scope.

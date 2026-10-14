@@ -5,7 +5,7 @@ replace notices for third-party code, generated family data or linked libraries.
 
 | Component | Use | Notice |
 | --- | --- | --- |
-| AprilRobotics AprilTag 3, tag36h11 v3.4.5 | Phone and native synthetic marker family data; optional native detector library | [Phone notice](phone/app/src/main/assets/APRILTAG_LICENSE.txt), [native notices](frame/THIRD_PARTY_NOTICES.md) |
+| AprilRobotics AprilTag 3, tag36h11 v3.4.5 | Native synthetic marker family data and optional detector; Android marker implementation retired | [Retained phone notice](phone/app/src/main/assets/APRILTAG_LICENSE.txt), [native notices](frame/THIRD_PARTY_NOTICES.md) |
 | Frametop, commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` | Bundled camera broker; adapted calibration/ray math and pairing policy; camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
 | OpenCV and nlohmann JSON | Native pose estimation and JSON parsing | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
 | SDL2 | Optional desktop diagnostic window | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
