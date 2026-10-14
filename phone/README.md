@@ -38,6 +38,12 @@ phone** on Frame. Find/select it again if its IP changed. Reconnect checks the
 full saved certificate fingerprint before transmitting the reconnect credential.
 This version remembers one headset; a newly approved pairing replaces it.
 
+The phone checks a real local TLS handshake before opening discovery. If startup
+fails, its status shows **Cannot start at TLS self-check** with diagnostic details.
+The corrected identity key permits TLS's pre-hashed signing operation. Updating
+from the original restricted key replaces that identity and clears the phone's
+old pairing once; choose **Pair new phone** on Frame to establish trust again.
+
 **Stop connection** (or the notification's Stop) closes listeners and streams.
 **Forget headset and stop** also revokes the saved credential. Stop before editing
 dimensions. There is no automatic boot startup or background reconnect loop.

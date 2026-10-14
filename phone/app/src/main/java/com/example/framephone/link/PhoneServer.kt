@@ -3,6 +3,7 @@ package com.example.framephone.link
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import android.util.Log
 import com.example.framephone.SettingsStore
 import org.json.JSONObject
 import java.io.DataInputStream
@@ -35,6 +36,8 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
     @Volatile private var discovery: DatagramSocket? = null
     @Volatile private var pending: Approval? = null
     @Volatile private var status = LinkStatus(running = true, message = "Starting secure listener…")
+    @Volatile private var stage = "startup"
+    @Volatile private var tlsReady = false
     private class Approval(val id: String = UUID.randomUUID().toString()) {
         val latch = CountDownLatch(1)
         @Volatile var accepted = false
@@ -59,15 +62,27 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
     }
     fun start(pair: Boolean) = thread(name = "phone-tls") {
         try {
+            stage = "identity initialization"
             val identity = Identity()
-            val listener = identity.context().serverSocketFactory.createServerSocket(Protocol.PORT) as SSLServerSocket
+            if (identity.replacedLegacyIdentity) {
+                store.forget()
+                identity.retireLegacyIdentity()
+            }
+            stage = "TLS self-check"
+            update("Checking this phone's TLS identity…")
+            val tls = identity.context()
+            TlsSelfCheck.verify(tls, identity.pin)
+            if (!running) return@thread
+            stage = "LAN listener"
+            val listener = tls.serverSocketFactory.createServerSocket(Protocol.PORT) as SSLServerSocket
             server = listener
             listener.enabledProtocols = arrayOf("TLSv1.3")
             listener.soTimeout = 1000
             val addresses = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
                 .filter { it is Inet4Address && !it.isLoopbackAddress }.joinToString(" / ") { it.hostAddress ?: "" }
             status = status.copy(address = addresses)
-            if (pair) openPairing() else update("Ready. On Frame choose Connect saved phone.")
+            if (pair || identity.replacedLegacyIdentity || store.pairedName() == null) openPairing()
+            else update("Ready. On Frame choose Connect saved phone.")
             startDiscovery()
             while (running) {
                 if (pairUntil != 0L && SystemClock.elapsedRealtime() >= pairUntil) {
@@ -76,14 +91,28 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 }
                 val socket = try { listener.accept() as SSLSocket } catch (_: SocketTimeoutException) { continue }
                 client = socket
-                try { socket.use { serve(it, identity.pin) } }
+                tlsReady = false
+                try { serve(socket, identity.pin) }
                 catch (error: Exception) {
-                    update("Connection ended (${error.javaClass.simpleName}). Reconnect on Frame or reopen pairing.")
+                    // TLS details do not contain application credentials; never log inbound JSON.
+                    if (stage == "TLS handshake") Log.w("FramePhone", "TLS handshake failed", error)
+                    val detail = if (stage == "TLS handshake") ": ${error.message?.take(200) ?: "No details"}" else ""
+                    update("Connection failed at $stage (${error.javaClass.simpleName})$detail. Reopen pairing to retry.")
+                    val code = when {
+                        stage == "pairing request" && SystemClock.elapsedRealtime() >= pairUntil -> "pairing_closed"
+                        stage == "pairing approval" -> "pairing_rejected_or_expired"
+                        stage == "reconnect authentication" -> "authentication_failed"
+                        else -> "protocol_error"
+                    }
+                    if (tlsReady && !socket.isClosed) runCatching {
+                        Protocol.write(DataOutputStream(socket.outputStream), JSONObject().put("type", "error").put("code", code))
+                    }
+                    runCatching { socket.close() }
                 }
-                finally { client = null; pending = null }
+                finally { runCatching { socket.close() }; client = null; pending = null }
             }
         } catch (error: Exception) {
-            if (running) publish(LinkStatus(message = "Cannot start: ${error.message}", paired = store.pairedName()))
+            if (running) publish(LinkStatus(message = "Cannot start at $stage: ${error.javaClass.simpleName}: ${error.message?.take(200)}", paired = store.pairedName()))
         } finally { close() }
     }
 
@@ -109,10 +138,13 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
     }
 
     private fun serve(socket: SSLSocket, pin: String) {
+        stage = "TLS handshake"
         socket.enabledProtocols = arrayOf("TLSv1.3")
         socket.soTimeout = 5000
         socket.tcpNoDelay = true
         socket.startHandshake()
+        tlsReady = true
+        stage = "pairing request"
         val input = DataInputStream(socket.inputStream)
         val output = DataOutputStream(socket.outputStream)
         val hello = Protocol.read(input)
@@ -129,6 +161,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             update("Compare all four fingerprint groups with Frame, then approve both screens.", approval.id, peer, code)
             Protocol.write(output, JSONObject().put("type", "pairing").put("nonce", nonce))
             socket.soTimeout = 60000
+            stage = "pairing approval"
             try {
                 val confirm = Protocol.read(input)
                 require(confirm.getString("type") == "confirm" && confirm.getBoolean("accepted"))
@@ -145,11 +178,13 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 Protocol.write(output, JSONObject().put("type", "paired").put("credential", credential))
             } finally { pending = null }
         } else {
+            stage = "reconnect authentication"
             require(hello.getString("mode") == "reconnect" && store.authenticates(hello.getString("credential")))
             peer = store.pairedName() ?: error("Pairing was revoked")
         }
         require(running)
         val session = UUID.randomUUID().toString()
+        stage = "sensor startup"
         val feed = SensorFeed(context)
         try {
             Protocol.write(output, JSONObject().put("type", "profile").put("version", Protocol.VERSION)
@@ -157,6 +192,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("clock", "android_elapsed_realtime_ns").put("axes", "android_natural_device")
                 .put("sensors", feed.capabilities))
             update("Streaming gyro, accelerometer and magnetometer to $peer", peer = peer)
+            stage = "sensor streaming"
             socket.soTimeout = 8000
             val lastWrite = AtomicLong(SystemClock.elapsedRealtime())
             val alive = AtomicBoolean(true)

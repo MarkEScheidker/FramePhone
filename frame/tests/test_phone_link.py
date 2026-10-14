@@ -130,6 +130,17 @@ class ProtocolTests(unittest.TestCase):
             store.forget()
             self.assertIsNone(store.load())
 
+    def test_phone_errors_are_actionable_without_echoing_peer_details(self):
+        for code, expected in (("pairing_closed", "expired"), ("authentication_failed", "rejected"),
+                               ("unknown", "Check the phone")):
+            a, b = socket.socketpair()
+            with a, b:
+                write_message(a, {"type": "error", "code": code, "detail": "secret must not appear"})
+                with self.assertRaises(ValueError) as raised:
+                    read_message(b)
+                self.assertIn(expected, str(raised.exception))
+                self.assertNotIn("secret", str(raised.exception))
+
 
 class TLSTests(unittest.TestCase):
     @classmethod
@@ -240,6 +251,36 @@ class TLSTests(unittest.TestCase):
 
     def test_revoked_credential_does_not_stream(self):
         self.exercise(pair=False, reject_credential=True)
+
+    def test_immediate_eof_identifies_tls_handshake_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            listener = socket.socket()
+            listener.bind(("127.0.0.1", 0))
+            listener.listen(1)
+            listener.settimeout(5)
+            def close_without_handshake():
+                with listener, listener.accept()[0] as connection:
+                    connection.settimeout(5)
+                    header = b""
+                    while len(header) < 5:
+                        header += connection.recv(5 - len(header))
+                    remaining = int.from_bytes(header[3:5], "big")
+                    while remaining:
+                        remaining -= len(connection.recv(remaining))
+            server = threading.Thread(target=close_without_handshake)
+            server.start()
+            notices = []
+            client = PhoneLink(PairingStore(Path(directory) / "pairing.json"),
+                               lambda kind, value: notices.append((kind, value)), lambda *_: True)
+            port = listener.getsockname()[1]
+            client.run("127.0.0.1", pair=True, port=port)
+            server.join(5)
+            self.assertFalse(server.is_alive())
+            errors = [value for kind, value in notices if kind == "error"]
+            self.assertEqual(len(errors), 1)
+            self.assertIn("TLS handshake", errors[0])
+            self.assertIn("phone APK", errors[0])
+            self.assertIsNone(client.store.load())
 
 
 if __name__ == "__main__":

@@ -28,6 +28,11 @@ authorization or clipboard is required. See the [phone guide](../../phone/README
 - The phone serves TLS 1.3 on TCP port 47643 using a persistent P-256 identity
   key in Android Keystore and its self-signed certificate. The private key stays
   in Keystore. TLS comes from Android and Python/OpenSSL, with no new crypto library.
+  Android's standard key-manager factory selects the certificate. Keystore
+  authorizes both SHA-256 and no-digest signing: Conscrypt uses NONEwithECDSA
+  on the TLS transcript digest it already computed. The phone verifies an actual
+  pinned local TLS 1.3 handshake before advertising discovery. The earlier
+  SHA-256-only identity is replaced once, revoking its saved pairing.
 - First enrollment displays a session fingerprint as four groups of four hex
   digits. Both independently compute the first 64 bits of SHA-256 of the ASCII
   concatenation `certificate_hash_hex + client_nonce_hex + phone_nonce_hex`.
@@ -74,6 +79,7 @@ malformed data, unexpected sessions and reordered samples close the connection.
 | `profile` | Phone → Frame: version, fresh session UUID, phone name, dimensions, sensor capabilities, axes and clock. Sent only after authentication. |
 | `ping` / `pong` | Frame sends `h0`; phone returns it with receive/send `p1,p2` and session; Frame records receive `h3`. |
 | `samples` | Phone → Frame: session, cumulative queue-drop count, array of at most 64 sensor events. |
+| `error` | Phone → Frame, after TLS: fixed `code` for closed pairing, rejected/expired approval, failed authentication or protocol error. No credentials or raw request contents. |
 
 The profile's `dimensions` has `width_m`, `height_m`, `thickness_m`,
 `boundary:body_or_case`, `source:manual`. These dimensions do not imply active
@@ -134,12 +140,22 @@ and private persistence. Android `ProtocolTest` checks physical units, invalid
 dimensions, bounded parsing and matching wire/fingerprint conventions.
 These checks do not replace Android Keystore/sensor and Steam Frame LAN trials.
 
+Android's host `TlsSelfCheckTest` exercises pinned TLS 1.3 and wrong-pin rejection.
+The device `IdentityTlsTest` exercises the real Android Keystore and Conscrypt;
+run `:app:connectedDebugAndroidTest` on a connected phone/emulator. The same TLS
+self-check runs during normal phone startup. Connection errors identify the
+failed stage; handshake details are visible on the phone and under the FramePhone
+Android log tag. Encrypted application rejections use fixed error codes, rather
+than closing without an explanation. Frame still requires TLS 1.3 and its saved
+certificate pin for reconnects.
+
 Hardware check: pair, rotate the phone and verify changing gyro/accel/magnetic
 values; check rates and unavailable sensors; stop/restart both apps and reconnect;
 reject a pairing; revoke on the phone and verify reconnect fails; test Wi-Fi loss
 and suspend/resume. Confirm no old readings remain labeled live after disconnect.
 
 References: [Android sensors](https://developer.android.com/reference/android/hardware/SensorEvent),
+[TLS signing authorizations](https://developer.android.com/reference/android/security/keystore/KeyProtection.Builder),
 [Keystore](https://developer.android.com/privacy-and-security/keystore),
 [foreground service types](https://developer.android.com/develop/background-work/services/fgs/service-types)
 and [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html).

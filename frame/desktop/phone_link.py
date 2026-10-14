@@ -18,6 +18,12 @@ PORT = 47643
 MAX_MESSAGE = 65536
 DISCOVERY = b"FRAMEPHONE_DISCOVER_V1"
 SENSORS = {"gyro": "rad/s", "accel": "m/s^2", "mag": "uT"}
+PHONE_ERRORS = {
+    "pairing_closed": "The phone's pairing window expired. Tap Pair new headset on the phone, then Pair new phone here.",
+    "pairing_rejected_or_expired": "Pairing was rejected or timed out. Reopen pairing and approve matching fingerprints on both screens.",
+    "authentication_failed": "The phone rejected the saved pairing. Start new pairing on both devices.",
+    "protocol_error": "The phone could not process this connection. Check its connection status and update both apps.",
+}
 
 
 def fingerprint(pin):
@@ -39,6 +45,10 @@ def read_message(sock):
     message = json.loads(exact(size))
     if not isinstance(message, dict):
         raise ValueError("Expected a phone message object")
+    if message.get("type") == "error":
+        code = message.get("code")
+        raise ValueError(PHONE_ERRORS.get(code if isinstance(code, str) else None,
+                                         "Phone reported a connection error. Check the phone's status."))
     return message
 
 
@@ -265,6 +275,7 @@ class PhoneLink:
             return self.telemetry.snapshot(time.monotonic_ns()) if self.telemetry else None
 
     def run(self, host, pair=False, port=PORT):
+        phase = "connection setup"
         try:
             ipaddress.IPv4Address(host)
             saved = None if pair else self.store.load()
@@ -279,10 +290,12 @@ class PhoneLink:
             context.verify_mode = ssl.CERT_NONE
             with socket.create_connection((host, port), timeout=5) as raw:
                 self.sock = raw
+                phase = "TLS handshake"
                 with context.wrap_socket(raw, server_hostname=None) as sock:
                     self.sock = sock
                     if self.stopped.is_set():
                         return
+                    phase = "pairing request" if pair else "reconnect authentication"
                     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                     pin = hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest()
                     if saved and pin != saved["pin"]:
@@ -302,6 +315,7 @@ class PhoneLink:
                         if not accepted or self.stopped.is_set():
                             raise ValueError("Pairing cancelled; no phone saved")
                         write_message(sock, {"type": "confirm", "accepted": True})
+                        phase = "pairing approval"
                         self.notify("status", "Approve the matching fingerprint on the phone…")
                         sock.settimeout(65)
                         message = read_message(sock)
@@ -310,6 +324,7 @@ class PhoneLink:
                         saved = {"pin": pin, "credential": message["credential"], "host": host}
                         self.store.save(saved)
                     sock.settimeout(4)
+                    phase = "sensor startup"
                     profile = read_message(sock)
                     telemetry = Telemetry(profile)
                     with self.lock:
@@ -318,6 +333,7 @@ class PhoneLink:
                         saved["host"] = host
                         self.store.save(saved)
                     self.notify("status", "Connected — receiving phone sensors")
+                    phase = "sensor streaming"
                     pending, next_ping = set(), 0
                     while not self.stopped.is_set():
                         now = time.monotonic_ns()
@@ -337,7 +353,12 @@ class PhoneLink:
         except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
             if not self.stopped.is_set():
                 # Never include arbitrary peer-controlled messages or credentials in logs.
-                self.notify("error", str(error) if isinstance(error, (OSError, ValueError)) else "Malformed phone telemetry")
+                if isinstance(error, ssl.SSLError):
+                    self.notify("error", f"Secure connection failed during {phase}. "
+                                "Install the updated phone APK and check the phone's TLS status. "
+                                f"Details: {error}")
+                else:
+                    self.notify("error", str(error) if isinstance(error, (OSError, ValueError)) else "Malformed phone telemetry")
         finally:
             self.sock = None
             with self.lock:
