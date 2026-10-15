@@ -2,8 +2,9 @@
 
 An experimental phone companion for Valve Steam Frame. The Android app pairs
 over the LAN and sends measured phone dimensions and live motion sensors to the
-Frame desktop app. The optical diagnostic estimates a phone-body pose from
-labelled stereo corners, then tracks its visible front outline.
+Frame desktop app. A bundled pretrained detector finds phones automatically in
+the front camera views. A separate optical diagnostic estimates a phone-body
+pose from labelled stereo corners, then tracks its visible front outline.
 
 **Early development:** pairing and live telemetry have been confirmed on the
 owner's phone and Steam Frame. Markerless accuracy, front-camera calibration
@@ -27,10 +28,12 @@ On the Android app, enter the outside phone/case width, height and thickness,
 then start pairing. In **Phone telemetry**, choose **Find phones → Pair new phone**,
 compare the fingerprint and approve on both devices. Later use **Connect saved phone**.
 
-For optical testing: **Markerless tracking → Enable cameras → Capture pair →
-label four physical front corners in each view → Estimate pose → Track outline**.
-This manually initialized baseline needs a clear front outline in both cameras
-and stops on loss. **Camera setup** provides the two front previews, native-size
+For automatic visual testing: **Markerless tracking → Enable cameras → Refresh
+cameras → Start phone detection**. Green boxes show pretrained detections and
+confidence; amber outlines show visible quadrilaterals with a 2D image angle.
+No corner clicks are required. Automatic metric 3D pose is still future work.
+The optional manual stereo diagnostic remains available for geometry checks.
+**Camera setup** provides the two front previews, native-size
 views, a geometry self-test and the integrated log.
 
 See the [headset guide](frame/docs/HEADSET_TEST.md) and
@@ -63,6 +66,7 @@ desktop interface. Synthetic tests exercise software, not real-world accuracy.
 - [Android companion](phone/README.md)
 - [Build setup](frame/docs/BUILD.md) and [development](docs/DEVELOPMENT.md)
 - [Markerless usage and replay](frame/docs/MARKERLESS_DIAGNOSTIC.md)
+- [Automatic phone detection](frame/docs/AUTO_DETECTION.md)
 - [Markerless research and next stages](frame/docs/MARKERLESS_TRACKING.md)
 - [Pairing and sensor protocol](frame/docs/PAIRING_AND_IMU.md)
 - [Architecture](frame/docs/ARCHITECTURE.md) and [coordinates](frame/docs/COORDINATE_SYSTEMS.md)

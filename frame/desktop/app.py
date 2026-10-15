@@ -46,6 +46,13 @@ class Runtime:
                 str(self.root / "opt/framephone/bin/framephone-camd"),
                 "--status", "2"]
 
+    def detector_command(self, *args):
+        return [self.loader, "--library-path", self.libraries,
+                str(self.root / "usr/bin/python3"),
+                str(self.root / "opt/framephone/desktop/phone_detection.py"),
+                "--model", str(self.root / "opt/framephone/share/framephone/models/object_detection_yolox_2022nov.onnx"),
+                *map(str, args)]
+
 
 class Window:
     def __init__(self, root, runtime):
@@ -79,7 +86,7 @@ class Window:
         for key in ("left", "right", "left_stream", "right_stream"):
             setattr(self, key, tk.StringVar(value=mapping.get(key, "")))
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_views", False)))
-        self.status = tk.StringVar(value="Connect a phone, then open Markerless tracking. Camera setup provides live front views.")
+        self.status = tk.StringVar(value="Markerless tracking provides automatic phone detection. Phone telemetry provides pairing and sensors.")
         root.title("FramePhone")
         root.geometry("1000x900")
         root.minsize(720, 600)

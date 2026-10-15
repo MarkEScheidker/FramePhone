@@ -6,6 +6,10 @@ telemetry and an initial markerless optical diagnostic.
 
 ## Implemented
 
+- Bundled pretrained YOLOX-S phone detection with live native-pixel boxes,
+  confidence/counts, optional visible 2D quadrilateral/axis and automatic search
+  after disappearance. No manual corner selection is needed for detection.
+
 - Markerless desktop workflow: synchronized capture, physically labelled corners,
   calibrated T_HB body-pose estimation, local complete-front-outline tracking,
   explicit ambiguity/loss, saved calibration and optional raw telemetry/replay.
@@ -30,7 +34,9 @@ The [markerless tracking research and plan](../frame/docs/MARKERLESS_TRACKING.md
 proposes OpenCV outline acquisition, IPPE hypotheses, joint stereo validation
 and a RAPID silhouette tracker, followed by aligned gyro prediction. The
 [first diagnostic](../frame/docs/MARKERLESS_DIAGNOSTIC.md) implements manual
-initialization and a complete-front-outline baseline. Collect actual Frame
+initialization and a complete-front-outline baseline. A separate
+[automatic detection view](../frame/docs/AUTO_DETECTION.md) now provides
+pretrained phone boxes and 2D outline proposals. Collect actual Frame
 recordings and independent pose references next; compare automatic acquisition
 and RAPID on those trials. Partial occlusion, automatic visual association and
 gyro fusion are not implemented yet.
@@ -72,8 +78,8 @@ measurements.
 
 ## Later experiments
 
-The next markerless experiment combines a pretrained phone detector and physical
-outline geometry with phone inertial data. [LAN pairing and IMU design](../frame/docs/PAIRING_AND_IMU.md)
+The next markerless experiment connects the pretrained detector's proposals to
+validated stereo physical outlines, then phone inertial data. [LAN pairing and IMU design](../frame/docs/PAIRING_AND_IMU.md)
 documents the implemented fingerprint pairing and sensor transport, plus the
 remaining QR association, precise timing and headset-owned fusion work. Measure
 the connection/clock diagnostics before integrating the estimator.

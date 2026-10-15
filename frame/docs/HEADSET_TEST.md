@@ -32,6 +32,11 @@ The integrated log shows discovery, source dimensions and broker failures.
 
 ## Try markerless pose
 
+Start with **Markerless tracking → Start phone detection**. It runs the bundled
+pretrained model continuously, showing phone boxes/confidence and optional
+visible outlines without corner selection. See [automatic detection](AUTO_DETECTION.md).
+This verifies visual acquisition; boxes and 2D angles are not metric 3D poses.
+
 Follow the [markerless diagnostic](MARKERLESS_DIAGNOSTIC.md): capture a synchronized
 pair, label the same physical front corners in each view, estimate pose, and
 start local outline tracking. Hold still during initialization and move slowly.

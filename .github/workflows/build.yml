@@ -40,7 +40,7 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 python3-tk xvfb xauth file libopencv-dev nlohmann-json3-dev clang-format-18 ripgrep
+          sudo apt-get install -y build-essential cmake python3 python3-tk python3-opencv xvfb xauth file libopencv-dev nlohmann-json3-dev clang-format-18 ripgrep
       - name: Check native formatting
         run: rg --files frame/src frame/include frame/tests -g '*.cpp' -g '*.hpp' | xargs clang-format-18 --dry-run --Werror
       - name: Build and test desktop targets
@@ -48,8 +48,11 @@ jobs:
           cmake -S frame -B frame/build/ci -DCMAKE_BUILD_TYPE=Release
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
+          python3 frame/tests/test_phone_detection.py
+          python3 frame/pack/fetch-model.py frame/build/detector
+          python3 frame/desktop/phone_detection.py --model frame/build/detector/object_detection_yolox_2022nov.onnx --self-test
           xvfb-run -a python3 frame/tests/test_phone_gui.py
-          xvfb-run -a python3 frame/tests/test_markerless_gui.py frame/build/ci
+          FRAMEPHONE_TEST_DETECTOR_MODEL="$PWD/frame/build/detector/object_detection_yolox_2022nov.onnx" xvfb-run -a python3 frame/tests/test_markerless_gui.py frame/build/ci
 
   linux-package:
     name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }}, ${{ matrix.engine }})
@@ -103,6 +106,7 @@ jobs:
           "$package" -- --self-test
           "$package" -- --camera --help
           "$package" -- --markerless --help
+          "$package" -- --detect --self-test
           xvfb-run -a "$package" -- --gui-smoke
       - name: Keep tested Linux package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

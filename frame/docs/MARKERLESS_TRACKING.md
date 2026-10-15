@@ -2,8 +2,10 @@
 
 Research date: 2026-10-14. The [first optical diagnostic](MARKERLESS_DIAGNOSTIC.md)
 now implements manual stereo initialization, body pose, complete-front-outline
-tracking and recording/replay. The later detector, RAPID and IMU-fusion stages
-below remain proposals, not implemented or benchmarked on Frame.
+tracking and recording/replay. A separate [automatic detector](AUTO_DETECTION.md)
+now runs bundled pretrained YOLOX-S with visible 2D contour proposals. Its
+integration into metric stereo pose, RAPID and IMU fusion remain proposals;
+none of these optical paths has been benchmarked on Frame.
 The owner has confirmed pairing and live sensor telemetry on the actual phone
 and Steam Frame. This plan addresses the next optical tracking experiment,
 using the two selected front cameras and no custom neural-network training.

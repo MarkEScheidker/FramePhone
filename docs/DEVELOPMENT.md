@@ -7,7 +7,9 @@ the [root README](../README.md); this page describes dependency options and test
 
 Requirements: C++20 compiler, CMake >=3.20, OpenCV 4 (`core`,
 `calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
-tests. Python/Tk provides the desktop window. Dependencies are not vendored.
+tests. Python/Tk provides the desktop window. Automatic detection additionally
+uses Python OpenCV/NumPy and the pinned pretrained model; see
+[automatic detection](../frame/docs/AUTO_DETECTION.md). Native libraries are not vendored.
 
 Ubuntu 24.04:
 

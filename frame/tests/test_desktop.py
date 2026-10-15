@@ -59,6 +59,9 @@ class DesktopTests(unittest.TestCase):
             width, height, pgm = reader.preview(path, "test")
             self.assertEqual((width, height), (2, 2))
             self.assertTrue(pgm.endswith(bytes([0, 70, 150, 255])))
+            self.assertEqual(reader.preview(path, "test", metadata=True)[3],
+                             {"camera_id": "test", "sequence": 1, "capture_timestamp_ns": 0,
+                              "clock": "steam-frame-mono-v4l2"})
             self.assertIsNone(reader.preview(path, "other"))
             struct.pack_into("<Q", data, 1344, 3)  # In-progress write must not be displayed.
             path.write_bytes(data)

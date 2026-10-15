@@ -9,7 +9,7 @@ import struct
 import time
 
 
-def preview(path, name):
+def preview(path, name, *, metadata=False):
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         header = os.pread(fd, 1344, 0)
@@ -45,7 +45,13 @@ def preview(path, name):
             again = os.pread(fd, 8, position)
             if seq != latest * 2 + 2 or frame != latest or again != data[:8]:
                 return None
-            return width, height, f"P5\n{width} {height}\n255\n".encode() + data[64:]
+            result = (width, height, f"P5\n{width} {height}\n255\n".encode() + data[64:])
+            if metadata:
+                capture = struct.unpack_from("<Q", data, 16)[0]
+                return (*result, {"camera_id": name, "sequence": frame,
+                                 "capture_timestamp_ns": capture,
+                                 "clock": "steam-frame-mono-v4l2"})
+            return result
         return None
     finally:
         os.close(fd)

@@ -1,7 +1,8 @@
 # Frame desktop app and native tools
 
 The desktop app provides paired phone telemetry, markerless optical trials and
-front-camera setup. Native C++20 code owns calibrated geometry and tracking.
+front-camera setup. Native C++20 code owns calibrated geometry and outline tracking;
+Python OpenCV DNN runs the bundled pretrained phone detector.
 
 | Target | Purpose |
 | --- | --- |
@@ -28,6 +29,7 @@ frame/build/desktop/framephone-markerless --self-test
 `build-openvr-demo.sh` builds the optional renderer separately.
 
 - [Markerless workflow and replay](docs/MARKERLESS_DIAGNOSTIC.md)
+- [Automatic pretrained phone detection](docs/AUTO_DETECTION.md)
 - [Headset testing](docs/HEADSET_TEST.md)
 - [Architecture](docs/ARCHITECTURE.md) and [coordinates](docs/COORDINATE_SYSTEMS.md)
 - [Ring input](docs/LIVE_CAMERA.md) and [recordings](docs/RECORDINGS.md)

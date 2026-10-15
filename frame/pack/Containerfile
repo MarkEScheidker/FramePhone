@@ -2,7 +2,7 @@ FROM docker.io/library/ubuntu:24.04 AS builder
 ARG BUILD_JOBS=2
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    g++ cmake make python3 libopencv-calib3d-dev \
+    g++ cmake make python3 ca-certificates libopencv-calib3d-dev \
     libopencv-imgproc-dev nlohmann-json3-dev makeself \
     && rm -rf /var/lib/apt/lists/*
 COPY LICENSE /src/LICENSE
@@ -18,13 +18,17 @@ RUN cc -O2 -std=gnu11 -static -Wall -Wextra -o /opt/framephone/bin/framephone-ca
     && /opt/framephone/bin/framephone-camd --help
 RUN cp -a /src/frame/desktop /opt/framephone/desktop \
     && cp -a /src/frame/third_party/frametop /opt/framephone/share/framephone/third_party/
+RUN python3 /src/frame/pack/fetch-model.py /opt/framephone/share/framephone/models \
+    && cp /src/frame/models/yolox.json /src/frame/models/LICENSE.YOLOX /opt/framephone/share/framephone/models/
 
 FROM docker.io/library/ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libopencv-calib3d406t64 python3-tk \
+    libopencv-calib3d406t64 python3-tk python3-opencv \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/framephone /opt/framephone
+RUN python3 /opt/framephone/desktop/phone_detection.py \
+    --model /opt/framephone/share/framephone/models/object_detection_yolox_2022nov.onnx --self-test
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
     > /opt/framephone/share/framephone/runtime-packages.txt
 LABEL org.opencontainers.image.title="FramePhone" \

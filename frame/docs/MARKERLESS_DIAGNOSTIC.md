@@ -1,5 +1,9 @@
 # Markerless phone-body diagnostic
 
+For automatic acquisition without clicking corners, use **Start phone detection**
+and the [automatic detection guide](AUTO_DETECTION.md). The manual workflow below
+is an optional geometry diagnostic; it does not gate the detector.
+
 This is the first optical implementation from the [tracking plan](MARKERLESS_TRACKING.md):
 labelled stereo initialization, metric body pose, a conservative live outline
 tracker, and reproducible recordings. It is a development baseline, not yet the
@@ -48,7 +52,7 @@ outline experiment easier than a busy screen.
 
 - Defines body **B** at the center of the measured body/case, with X right, Y
   toward the physical top, and Z through the front. The output is **T_HB** in
-  head right/up/back axes. Legacy display-centered **P** is unchanged.
+  head right/up/back axes. Body dimensions do not define the active display.
 - Uses ordinary OpenCV IPPE in normalized camera coordinates for both views,
   keeps distinct refined pose alternatives, and optimizes one common pose against
   all eight calibrated corner observations. A triangulated rigid-fit seed handles
@@ -140,8 +144,14 @@ Next, collect real Frame trials and measure pose error with an independent
 reference. Add detector proposals without changing the geometry API; compare
 RAPID's cuboid-silhouette tracking against this complete-outline baseline for
 partial occlusion/tilt. Only then add gyro prediction after timing/axes validation.
-YOLO, RAPID, full automatic acquisition, robust visual identity, screen mapping,
-world-space fusion and VR rendering are **not implemented in this milestone**.
+Pretrained YOLOX phone boxes and 2D contour proposals are available separately.
+Their automatic connection to metric pose, RAPID, robust visual identity, screen
+mapping, world-space fusion and VR rendering remain future work.
+
+If **Track outline** stays disabled, confirm all eight points and check the
+physical top/front checkbox, then click **Estimate pose**. Tracking requires a
+`measured` result. Rejected/ambiguous fits now show their exact reason in the
+status text; point selection alone does not start the tracker.
 
 ## Validation
 

@@ -27,4 +27,9 @@ esac
 export PYTHONHOME="$root/usr" TCL_LIBRARY="$root/usr/share/tcltk/tcl8.6" TK_LIBRARY="$root/usr/share/tcltk/tk8.6"
 export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
 unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
+if [ "${1:-}" = --detect ]; then
+    shift
+    exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/phone_detection.py" \
+        --model "$root/opt/framephone/share/framephone/models/object_detection_yolox_2022nov.onnx" "$@"
+fi
 exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/app.py" "$@"

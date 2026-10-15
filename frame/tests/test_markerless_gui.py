@@ -59,6 +59,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
             return [str(binary / f"framephone-{tool}"), *map(str, args)]
         def calibration_id(self):
             return "synthetic-factory-v1"
+        def detector_command(self, *args):
+            return [sys.executable, str(Path(__file__).resolve().parents[1] / "desktop/phone_detection.py"),
+                    "--model", os.environ["FRAMEPHONE_TEST_DETECTOR_MODEL"], *map(str, args)]
     class Phone:
         def snapshot(self):
             return {"session": "synthetic-phone", "dimensions": (.07, .15, .009)}
@@ -108,12 +111,46 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         window.toggle_views()
         assert all(w.image is None for w in window.previews)
         assert "layout" not in json.loads(window.config.read_text())
+        if os.environ.get("FRAMEPHONE_TEST_DETECTOR_MODEL"):
+            original_images = images[:]
+            if os.environ.get("FRAMEPHONE_TEST_DETECTOR_PHOTO"):
+                import cv2 as cv
+                photo = cv.imread(os.environ["FRAMEPHONE_TEST_DETECTOR_PHOTO"], cv.IMREAD_GRAYSCALE)
+                photo = cv.resize(photo, (width, height)).tobytes()
+                images[:] = [photo, photo]
+                time.sleep(.1)
+            panel.detect()
+            until(lambda: panel.result is not None and "detections" in panel.result, timeout=30)
+            assert panel.live and panel.capture is None
+            assert "Phones detected:" in panel.pose.get()
+            assert not panel.corners[0] and not panel.corners[1]
+            if os.environ.get("FRAMEPHONE_TEST_DETECTOR_PHOTO"):
+                assert all(panel.result["detections"]), panel.result
+                assert any(panel.canvases[0].type(item) == "rectangle" for item in panel.canvases[0].find_all())
+                blank.set()
+                until(lambda: panel.result is not None and not any(panel.result["detections"]), timeout=15)
+                assert not any(panel.canvases[0].type(item) == "rectangle" for item in panel.canvases[0].find_all())
+                blank.clear()
+            panel.stop()
+            until(lambda: not panel.busy)
+            assert panel.result is None
+            images[:] = original_images
+            time.sleep(.1)
         panel.freeze()
         until(lambda: not panel.busy and panel.capture is not None)
         for view in range(2):
             for x, y in expected[view]:
                 panel.click(view, x, y, 1)
         panel.labelled.set(True)
+        # A rejected fit must leave an actionable reason rather than generic success advice.
+        bad = [points.copy() for points in panel.corners]
+        panel.corners[1][2] = [bad[1][2][0], bad[1][2][1] + 40]
+        panel.solve()
+        until(lambda: not panel.busy)
+        assert panel.result["status"] != "measured"
+        assert "Cannot start tracking:" in panel.status.get()
+        assert str(panel.track_button["state"]) == "disabled"
+        panel.corners = bad
         panel.solve()
         until(lambda: not panel.busy)
         assert panel.result["status"] == "measured", panel.status.get()

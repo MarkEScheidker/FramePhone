@@ -85,6 +85,11 @@ libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
 
+The build also fetches a pinned, checksum-verified OpenCV Zoo YOLOX-S model and
+bundles Python OpenCV/NumPy for automatic phone detection. Model download and
+real CPU inference are checked during the build. No model download is needed
+when launching on the headset. See [automatic detection](AUTO_DETECTION.md).
+
 At launch the app checks/unpacks its payload to a temporary directory, opens
 the GUI and removes the extracted runtime on exit. Allow free disk space for
 that runtime. The target supplies ordinary Linux shell/tar/gzip tools, a desktop

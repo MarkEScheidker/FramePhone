@@ -11,6 +11,8 @@ flowchart LR
     TLS --> Telemetry[Sensor diagnostics and optional recording]
     TLS --> Body[Measured body geometry]
     Camera[Two front-camera streams] --> Frames[Owned grayscale pairs]
+    Camera --> Detector[Pretrained YOLOX phone detector]
+    Detector --> Detection[2D boxes and optional visible outlines]
     Replay[Recorded pairs] --> Frames
     Frames --> Edges[Labelled corners / rectified outlines]
     Calibration[Saved factory calibration] --> Pose[Joint stereo body pose]
@@ -31,6 +33,7 @@ flowchart LR
 | `MarkerlessTracker` | Rectified contours, side-line fits, local association and latched loss. |
 | `StereoRecorder` | Raw PGM pairs and timestamped replay manifests. |
 | `markerless_panel.py`, `telemetry_recording.py` | Selection/replay UI, exact-pair previews and opt-in bounded sensor evidence. |
+| `phone_detection.py`, pinned YOLOX-S | CPU phone-category acquisition, visible 2D contour proposals and bounded diagnostic output; no metric pose. |
 
 OpenCV supplies camera transforms, PnP, SVD, optimization and image processing.
 Frametop's camera broker and calibration/ray/pairing utilities retain their
@@ -43,6 +46,6 @@ The shared capture-clock label requires hardware validation. Host arrival time
 is not camera exposure time.
 
 See [coordinates](COORDINATE_SYSTEMS.md), [pairing](PAIRING_AND_IMU.md), and
-[markerless contracts](MARKERLESS_DIAGNOSTIC.md). Future detector proposals and
+[markerless contracts](MARKERLESS_DIAGNOSTIC.md). Future integration of detector proposals and
 silhouette tracking can use these interfaces without reintroducing UI-specific
 geometry. The OpenVR demo remains a separate simulated rendering experiment.

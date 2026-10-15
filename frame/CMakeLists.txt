@@ -44,6 +44,7 @@ target_compile_options(framephone-camera PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS framephone-markerless framephone-camera RUNTIME DESTINATION bin)
 install(FILES THIRD_PARTY_NOTICES.md "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE" DESTINATION share/framephone)
+install(FILES models/yolox.json models/LICENSE.YOLOX DESTINATION share/framephone/models)
 install(FILES third_party/frametop/LICENSE third_party/frametop/README.md DESTINATION share/framephone/third_party/frametop)
 install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN "*.md")
 

@@ -78,14 +78,14 @@ class MarkerlessPanel:
         self.corners = [[], []]
         self.images = self.initial_images = None
         self.last_update = 0
-        self.status = tk.StringVar(value="Connect your phone, enable the front cameras, then capture a pair.")
+        self.status = tk.StringVar(value="Enable the front cameras, then Start phone detection. No corner selection is needed.")
         self.pose = tk.StringVar(value="No body pose")
         self.record = tk.BooleanVar(value=False)
         self.labelled = tk.BooleanVar(value=False)
         panel = ttk.Frame(parent, padding=12)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Markerless phone tracking", font=("sans", 20, "bold")).pack(anchor="w")
-        ttk.Label(panel, text="First optical baseline: a clear front outline in both cameras. Hold the phone still during setup.",
+        ttk.Label(panel, text="Pretrained phone detection with automatic 2D outlines. Manual stereo geometry is available below for diagnostics.",
                   wraplength=900).pack(anchor="w", pady=6)
         setup = ttk.Frame(panel)
         setup.pack(fill="x")
@@ -106,19 +106,27 @@ class MarkerlessPanel:
         ttk.Label(panel, text="Verify the front lenses and calibration mapping. Pairing alone does not identify the phone in the image.",
                   wraplength=900).pack(anchor="w")
         actions = ttk.Frame(panel)
+        automatic = ttk.Frame(panel)
+        automatic.pack(fill="x", pady=8)
+        self.detect_button = ttk.Button(automatic, text="Start phone detection", command=self.detect)
+        self.detect_button.pack(side="left")
+        ttk.Button(automatic, text="Stop", command=self.stop).pack(side="left", padx=6)
+        ttk.Label(automatic, text="Live phone boxes + confidence + visible outlines; 3D pose is separate.",
+                  wraplength=600).pack(side="left")
+        ttk.Label(panel, text="Manual geometry diagnostic (optional): capture → label corners → estimate → track").pack(anchor="w")
         actions.pack(fill="x", pady=8)
-        self.capture_button = ttk.Button(actions, text="1. Capture pair", command=self.freeze)
+        self.capture_button = ttk.Button(actions, text="Capture pair", command=self.freeze)
         self.capture_button.pack(side="left")
-        self.solve_button = ttk.Button(actions, text="2. Estimate pose", command=self.solve, state="disabled")
+        self.solve_button = ttk.Button(actions, text="Estimate pose", command=self.solve, state="disabled")
         self.solve_button.pack(side="left", padx=6)
-        self.track_button = ttk.Button(actions, text="3. Track outline", command=self.track, state="disabled")
+        self.track_button = ttk.Button(actions, text="Track outline", command=self.track, state="disabled")
         self.track_button.pack(side="left")
         ttk.Button(actions, text="Stop", command=self.stop).pack(side="left", padx=6)
         self.open_button = ttk.Button(actions, text="Open trial…", command=self.open_trial)
         self.open_button.pack(side="right")
         self.replay_button = ttk.Button(actions, text="Replay images…", command=self.replay, state="disabled")
         self.replay_button.pack(side="right", padx=6)
-        ttk.Checkbutton(panel, text="Record live trial images + raw phone telemetry (up to 512 MiB images / 32 MiB sensors)",
+        ttk.Checkbutton(panel, text="Manual trial: record images + raw phone telemetry (up to 512 MiB images / 32 MiB sensors)",
                         variable=self.record).pack(anchor="w")
         ttk.Checkbutton(panel, text="I can identify this phone's physical top and front face in both views",
                         variable=self.labelled, command=self.invalidate).pack(anchor="w", pady=5)
@@ -162,7 +170,7 @@ class MarkerlessPanel:
             self.corners[view].append([x, y])
             self.invalidate()
             self.status.set(f"Selected {len(self.corners[0])}/4 left, {len(self.corners[1])}/4 right. "
-                            "Label the physical top/front, then Estimate pose.")
+                            "Tick the physical top/front confirmation, then click Estimate pose.")
 
     def undo(self, view):
         if not self.busy and self.corners[view]:
@@ -209,6 +217,19 @@ class MarkerlessPanel:
         canvas.image = image.subsample(scale, scale) if scale > 1 else image
         canvas.create_image(0, 0, image=canvas.image, anchor="nw")
         if self.result:
+            for detection in self.result.get("detections", [[], []])[view]:
+                x, y, w, h = detection["box_xywh"]
+                canvas.create_rectangle(x / scale, y / scale, (x + w) / scale, (y + h) / scale,
+                                        outline="#52e0a2", width=2)
+                canvas.create_text(x / scale + 3, y / scale + 3, anchor="nw", fill="#52e0a2",
+                                   text=f"phone {detection['confidence']:.0%}")
+                outline = detection.get("outline")
+                if outline:
+                    points = outline["corners_px"]
+                    canvas.create_line(*[value / scale for xy in points + [points[0]] for value in xy],
+                                       fill="#ffbd59", width=2)
+                    canvas.create_text(x / scale, (y + h) / scale + 3, anchor="nw", fill="#ffbd59",
+                                       text=f"2D axis {outline['axis_deg_mod180']:+.0f}° (180° symmetry)")
             for index, candidate in reversed(list(enumerate(self.result.get("candidates", [])[:2]))):
                 color = "#52e0a2" if index == 0 and self.result["status"] == "measured" else "#ffbd59"
                 for line in candidate["wireframe"][view]:
@@ -224,7 +245,11 @@ class MarkerlessPanel:
     def redraw(self):
         if not self.images:
             return
-        frames = self.result["frames"] if self.live and self.result else self.capture["frames"]
+        frames = self.result["frames"] if self.result else (self.capture["frames"] if self.capture else None)
+        if frames is None:
+            for view, canvas in enumerate(self.canvases):
+                self.draw(canvas, view, self.scales[view])
+            return
         for view, canvas in enumerate(self.canvases):
             self.scales[view] = max(1, math.ceil(frames[view]["width"] / max(430, canvas.winfo_width())))
             self.draw(canvas, view, self.scales[view])
@@ -248,6 +273,19 @@ class MarkerlessPanel:
             self.launch("capture", ["--capture"], link=link)
         except (OSError, ValueError, KeyError) as error:
             self.status.set(str(error))
+
+    def detect(self):
+        if self.busy:
+            return
+        left, right = self.app.left_stream.get(), self.app.right_stream.get()
+        if not left or not right or left == right:
+            self.status.set("Enable/refresh cameras and choose two distinct front streams first.")
+            return
+        self.result = self.capture = self.initial_images = self.images = None
+        self.corners = [[], []]
+        self.session = self.app.sessions / ("detection-" + uuid.uuid4().hex[:12])
+        self.config = {"record": False}
+        self.launch("detect", ["--ring", self.app.runtime.ring, "--left", left, "--right", right])
 
     def solve(self):
         if self.busy or not self.capture:
@@ -317,7 +355,7 @@ class MarkerlessPanel:
             self.latest.get_nowait()
         except queue.Empty:
             pass
-        output = self.session / ("run-" + uuid.uuid4().hex[:12]) if mode in ("track", "replay") else None
+        output = self.session if mode == "detect" else (self.session / ("run-" + uuid.uuid4().hex[:12]) if mode in ("track", "replay") else None)
         recording = None
         try:
             if link and self.config["record"]:
@@ -326,7 +364,8 @@ class MarkerlessPanel:
         except (OSError, ValueError) as error:
             self.status.set("Cannot record telemetry: " + str(error))
             return
-        command = self.app.runtime.command("markerless", "--session", self.session, *args)
+        command = (self.app.runtime.detector_command(*args) if mode == "detect" else
+                   self.app.runtime.command("markerless", "--session", self.session, *args))
         if output:
             command += ["--output", str(output)]
         self.busy, self.live = True, output is not None
@@ -335,8 +374,9 @@ class MarkerlessPanel:
         self.cancelled.clear()
         self.last_update = time.monotonic()
         self.pose.set("Waiting for fresh optical evidence" if output else "Estimating…")
-        self.status.set("Hold the phone and headset still for capture / initialization." if mode != "replay" else "Replaying recorded camera frames; IMU is logged only.")
-        for button in (self.capture_button, self.solve_button, self.track_button, self.open_button, self.replay_button):
+        self.status.set("Loading pretrained phone detector…" if mode == "detect" else
+                        ("Hold the phone and headset still for capture / initialization." if mode != "replay" else "Replaying recorded camera frames; IMU is logged only."))
+        for button in (self.detect_button, self.capture_button, self.solve_button, self.track_button, self.open_button, self.replay_button):
             button.configure(state="disabled")
         for box in self.boxes:
             box.configure(state="disabled")
@@ -398,7 +438,13 @@ class MarkerlessPanel:
     def show_result(self, result, frozen=False):
         self.result = result
         status = result["status"]
-        if status == "measured":
+        if "detections" in result:
+            counts = [len(items) for items in result["detections"]]
+            self.pose.set(f"Phones detected: left {counts[0]} · right {counts[1]} · processing {result['processing_ms']:.0f} ms\n"
+                          "Green: pretrained phone box · amber: visible 2D outline · no metric 3D pose")
+            self.status.set("Searching for phones…" if not any(counts) else
+                            "Live automatic detection. Largest apparent phone first; paired-phone identity is unverified.")
+        elif status == "measured":
             best = result["candidates"][0]
             x, y, z = best["translation_m"]
             # Intrinsic Z-Y-X Euler angles are display-only; the API retains R_HB.
@@ -446,6 +492,7 @@ class MarkerlessPanel:
             for box in self.boxes:
                 box.configure(state="readonly")
             self.capture_button.configure(state="normal")
+            self.detect_button.configure(state="normal")
             self.open_button.configure(state="normal")
             if code or self.cancelled.is_set():
                 self.result = None
@@ -463,8 +510,16 @@ class MarkerlessPanel:
                 if result["status"] == "measured":
                     self.track_button.configure(state="normal")
                     self.replay_button.configure(state="normal")
-                self.status.set("Green: best body wireframe; amber: alternatives. Check the front rim in both views. "
-                                "Hold the original pose, then Track outline. This is geometry evidence, not verified accuracy.")
+                self.status.set("Pose accepted. Hold the original pose, then Track outline." if result["status"] == "measured" else
+                                "Cannot start tracking: " + result["status"] + " — " + result["reason"].replace("_", " ") +
+                                ". Check corner order, body dimensions and camera mapping, then Estimate pose again.")
+            elif mode == "detect":
+                self.result = None
+                self.images = None
+                for canvas in self.canvases:
+                    canvas.delete("all")
+                self.pose.set("Detection stopped — no live evidence")
+                self.status.set("Detection stopped. Start phone detection to search again.")
             else:
                 self.result = None
                 self.pose.set("Stopped — no live pose")

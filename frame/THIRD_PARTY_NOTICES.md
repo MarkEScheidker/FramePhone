@@ -1,5 +1,17 @@
 # Third-party notices
 
+The bundled OpenCV Zoo YOLOX-S COCO model is pinned at revision
+`47534e27c9851bb1128ccc0102f1145e27f23f98`; its SHA-256, source URL and size are
+recorded in [yolox.json](models/yolox.json). Retain [LICENSE.YOLOX](models/LICENSE.YOLOX)
+(Apache-2.0, copyright 2021–2022 Megvii Inc.). Preprocessing/grid decoding in
+`desktop/phone_detection.py` adapts that revision's `yolox.py`/`demo.py`; the file
+marks its changes and retains Apache-2.0 licensing. This changes neither the
+MIT license for original FramePhone code nor other dependency licenses. The
+package includes the model, manifest and notice under `share/framephone/models`.
+Source: https://github.com/opencv/opencv_zoo/tree/47534e27c9851bb1128ccc0102f1145e27f23f98/models/object_detection_yolox
+Python OpenCV/NumPy and their transitive Ubuntu copyright notices remain in
+the runtime's `/usr/share/doc` and `/usr/share/common-licenses`.
+
 The optional `build-openvr-demo.sh` fetches `openvr.h` from ValveSoftware/openvr tag `v2.15.6` and
 checks its SHA-256 before compiling. The OpenVR SDK is licensed under the
 3-Clause BSD license; see the [upstream license](https://github.com/ValveSoftware/openvr/blob/v2.15.6/LICENSE).
