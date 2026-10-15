@@ -42,29 +42,6 @@ class CameraSource {
     virtual std::optional<CameraFrame> next() = 0;
 };
 
-struct SyntheticOptions {
-    std::uint32_t width{640};
-    std::uint32_t height{480};
-    std::uint32_t marker_boundary_px{32};
-    std::string camera_id{"synthetic-front-left"};
-    std::string calibration_id{"synthetic-not-calibrated"};
-    std::uint64_t first_capture_ns{1'000'000'000};
-    std::uint64_t frame_period_ns{33'333'333};
-};
-
-// Generates an explicitly synthetic, front-facing phone screen with official
-// tag36h11 IDs 0..3. It exercises input/detection plumbing, not pose accuracy.
-class SyntheticFrameSource final : public CameraSource {
-  public:
-    explicit SyntheticFrameSource(SyntheticOptions options = {}, std::uint32_t frame_count = 1);
-    std::optional<CameraFrame> next() override;
-
-  private:
-    SyntheticOptions options_;
-    std::uint32_t frame_count_;
-    std::uint32_t emitted_{};
-};
-
 // Directory format is documented in frame/docs/RECORDINGS.md. PGM P5 raster
 // files are paired with a manifest; no video decoding or timestamp invention.
 class RecordedFrameSource final : public CameraSource {

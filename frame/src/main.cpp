@@ -83,28 +83,11 @@ void rectangle(std::vector<uint8_t> &image, int left, int top, int right, int bo
     line(image, left, bottom, left, top, color, thickness);
 }
 
-void tag_box(std::vector<uint8_t> &image, int center_x, int center_y, Color color) {
-    constexpr int half = 42;
-    rectangle(image, center_x - half, center_y - half, center_x + half, center_y + half, color, 6);
-    // A center cross makes the expected tag center visible at headset distance.
-    line(image, center_x - 11, center_y, center_x + 11, center_y, color, 4);
-    line(image, center_x, center_y - 11, center_x, center_y + 11, color, 4);
-}
-
 std::vector<uint8_t> make_demo_image() {
     std::vector<uint8_t> image(static_cast<size_t>(kImageWidth) * kImageHeight * kBytesPerPixel, 0);
     const Color predicted_screen{40, 255, 120, 255};
-    const Color expected_fiducial{255, 180, 20, 255};
     rectangle(image, kScreenLeft, kScreenTop, kScreenRight, kScreenBottom, predicted_screen, 5);
 
-    // Illustrative six-marker layout: four corners and the two side centers.
-    constexpr int margin = 82;
-    tag_box(image, kScreenLeft + margin, kScreenTop + margin, expected_fiducial);
-    tag_box(image, kScreenRight - margin, kScreenTop + margin, expected_fiducial);
-    tag_box(image, kScreenRight - margin, kScreenBottom - margin, expected_fiducial);
-    tag_box(image, kScreenLeft + margin, kScreenBottom - margin, expected_fiducial);
-    tag_box(image, kScreenLeft + margin, (kScreenTop + kScreenBottom) / 2, expected_fiducial);
-    tag_box(image, kScreenRight - margin, (kScreenTop + kScreenBottom) / 2, expected_fiducial);
     return image;
 }
 
@@ -191,8 +174,7 @@ class OpenVrOverlay {
 int main(int argc, char **argv) {
     if (argc != 2 || std::string(argv[1]) != "--demo") {
         std::cerr << "Usage: framephone-openvr-demo --demo\n"
-                  << "This renderer-only demo shows the expected screen outline and six fiducial "
-                     "positions.\n";
+                  << "This renderer-only demo shows a simulated phone screen outline.\n";
         return EXIT_FAILURE;
     }
 

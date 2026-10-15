@@ -24,6 +24,7 @@ jobs:
       - run: make -C frame test all
       - run: python3 frame/tests/test_linux_package.py
       - run: python3 frame/tests/test_desktop.py
+      - run: python3 frame/tests/test_markerless_desktop.py
       - run: python3 frame/tests/test_phone_link.py
       - run: python3 frame/tests/test_broker.py
       - run: python3 scripts/package-source.py
@@ -39,16 +40,16 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 python3-tk xvfb xauth file libapriltag-dev libopencv-dev nlohmann-json3-dev libsdl2-dev clang-format-18 ripgrep
+          sudo apt-get install -y build-essential cmake python3 python3-tk xvfb xauth file libopencv-dev nlohmann-json3-dev clang-format-18 ripgrep
       - name: Check native formatting
         run: rg --files frame/src frame/include frame/tests -g '*.cpp' -g '*.hpp' | xargs clang-format-18 --dry-run --Werror
       - name: Build and test desktop targets
         run: |
-          cmake -S frame -B frame/build/ci -DCMAKE_BUILD_TYPE=Release -DFRAMEPHONE_REQUIRE_TRACKER=ON
+          cmake -S frame -B frame/build/ci -DCMAKE_BUILD_TYPE=Release
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
-          xvfb-run -a python3 frame/tests/test_front_camera_gui.py frame/build/ci
           xvfb-run -a python3 frame/tests/test_phone_gui.py
+          xvfb-run -a python3 frame/tests/test_markerless_gui.py frame/build/ci
 
   linux-package:
     name: Linux package (${{ matrix.arch }}, ${{ matrix.kind }}, ${{ matrix.engine }})
@@ -100,9 +101,8 @@ jobs:
           sudo apt-get install -y xvfb xauth
           package="$PWD/frame/build/dist/FramePhone-${{ matrix.arch }}.run"
           "$package" -- --self-test
-          "$package" -- --stereo --help
-          "$package" -- --diagnostic --headless --frames 3 --fps 240 --csv package-smoke.csv
-          python3 -c 'import csv; rows = list(csv.DictReader(open("package-smoke.csv"))); assert {row["frame"] for row in rows} == {"1", "2", "3"} and all(row["id"] and row["status"] == "tags_visible" for row in rows), rows'
+          "$package" -- --camera --help
+          "$package" -- --markerless --help
           xvfb-run -a "$package" -- --gui-smoke
       - name: Keep tested Linux package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

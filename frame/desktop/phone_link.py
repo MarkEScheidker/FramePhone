@@ -249,7 +249,8 @@ class Telemetry:
                           "age_ms": (now + self.offset_ns - sample["t_ns"]) / 1e6
                           if live and self.offset_ns is not None else None}
         return {"rows": rows, "count": self.count, "gaps": self.gaps, "dropped": self.dropped,
-                "dimensions": self.dimensions, "rtt_ms": None if self.rtt_ns is None else self.rtt_ns / 1e6}
+                "session": self.session, "dimensions": self.dimensions,
+                "rtt_ms": None if self.rtt_ns is None else self.rtt_ns / 1e6}
 
 
 class PhoneLink:
@@ -259,6 +260,25 @@ class PhoneLink:
         self.sock = None
         self.lock = threading.Lock()
         self.telemetry = None
+        self.profile = None
+        self.profile_received_ns = None
+        self.recording = None
+
+    def start_recording(self, path):
+        from telemetry_recording import TelemetryRecording
+        with self.lock:
+            if self.telemetry is None or self.stopped.is_set():
+                raise ValueError("Connect the phone before recording telemetry")
+            if self.recording is not None:
+                raise ValueError("A telemetry recording is already active")
+            self.recording = TelemetryRecording(path, self.profile, self.profile_received_ns)
+            return self.recording
+
+    def stop_recording(self):
+        with self.lock:
+            recording, self.recording = self.recording, None
+        if recording:
+            recording.close()
 
     def stop(self):
         self.stopped.set()
@@ -326,9 +346,12 @@ class PhoneLink:
                     sock.settimeout(4)
                     phase = "sensor startup"
                     profile = read_message(sock)
+                    profile_received_ns = time.monotonic_ns()
                     telemetry = Telemetry(profile)
                     with self.lock:
                         self.telemetry = telemetry
+                        self.profile = profile
+                        self.profile_received_ns = profile_received_ns
                     if saved.get("host") != host:
                         saved["host"] = host
                         self.store.save(saved)
@@ -350,6 +373,8 @@ class PhoneLink:
                                 telemetry.clock_reply(message, now, pending)
                             else:
                                 telemetry.receive(message, now)
+                            if self.recording:
+                                self.recording.submit(message, now)
         except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
             if not self.stopped.is_set():
                 # Never include arbitrary peer-controlled messages or credentials in logs.
@@ -363,4 +388,7 @@ class PhoneLink:
             self.sock = None
             with self.lock:
                 self.telemetry = None
+                self.profile = None
+                self.profile_received_ns = None
+            self.stop_recording()
             self.notify("ended", "Disconnected")

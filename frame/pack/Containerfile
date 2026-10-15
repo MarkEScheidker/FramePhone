@@ -2,7 +2,7 @@ FROM docker.io/library/ubuntu:24.04 AS builder
 ARG BUILD_JOBS=2
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    g++ cmake make python3 libapriltag-dev libopencv-calib3d-dev \
+    g++ cmake make python3 libopencv-calib3d-dev \
     libopencv-imgproc-dev nlohmann-json3-dev makeself \
     && rm -rf /var/lib/apt/lists/*
 COPY LICENSE /src/LICENSE
@@ -22,15 +22,15 @@ RUN cp -a /src/frame/desktop /opt/framephone/desktop \
 FROM docker.io/library/ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libapriltag3t64 libopencv-calib3d406t64 python3-tk \
+    libopencv-calib3d406t64 python3-tk \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/framephone /opt/framephone
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
     > /opt/framephone/share/framephone/runtime-packages.txt
 LABEL org.opencontainers.image.title="FramePhone" \
-      org.opencontainers.image.description="Experimental head-relative phone fiducial tracker" \
+      org.opencontainers.image.description="Phone telemetry and experimental stereo body tracking" \
       org.opencontainers.image.licenses="MIT"
-ENTRYPOINT ["/opt/framephone/bin/framephone-stereo"]
+ENTRYPOINT ["/opt/framephone/bin/framephone-markerless"]
 CMD ["--help"]
 
 FROM builder AS package

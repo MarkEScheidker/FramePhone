@@ -27,8 +27,7 @@ The values above are illustrative. Do not infer timestamp origins, exposure
 units, calibration quality, or headset pose from a filename. Record the source's
 clock and calibration identifiers in the manifest from trusted metadata.
 
-The explicit synthetic command writes the same recording format with a stable
-640x480 Gray8 frame containing four front-facing tag36h11 IDs 0–3. It uses
-verified v3.4.5 family bits and whole-pixel cell rendering. These frames exercise
-the source and decoder plumbing only; they are not camera images, perspective
-pose ground truth, or a camera calibration.
+The markerless capture and optional live recorder write this format for paired
+front-camera images. See [the markerless diagnostic](MARKERLESS_DIAGNOSTIC.md)
+for capture, session metadata and replay. Synthetic fixtures exercise the same
+reader but do not establish headset camera accuracy.

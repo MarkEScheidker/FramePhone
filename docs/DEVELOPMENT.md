@@ -5,57 +5,45 @@ the [root README](../README.md); this page describes dependency options and test
 
 ## Native Linux
 
-Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
-`calib3d`, plus `imgproc` for tests), and nlohmann JSON headers. Python 3 runs CLI
-tests. SDL2 is optional for the desktop window. Dependencies are not vendored.
+Requirements: C++20 compiler, CMake >=3.20, OpenCV 4 (`core`,
+`calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
+tests. Python/Tk provides the desktop window. Dependencies are not vendored.
 
 Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev libsdl2-dev
+sudo apt-get install build-essential cmake python3 libopencv-dev nlohmann-json3-dev python3-tk
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel SDL2-devel
+sudo dnf install gcc-c++ cmake make python3 opencv-devel json-devel python3-tkinter
 ```
 
 From the repository root:
 
 ```bash
-cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release -DFRAMEPHONE_REQUIRE_TRACKER=ON
+cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
-frame/build/desktop/framephone-stereo --help
+frame/build/desktop/framephone-markerless --self-test
 ```
 
-`FRAMEPHONE_REQUIRE_TRACKER=ON` makes missing detector/pose dependencies a
-configuration error. Without it, CMake can build a reduced input/preview utility;
-check its configuration output rather than assuming pose support exists.
+Missing geometry dependencies are a configuration error. `POSE_SDK_ROOT` can
+specify a nonstandard OpenCV/JSON installation prefix. The optional
+`FRAMEPHONE_BUILD_OPENVR_OVERLAY=ON` builds a separate rendering demo and requires
+the OpenVR SDK/runtime.
 
-| Option | Purpose |
-| --- | --- |
-| `FRAMEPHONE_ENABLE_SDL2=OFF` | Build without the desktop window; use `--headless` for the diagnostic. |
-| `FRAMEPHONE_ENABLE_APRILTAG=OFF` | Input/preview-only build; no fabricated detector fallback. |
-| `FRAMEPHONE_ENABLE_POSE=OFF` | Detection without calibrated pose estimation. |
-| `APRILTAG_ROOT`, `SDL2_ROOT`, `POSE_SDK_ROOT` | Nonstandard dependency install prefixes for the target architecture. |
-| `FRAMEPHONE_BUILD_OPENVR_OVERLAY=ON` | Separate renderer demo, requiring the OpenVR SDK/runtime. |
-
-The portable subset requires only a C++20 compiler, Make and Python 3:
+The portable camera subset requires only a C++20 compiler and Make:
 
 ```bash
-make -C frame test all
+make -C frame test
 ```
 
-It tests frame sources, ring input and CLI behavior; it does **not** validate
-real detection or calibrated pose. Do not use it as the full tracker build.
-
-`bash frame/run-diagnostic.sh --headless --frames 120` is a convenience launcher.
-It can use ignored SDKs under `frame/build/deps` when present on x86_64, otherwise
-installed libraries. It does not download dependencies. The CMake commands above
-work independently of that local cache.
+It tests frame sources and ring input. Use the full CMake build for calibrated
+geometry and markerless tracking tests.
 
 ### Steam Frame
 

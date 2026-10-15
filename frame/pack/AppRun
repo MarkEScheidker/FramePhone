@@ -17,10 +17,10 @@ if [ -n "${USER_PWD:-}" ]; then cd -- "$USER_PWD"; fi
 export FRAMEPHONE_RUNTIME_ROOT="$root" FRAMEPHONE_LOADER="$loader" FRAMEPHONE_LIBRARY_PATH="$libs"
 if [ "${1:-}" = --self-test ]; then
     [ "$#" = 1 ] || exit 2
-    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-diagnostic" --headless --frames 3 --fps 240
+    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-markerless" --self-test
 fi
 case "${1:-}" in
-    --diagnostic|--stereo)
+    --camera|--markerless)
         tool=${1#--}; shift
         exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-$tool" "$@" ;;
 esac

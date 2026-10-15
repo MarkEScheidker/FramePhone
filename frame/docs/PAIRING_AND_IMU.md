@@ -83,8 +83,8 @@ malformed data, unexpected sessions and reordered samples close the connection.
 
 The profile's `dimensions` has `width_m`, `height_m`, `thickness_m`,
 `boundary:body_or_case`, `source:manual`. These dimensions do not imply active
-screen size, physical IMU location or a camera pose. Old fiducial-layout JSON is
-a separate, legacy format and cannot be substituted.
+screen size, physical IMU location or a camera pose. Markerless geometry uses
+these body dimensions; a future display overlay needs its own body-to-screen mapping.
 
 Each capability names `gyro`, `accel` or `mag`, with `available`, Android
 sensor type, units, calibrated/uncalibrated flag, requested rate, minimum delay

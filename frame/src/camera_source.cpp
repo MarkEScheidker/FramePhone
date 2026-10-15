@@ -14,45 +14,6 @@
 namespace framephone {
 namespace {
 
-// tag36h11 family data adapted from AprilTag 3 v3.4.5; see THIRD_PARTY_NOTICES.md.
-constexpr std::array<std::uint64_t, 6> kTag36h11Codes{
-    0xD7E00984BULL, 0xDDA664CA7ULL, 0xDC4A1C821ULL, 0xE17B470E9ULL, 0xEF91D01B1ULL, 0xF429CDD73ULL,
-};
-constexpr std::array<int, 36> kBitX{
-    1, 2, 3, 4, 5, 2, 3, 4, 3, 6, 6, 6, 6, 6, 5, 5, 5, 4,
-    6, 5, 4, 3, 2, 5, 4, 3, 4, 1, 1, 1, 1, 1, 2, 2, 2, 3,
-};
-constexpr std::array<int, 36> kBitY{
-    1, 1, 1, 1, 1, 2, 2, 2, 3, 1, 2, 3, 4, 5, 2, 3, 4, 3,
-    6, 6, 6, 6, 6, 5, 5, 5, 4, 6, 5, 4, 3, 2, 5, 4, 3, 4,
-};
-
-void draw_tag(CameraFrame &frame, int id, std::uint32_t left, std::uint32_t top,
-              std::uint32_t cell_size) {
-    std::array<bool, 100> cells{};
-    for (int y = 0; y < 10; ++y) {
-        for (int x = 0; x < 10; ++x) {
-            cells[static_cast<std::size_t>(y * 10 + x)] = x == 0 || x == 9 || y == 0 || y == 9;
-        }
-    }
-    for (std::size_t bit = 0; bit < kBitX.size(); ++bit) {
-        const bool white =
-            (kTag36h11Codes.at(static_cast<std::size_t>(id)) & (1ULL << (35 - bit))) != 0;
-        cells[static_cast<std::size_t>((kBitY[bit] + 1) * 10 + kBitX[bit] + 1)] = white;
-    }
-    for (std::uint32_t cy = 0; cy < 10; ++cy) {
-        for (std::uint32_t cx = 0; cx < 10; ++cx) {
-            const auto value = cells[static_cast<std::size_t>(cy * 10 + cx)] ? 255 : 0;
-            for (std::uint32_t y = top + cy * cell_size; y < top + (cy + 1) * cell_size; ++y) {
-                const auto begin = frame.pixels.begin() +
-                                   static_cast<std::ptrdiff_t>(y) * frame.stride_bytes +
-                                   static_cast<std::ptrdiff_t>(left + cx * cell_size);
-                std::fill_n(begin, cell_size, static_cast<std::uint8_t>(value));
-            }
-        }
-    }
-}
-
 std::string manifest_field(std::string_view line, std::size_t &offset) {
     const auto end = line.find('\t', offset);
     const auto field =
@@ -139,66 +100,6 @@ void CameraFrame::validate() const {
         throw std::invalid_argument("calibration_id is required");
     if (exposure_us && (!std::isfinite(*exposure_us) || *exposure_us <= 0.0))
         throw std::invalid_argument("exposure_us must be finite and positive");
-}
-
-SyntheticFrameSource::SyntheticFrameSource(SyntheticOptions options, std::uint32_t frame_count)
-    : options_(std::move(options)), frame_count_(frame_count) {
-    if (options_.width < 160 || options_.height < 160 || options_.width > 16'384 ||
-        options_.height > 16'384 ||
-        static_cast<std::uint64_t>(options_.width) * options_.height > 128ULL * 1024 * 1024 ||
-        options_.marker_boundary_px < 8 || options_.marker_boundary_px > 8'192 || frame_count == 0)
-        throw std::invalid_argument(
-            "synthetic frame dimensions, marker size, and frame count are too small");
-    if (options_.marker_boundary_px % 8 != 0)
-        throw std::invalid_argument(
-            "synthetic tag boundary must be divisible by eight for whole-pixel cells");
-    if (options_.frame_period_ns == 0 ||
-        static_cast<std::uint64_t>(frame_count - 1) >
-            (std::numeric_limits<std::uint64_t>::max() - options_.first_capture_ns) /
-                options_.frame_period_ns ||
-        options_.camera_id.empty() || options_.calibration_id.empty())
-        throw std::invalid_argument("synthetic timestamps and identifiers must be valid");
-}
-
-std::optional<CameraFrame> SyntheticFrameSource::next() {
-    if (emitted_ == frame_count_)
-        return std::nullopt;
-    CameraFrame frame{
-        .camera_id = options_.camera_id,
-        .width = options_.width,
-        .height = options_.height,
-        .stride_bytes = options_.width,
-        .pixel_format = PixelFormat::Gray8,
-        .capture_time_ns = options_.first_capture_ns +
-                           static_cast<std::uint64_t>(emitted_) * options_.frame_period_ns,
-        .clock_domain = "synthetic-monotonic-ns",
-        .calibration_id = options_.calibration_id,
-        .exposure_us = std::nullopt,
-        .pixels = std::vector<std::uint8_t>(
-            static_cast<std::size_t>(options_.width) * options_.height, 24),
-    };
-    // Bright phone display on a dim background, with four true tag36h11 rasters.
-    const std::uint32_t screen_left = options_.width / 5;
-    const std::uint32_t screen_right = options_.width - screen_left;
-    const std::uint32_t screen_top = options_.height / 20;
-    const std::uint32_t screen_bottom = options_.height - screen_top;
-    for (std::uint32_t y = screen_top; y < screen_bottom; ++y) {
-        auto row = frame.pixels.begin() + static_cast<std::ptrdiff_t>(y) * frame.stride_bytes;
-        std::fill(row + screen_left, row + screen_right, 210);
-    }
-    const std::uint32_t cell = options_.marker_boundary_px / 8;
-    const std::uint32_t tag_size = cell * 10;
-    const std::uint32_t margin = std::max(cell * 2, options_.width / 40);
-    if (screen_right - screen_left < tag_size * 2 + margin * 2 ||
-        screen_bottom - screen_top < tag_size * 2 + margin * 2)
-        throw std::invalid_argument("synthetic tags do not fit frame; lower marker_boundary_px");
-    draw_tag(frame, 0, screen_left + margin, screen_top + margin, cell);
-    draw_tag(frame, 1, screen_right - margin - tag_size, screen_top + margin, cell);
-    draw_tag(frame, 2, screen_right - margin - tag_size, screen_bottom - margin - tag_size, cell);
-    draw_tag(frame, 3, screen_left + margin, screen_bottom - margin - tag_size, cell);
-    frame.validate();
-    ++emitted_;
-    return frame;
 }
 
 RecordedFrameSource::RecordedFrameSource(std::filesystem::path directory) {

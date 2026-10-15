@@ -157,7 +157,7 @@ class TLSTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False):
+    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False):
         errors, received, notices = [], [], []
         ready = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
@@ -167,7 +167,12 @@ class TLSTests(unittest.TestCase):
             def confirm(code, stopped):
                 self.assertEqual(code, pairing_fingerprint(self.pin, received[0]["nonce"], "c" * 64))
                 return approve
-            client = PhoneLink(store, lambda k, v: notices.append((k, v)), confirm)
+            recording_path = Path(directory) / "telemetry.jsonl"
+            def notify(kind, value):
+                notices.append((kind, value))
+                if record and kind == "status" and value.startswith("Connected"):
+                    client.start_recording(recording_path)
+            client = PhoneLink(store, notify, confirm)
             listener = socket.socket()
             listener.bind(("127.0.0.1", 0))
             listener.listen(1)
@@ -236,12 +241,22 @@ class TLSTests(unittest.TestCase):
                 self.assertTrue(any(kind == "error" for kind, _ in notices))
             if pair and not approve:
                 self.assertIsNone(store.load())
+            if record:
+                entries = [json.loads(line) for line in recording_path.read_text().splitlines()]
+                self.assertEqual([entry["message"]["type"] for entry in entries[:-1]],
+                                 ["profile", "pong", "samples"])
+                self.assertTrue(entries[-1]["end"])
+                self.assertNotIn("credential", recording_path.read_text())
+                self.assertTrue(all(type(entry["received_host_monotonic_ns"]) is int for entry in entries[:-1]))
 
     def test_pair_and_live_telemetry(self):
         self.exercise()
 
     def test_pinned_reconnect(self):
         self.exercise(pair=False)
+
+    def test_opt_in_recording_receives_validated_tls_evidence(self):
+        self.exercise(record=True)
 
     def test_changed_identity_never_receives_credential(self):
         self.exercise(pair=False, wrong_pin=True)

@@ -9,8 +9,8 @@ frame/build/dist/FramePhone-arm64.run
 
 Copy that **one executable** to the headset. No installer, runtime container,
 Frametop installation, Python installation or separate library download is
-needed there. It opens a desktop window with phone pairing and live telemetry,
-plus a separate camera/legacy tracking tab with a self-test.
+needed there. It opens a desktop window with phone pairing, live telemetry,
+markerless tracking, and Camera setup with front previews and a geometry self-test.
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the mouse-only test procedure.
 
 ## Build-machine setup
@@ -80,7 +80,7 @@ same warning appears in this [upstream Buildah report](https://github.com/podman
 ## What gets bundled
 
 The build compiles/tests the tracker and statically compiles the pinned camera
-broker. It bundles an Ubuntu runtime with AprilTag, OpenCV, Python/Tk, Tcl/Tk,
+broker. It bundles an Ubuntu runtime with OpenCV, Python/Tk, Tcl/Tk,
 libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
@@ -113,7 +113,7 @@ file is also generated for transfer verification; it is not needed to launch.
 GitHub Actions uses this recipe with Docker on native AMD64 and ARM64, plus an
 emulated ARM64 build. A native ARM64 job also exercises the rootless Podman
 chroot build. Native jobs execute the resulting `.run` outside a container, run the
-real detector/CSV checks, and open/close the GUI under a virtual display.
+geometry self-test and CLI startup checks, and open/close the GUI under a virtual display.
 Artifacts are kept for 14 days. Download an **ARM64** artifact for the headset.
 Hosted results exist only after the repository is pushed and the workflow runs.
 
@@ -121,8 +121,8 @@ Optional terminal diagnostics on a build/test PC:
 
 ```bash
 ./frame/build/dist/FramePhone-amd64.run -- --self-test
-./frame/build/dist/FramePhone-amd64.run -- --stereo --help
-./frame/build/dist/FramePhone-amd64.run -- --diagnostic --headless --frames 3
+./frame/build/dist/FramePhone-amd64.run -- --camera --help
+./frame/build/dist/FramePhone-amd64.run -- --markerless --help
 ```
 
 The first `--` passes arguments through the self-extractor to the app.

@@ -1,87 +1,48 @@
 # Architecture
 
-FramePhone has two applications. `phone/` captures Android motion sensors and
-serves manually measured body dimensions over an authenticated TLS link.
-`frame/desktop/` pairs with it and displays live telemetry. The native C++20
-camera and fiducial tracker remains a separate diagnostic path; fusion is future
-work. See the [LAN protocol](PAIRING_AND_IMU.md).
-
-## Data flow
+Android captures motion sensors and serves measured body dimensions over an
+authenticated TLS link. The Frame desktop displays telemetry and controls a
+native stereo body-pose diagnostic. Optical measurements are not yet fused
+with IMU observations.
 
 ```mermaid
 flowchart LR
-    Phone[Android dimensions and sensors] --> TLS[Authenticated TLS link]
-    TLS --> Telemetry[Frame live sensor diagnostics]
-    Legacy[Legacy exports] --> Layout[Measured marker layout JSON]
-    Camera[Frametop camera ring] --> Frames[Owned grayscale frames]
-    Replay[PGM recordings] --> Frames
-    Synthetic[Synthetic input] --> Frames
-    Frames --> Tags[AprilTag 3 detections]
-    Layout --> Pose[Calibrated phone pose]
-    Tags --> Pose
-    Calibration[Camera or factory calibration] --> Pose
-    Frames --> View[Diagnostic preview and logs]
-    Tags --> View
-    Pose --> Output[Pose JSONL and terminal output]
+    Phone[Android dimensions and sensors] --> TLS[Authenticated TLS]
+    TLS --> Telemetry[Sensor diagnostics and optional recording]
+    TLS --> Body[Measured body geometry]
+    Camera[Two front-camera streams] --> Frames[Owned grayscale pairs]
+    Replay[Recorded pairs] --> Frames
+    Frames --> Edges[Labelled corners / rectified outlines]
+    Calibration[Saved factory calibration] --> Pose[Joint stereo body pose]
+    Body --> Pose
+    Edges --> Pose
+    Pose --> Output[Desktop wireframe and versioned pose evidence]
 ```
 
-The OpenVR outline demo is separate from this flow and uses simulated geometry.
-It does not demonstrate live tracked rendering.
-
-## Android modules
-
-| Directory / class | Responsibility |
+| Component | Responsibility |
 | --- | --- |
-| `link/Protocol`, `PhoneDimensions` | Bounded wire framing, certificate fingerprint formatting and measured body dimensions. |
-| `link/Identity`, `PhoneServer` | Keystore TLS identity, LAN discovery, approval, reconnect authentication and telemetry session. |
-| `link/SensorFeed`, `TelemetryService` | Bounded sensor capture, explicit connected-device foreground lifecycle and Stop. |
-| `MainActivity` / `SettingsStore` | Dimensions, pairing controls, private preferences and credential verifier. |
+| Android `link/` | TLS identity, discovery, approval, sensor capture and explicit service lifecycle. |
+| `phone_link.py`, `phone_panel.py` | Pairing, pinned reconnect and bounded live sensor diagnostics. |
+| `CameraFrame`, `RecordedFrameSource` | Owned Gray8 data, source-clock timestamps, metadata and PGM replay. |
+| `FrametopRing` | Bounded read-only ring copies and writer/sequence checks. |
+| `geometry.hpp`, `RigCamera` | Shared points, calibration, KB4 projection/rays and head transforms. |
+| `StereoFramePairer` | Fresh two-view capture pairing within 3 ms, with bounded queues. |
+| `PhoneBodyModel`, `MarkerlessPoseEstimator` | Body-center geometry, IPPE/triangulated seeds and joint stereo refinement. |
+| `MarkerlessTracker` | Rectified contours, side-line fits, local association and latched loss. |
+| `StereoRecorder` | Raw PGM pairs and timestamped replay manifests. |
+| `markerless_panel.py`, `telemetry_recording.py` | Selection/replay UI, exact-pair previews and opt-in bounded sensor evidence. |
 
-Dimensions describe the outside body/case, not active-display size. Sensor axes
-remain Android natural-device axes, independent of UI rotation. The old overlay,
-marker raster, screen calibration and layout-export code has been removed from
-the Android app. No Accessibility service or screen capture is used.
+OpenCV supplies camera transforms, PnP, SVD, optimization and image processing.
+Frametop's camera broker and calibration/ray/pairing utilities retain their
+[provenance](../third_party/frametop/README.md). The privileged broker is separate
+from the unprivileged tracking and desktop processes.
 
-## Native modules
+Only `measured` results are current optical measurements. Loss/ambiguity cannot
+promote an old pose into a new one. All transforms, units and clocks are explicit.
+The shared capture-clock label requires hardware validation. Host arrival time
+is not camera exposure time.
 
-| Interface / source | Responsibility |
-| --- | --- |
-| `CameraFrame`, `camera_source.cpp` | Owned Gray8 pixels, dimensions/stride, camera/calibration identity and source-clock capture time; synthetic and PGM replay sources. |
-| `FrametopRing`, `frametop_ring.cpp` | Read-only bounded ring copies, sequence checks, stale-writer handling and separate host transport timestamps. |
-| `AprilTag36h11Detector` | Real full-resolution AprilTag 3 detection for the supported phone IDs 0–5. |
-| `PhoneLayout`, `pose.cpp` | Export validation, canonical corner association, single-camera IPPE hypotheses and whole-tag consensus. |
-| `RigCamera`, `frametop_calibration.cpp` | Factory KB4 intrinsics, camera-to-head transforms, calibrated rays and triangulation. |
-| `StereoFramePairer`, `StereoPoseEstimator` | Fresh two-view capture pairing, rigid-phone seeds and joint distorted-pixel refinement. |
-| `diagnostic.cpp`, `diagnostic_view.cpp` | Detection statistics, CSV and optional SDL display. |
-| `*_main.cpp` / `main.cpp` | CLI orchestration and the optional renderer demo; see the executable table in the native README. |
-
-OpenCV supplies SVD, camera projection/PnP and LM optimization; AprilTag supplies
-decoding. Frametop's MIT calibration/ray math and pairing policy are adapted with
-[provenance](../third_party/frametop/README.md). The privileged camera broker is
-an external host process, not part of the tracker.
-
-## Invariants
-
-Physical units are meters; transform direction and output frame are explicit.
-Capture timestamps retain their original clock label and integer precision.
-Host dequeue/publication times are not substituted for capture times. A shared
-clock label must be verified on hardware before stereo pairing.
-
-A phone layout must match the actual display configuration. Detector corners
-use AprilTag's canonical order, not the export's display TL/TR/BR/BL order.
-The loader applies the raster-rotation permutation.
-
-Only `accepted` results are usable. Loss, rejection and unresolved ambiguity
-never turn an earlier pose into a current measurement. Whole markers, not
-individual convenient corners, determine consensus.
-
-## Future integration
-
-The [LAN pairing and sensor link](PAIRING_AND_IMU.md) now implements fingerprint
-approval and timestamped streaming. QR association, precise clock drift modeling,
-canonical sensor transforms and visual-inertial pose estimation remain future work.
-
-World tracking needs capture-to-XR time mapping and historical headset poses:
-`T_WP(t) = T_WH(t) * T_HP(t)`. A current headset pose cannot replace the pose at
-capture time. Reference-space resets, filtering, prediction and VR rendering
-remain separate work described in the [roadmap](../../docs/ROADMAP.md).
+See [coordinates](COORDINATE_SYSTEMS.md), [pairing](PAIRING_AND_IMU.md), and
+[markerless contracts](MARKERLESS_DIAGNOSTIC.md). Future detector proposals and
+silhouette tracking can use these interfaces without reintroducing UI-specific
+geometry. The OpenVR demo remains a separate simulated rendering experiment.

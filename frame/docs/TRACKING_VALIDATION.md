@@ -1,108 +1,40 @@
-# Testing and hardware validation
+# Tracking validation
 
-Software tests and hardware measurements answer different questions. Tests verify
-frame handling, marker geometry and numerical behavior under controlled inputs.
-They do not establish camera access, real detection coverage or headset accuracy.
+Software checks do not establish real camera accuracy or headset performance.
+Basic pairing and sensor delivery have been observed on the owner's hardware;
+markerless tracking still needs independent physical trials.
 
 ## Automated checks
 
-Run commands from [DEVELOPMENT.md](../../docs/DEVELOPMENT.md). GitHub Actions
-is configured for portable/native Linux, ARM64 and Android host checks; hosted
-results are available only after pushing the repository.
+- Portable frame validation, timestamped PGM replay and independent ring-writer tests.
+- Factory camera discovery and the packaged synthetic geometry self-test.
+- Independently projected frontal/tilted corners and distorted stereo raster
+  rendering for metric pose, actual contour tracking, invalid input and loss.
+- Native session solve/replay, exact frame provenance and bounded previews.
+- Real Tk capture/selection/live tracking, camera preview and loss clearing.
+- TLS pairing/reconnect, credential pinning and opt-in telemetry recording.
 
-| Suite | Coverage |
-| --- | --- |
-| Android `ProtocolTest` | Measured body units/ranges, integer timestamps, bounded message parsing and fingerprint encoding. |
-| Phone link tests | Real loopback TLS pairing/reconnect/rejection, changed identity before credential transmission, private persistence, framing, clock probes and sensor gaps/staleness. |
-| Native camera source tests | Metadata/stride, PGM parsing, clock separation and deterministic synthetic tags. |
-| Native ring tests | Stable/torn slots, stale writer, malformed ABI, replacement, skips and timestamp precision. |
-| Diagnostic state/CLI tests | Detection histories, loss/reacquisition, CSV, replay and independent ring input. |
-| AprilTag integration tests | Real decoding of the synthetic tag rasters. |
-| Calibrated pose tests | Pinhole/KB4, rotated exports/rasters, independent projections, perspective images, noise, outliers and ambiguity. |
-| Stereo geometry/CLI tests | Factory transform composition/units, pairing skew/queue bounds, independent projections, two decoded views, explicit ring mapping, paired recording/replay and loss. |
-| Linux package script checks | Clean source handoff, default/native architecture, executable/checksum export, failed-update preservation and build-container cleanup using a simulated engine. |
-| Desktop frontend checks | All normal mono candidates, explicit selected-pair handoff, reported dimensions/identities, fresh result directories, live marker ID counts, loss/stale handling, host-tool library isolation and bounded previews. |
-| Front-camera GUI integration | Actual Tk window and native detection on independent 1280×1024 ring streams: all four candidates, obsolete mapping reset, calibration dimension mismatch rejection, selected-pair counts without a layout, loss/stale/reacquisition and native-pixel views. |
-| Broker checks | Static linking and strict caller UID/primary-group resolution without opening cameras or requesting privileges. |
-| Linux package CI | Docker native AMD64/ARM64 and emulated ARM64, plus rootless Podman chroot on native ARM64; image build/CTest and extracted executable detector/CSV and virtual-display GUI startup on native runners. |
+CMake/CTest runs native checks. CI also runs desktop/TLS tests, Tk under Xvfb,
+and packaged execution on Linux architectures. Tests require OpenCV and JSON,
+plus Python/Tk for GUI integration. No camera privileges are needed.
 
-`make -C frame test all` covers only the portable subset. Full CMake/CTest checks
-require AprilTag, OpenCV and JSON. SDL's preview smoke test uses its dummy driver,
-which tests rendering code without establishing desktop/VR display behavior.
-Android device instrumentation is separate from host unit/lint checks.
+## Hardware trials
 
-Pose acceptance/loss/reacquisition checks use a tilted raster so the two planar
-pose hypotheses are distinguishable. Frontal raster checks allow `accepted` or
-`ambiguous`: AprilTag versions can refine edges enough to change that decision.
-Those checks still require all four markers, low reprojection error and the
-original pose accuracy bounds. Separate tests require ambiguous poses to be
-rejected; the estimator's production acceptance thresholds are unchanged.
+Verify the selected front lenses, factory mapping, native resolution and clock
+domain. Use a measured phone/case and independent position/angle references.
+Start with a supported stationary phone, clear front boundary and simple background.
+Compare labelled-corner geometry before evaluating automatic outline extraction.
 
-Run the package script checks with `python3 frame/tests/test_linux_package.py`
-and desktop checks with `python3 frame/tests/test_desktop.py`. The broker's static
-build/identity checks use `python3 frame/tests/test_broker.py` (C compiler required).
-These simulated-engine checks do not establish container or ARM64 compatibility;
-the real image jobs and headset run cover those separately.
+Record static poses, distances, tilts, grips, lighting and display content; then
+phone-only, headset-only and combined motion. Measure stationary jitter,
+position/rotation errors, false associations, ambiguity/loss fraction, processing
+latency and time to reacquire. Report failures and projected phone pixel size
+alongside successful trials.
 
-With Tk and Xvfb installed, run the front-camera window integration against a
-full native build (for example `frame/build/desktop`):
+Test missing/covered edges, both cameras covered, capture pauses, broker restarts,
+phone disconnect/reconnect and changed dimensions. Stale/lost output must clear;
+reacquisition must not silently associate the IMU with another rectangle.
 
-```bash
-xvfb-run -a python3 frame/tests/test_front_camera_gui.py frame/build/desktop
-```
-
-This exercises real decoding and widgets with generated camera images. It does
-not establish phone-screen visibility in the headset's mono sensors.
-
-## Android device checks
-
-- Measure both active-display dimensions and confirm the 50 mm calibration ruler
-  on both axes. Check portrait and landscape with the same saved calibration.
-- Verify complete marker boundaries/quiet zones for each layout and selected size;
-  rejected geometry must explain clipping or overlap.
-- Test overlay permission grant/denial, notification permission, Stop, lock,
-  display-off and process death. No overlay should silently restart at boot.
-- Check touch behavior inside/outside marker windows and apps that hide overlays.
-- Check rotation/update intervals, measured exports and the temporary white
-  interval. Logcat `FiducialTiming` measures CPU callbacks/drawing, not physical
-  screen presentation or GPU completion.
-
-## Steam Frame feasibility
-
-Follow [HEADSET_TEST.md](HEADSET_TEST.md) for setup and a bounded first capture.
-The owner has run the app and observed up to six fiducials updating live on a
-headset. The OG0VE10 pair previously forced by the app showed side views, with
-reported 640×640 images; the owner recalls video0/video3 as the front views.
-Front-camera identity, detection range and pose accuracy remain unverified.
-Before tuning the solver:
-
-1. Verify the two actual front mono views, factory-to-ring mapping, resolution/crop,
-   bright-frame selection and shared capture clock.
-2. Inspect raw images for full marker boundaries and quiet zones. Visibility in
-   headset passthrough alone is not evidence of mono-camera detectability.
-   Check per-camera marker counts with and without previews, then with stereo
-   tracking enabled. Remove/cover all tags and stop camera input: counts/poses
-   must clear, and detection must reacquire after tags/input return.
-3. Record phone layout export/revision, measured display dimensions, marker size,
-   phone brightness, lighting, exposure if available, distance and tilt.
-4. Compare detection rate and projected tag size across distances and tilts.
-   Include occlusion/blank intervals and reacquisition; keep both images of a pair.
-5. Compare pose against independent physical measurements, including rotation
-   and simultaneous phone/headset motion. Reprojection RMS alone cannot reveal a
-   consistently wrong phone scale or calibration.
-6. Measure sustained processing time, skipped/unpaired frames and tracking
-   continuity with capture enabled. Repeat after headset sleep/wake and broker
-   restart; readers must fail clearly on stale/replaced input.
-
-For each experiment, retain the exact build/dependency versions, factory-file
-checksums, frozen phone export, commands, logs and paired captures. Use new
-output filenames. Default software thresholds are diagnostic starting points,
-not confidence bounds measured on this hardware.
-
-## Future world tracking acceptance
-
-Before rendering a tracked phone in world space, validate capture-to-XR clock
-mapping, camera/head transform direction and historical headset interpolation.
-Test recenter/reference-space changes, fast head rotation, lost tracking and
-reacquisition. Filtering/prediction needs raw-versus-filtered measurements and
-explicit stale/lost output; it must not hide bad calibration or timestamp skew.
+See [recording/replay instructions](MARKERLESS_DIAGNOSTIC.md). Low reprojection
+error and an attractive overlay are diagnostic evidence, not independent ground
+truth. Camera/XR alignment and inertial prediction remain future validation work.

@@ -1,160 +1,42 @@
-# Test on a stock Steam Frame desktop
+# Test on a Steam Frame desktop
 
-Build **`FramePhone-arm64.run`** on your Linux PC using
-[BUILD.md](BUILD.md), or download the ARM64 package from a successful repository
-workflow. Transfer that single file to the headset's Downloads folder. Frametop,
-Docker, development containers and separate libraries are not needed to run it.
+Build **`FramePhone-arm64.run`** on Linux desktop or the headset using
+[BUILD.md](BUILD.md), or download the ARM64 artifact from a successful repository
+workflow. Transfer the single file to Downloads. In file Properties enable
+execution, then open it. Frametop and a runtime container are not required.
 
-## Open it without terminal commands
+## Pair and receive sensors
 
-The app opens on **Phone telemetry**. Install the updated Android companion,
-enter the phone's outside width/height/thickness and start pairing. Use
-**Find phones**, select it, then **Pair new phone**. Compare all four fingerprint
-groups and approve both screens. Live sensor values and measured dimensions
-should appear immediately. Next time choose **Connect saved phone** after
-starting the phone connection. If discovery fails, enter the IP shown on the
-phone. See [pairing and telemetry](PAIRING_AND_IMU.md) for troubleshooting and
-protocol limits. Cameras and administrator authorization are not needed for this.
+On the phone, enter the outside body/case dimensions and start pairing.
+Use **Phone telemetry → Find phones → Pair new phone**, compare the fingerprint
+and approve both screens. Live sensor values and dimensions should appear.
+Use **Connect saved phone** on later connections. See [pairing](PAIRING_AND_IMU.md).
 
-The following older camera workflow is on the **Camera / legacy tracking
-diagnostics** tab. The current Android app no longer displays or exports tags;
-fiducial pose experiments require an existing layout and matching markers.
+## Set up the front cameras
 
-1. In the desktop file manager, right-click `FramePhone-arm64.run`, open
-   **Properties → Permissions**, and enable **Is executable** / **Allow executing
-   file as program**. A transfer or ZIP download may remove this permission.
-2. Open the file and choose **Execute/Run** if the file manager asks.
-3. On **Camera / legacy tracking diagnostics**, click **Self-test**. A passing test decodes three synthetic frames through the
-   real detector. This checks software startup and does not need the phone.
-4. Click **Enable cameras** and approve the desktop's authorization prompt.
-   This starts FramePhone's bundled broker; there is no separate broker install.
-5. Select the two physical front streams in the left/right dropdowns.
-   **Refresh cameras** lists all normal-exposure mono candidates, including
-   their sensor, video device and actual ring dimensions in the log. Detection
-   and previews use only the two streams you select; leave the side views unused.
-   Defaults use the owner's observed front-left `og01a1b_4-0060_video3` with
-   `slam_left`, and front-right `og01a1b_4-0036_video0` with `slam_right`.
-   These defaults apply when no available saved selection exists. Missing default
-   streams stay unselected; another video device is never silently substituted.
-   The owner observed side views on OG0VE10 video13/video9. Check the selected
-   lenses physically; the default factory association remains provisional.
-6. Enable **Show front camera views** and cover each physical front lens briefly
-   to identify its stream. Use **Swap left/right streams** if needed. Do not infer
-   camera identity from dropdown order or sensor/video numbers. Click a preview
-   or **Open full-size view** to inspect the actual source pixels.
-7. Display the phone's fiducials. Live detection starts automatically once both
-   streams are selected, even with previews hidden and without a phone layout.
-   The large label reports **I can see N tracking marker IDs**, counting each ID
-   once across both views. Each view also reports its own count, IDs and source
-   dimensions. **0 tracking markers detected** means frames were processed with
-   no decoded phone tags; **Waiting** means no fresh detection result. Stale
-   results expire rather than leaving an old count visible.
-8. For position/rotation, transfer the measured layout JSON exported by the
-   Android app and use **Choose phone layout…**. Keep the matching fiducial
-   layout on the phone, with the measured physical display calibration.
-   Select each stream's matching **Factory calibration** using the headset's
-   XRService sensor/device mapping. Names such as `upper_left` or `slam_left`
-   alone do not prove front/side identity. Calibration dimensions must match the
-   live image; the GUI rejects mismatches before starting pose tracking. Matching
-   dimensions alone do not establish camera identity. Detection does not require
-   these calibration selections.
-   Click **Start tracking** and hold the phone where both front cameras see the
-   tags. Marker counts remain visible; a separate pose line reports accepted
-   tracking/distance, insufficient shared tags or ambiguity. Stream selection is
-   locked during tracking. **Stop** ends the stereo test and resumes detection;
-   closing the window also stops FramePhone's camera broker.
+Choose **Enable cameras** and approve the desktop authorization prompt. The app
+starts its bundled broker; no separate install is needed. Refresh if necessary.
+Select the two front streams and their matching factory cameras in **Markerless
+tracking**. **Camera setup → Show front camera views** exposes only that pair;
+open full-size views to inspect native source pixels. Cover each physical lens
+to verify the streams.
 
-If your user has no administrator password yet, desktop authorization may need
-that account configured first. If authorization or camera discovery fails, the
-window shows the broker error. Leave that log available for debugging.
-Hardware compatibility can vary with headset firmware/kernel versions.
+Defaults use the owner's front-left `og01a1b_4-0060_video3` with `slam_left`,
+and front-right `og01a1b_4-0036_video0` with `slam_right`. Existing available
+selections take priority. These factory associations remain provisional;
+sensor names/video numbers do not prove calibration identity. Missing defaults
+stay unselected instead of substituting another stream. Ignore the side cameras.
 
-## Resolution and marker visibility
+**Geometry self-test** exercises the native body-pose solver without hardware.
+The integrated log shows discovery, source dimensions and broker failures.
 
-The broker copies the mono stream XRService already produces, and detection runs
-on those source pixels. There is no fixed 640×640 resize or capture limit in
-FramePhone. The owner reports 640×640 from the currently selected pair. Preserve
-that observation rather than replacing it with a sensor datasheet's dimensions.
-Each selected view now shows its reported sensor/video identity and ring size,
-and the actual detector input dimensions are shown separately.
+## Try markerless pose
 
-OMNIVISION specifies **1280×1024** for the [OG01A1B sensor](https://www.ovt.com/products/og01a1b/)
-and **640×480** for the [OG0VE sensor](https://www.ovt.com/products/og0ve/).
-These describe sensor capabilities, not a measured mapping of front lenses or
-the active XRService mode on this headset. The pinned broker also contains
-observations of 1056×1024 mono streams. Sensor maximum, current stream/crop and
-displayed preview size must be checked separately; selecting the other pair
-does not itself guarantee 1280×1024 capture.
+Follow the [markerless diagnostic](MARKERLESS_DIAGNOSTIC.md): capture a synchronized
+pair, label the same physical front corners in each view, estimate pose, and
+start local outline tracking. Hold still during initialization and move slowly.
+It needs a clear front boundary in both cameras. Capture again after loss.
 
-The old embedded preview reduced 640×480 to approximately 213×160. The new
-embedded views are larger, and the full-size windows display native pixels
-without that reduction. Changing preview size does not improve capture detail.
-FramePhone does not change XRService's camera modes. The appearance of the
-headset's passthrough view does not establish the resolution or contrast of
-these raw mono tracking streams.
-
-Older saved camera mappings are cleared once on upgrade because the previous
-release forced OG0VE10 and `upper_left/right` based on upstream naming, which
-selected the side views on the owner's headset. Select and verify the front
-streams again; the new selections are remembered.
-
-## Live tracking visualizer
-
-Click **Tracking visualizer…** to open a separate, resizable diagnostic window.
-It updates while the camera previews are hidden and can be closed and reopened
-without stopping detection or tracking.
-If the phone layout is missing, both the main pose line and the 3D panel explain
-how to export and choose the JSON. The visualizer includes **Choose phone
-layout…** and **Start 3D tracking** buttons. This is a local file transfer and
-selection; there is no network upload or automatic layout synchronization.
-After applying the phone's large-marker preset or changing its geometry,
-export and select a new layout before starting another calibrated trial.
-
-- **Uncalibrated:** each panel plots decoded marker outlines and IDs in its
-  raw camera image coordinates. This needs neither factory calibration nor a
-  phone layout. It shows image-space movement; it does not estimate metric
-  distance or a 3D phone pose. Use the camera views alongside it for actual imagery.
-- **Calibrated:** after choosing the measured layout and clicking **Start
-  tracking**, an accepted stereo pose draws the measured screen outline and
-  phone axes in a fixed oblique 3D view relative to the head. Head axes are
-  X right, Y up, Z back; forward is negative Z. Position and distance are in
-  meters. **View span (m)** changes the drawing scale without changing tracking.
-  Calibration is factory imported; this visualization does not verify its
-  camera association or metric accuracy.
-
-Marker loss clears the corresponding image outlines. Ambiguous/rejected, stopped
-or stale tracking clears the 3D phone rather than holding its previous pose.
-This is a desktop diagnostic view; no VR overlay or world-space tracking is added.
-
-If both counts stay at zero, inspect the full-size images first: all tag cells,
-the black boundary and the surrounding white quiet zone must be distinguishable.
-Try holding the phone closer or increasing the displayed tag size. Compare each
-view's count before starting stereo tracking; decoded markers with a rejected
-pose indicate a different problem from no decoded markers.
-
-## Results and repeatability
-
-**Open test results** opens `~/.local/state/framephone/sessions` in the file
-manager (or the equivalent `XDG_STATE_HOME` path). Each run has a new directory
-containing the frozen phone layout, calibration SHA-256 identity, stream mapping,
-pose JSONL and tracking CSV. Desktop/broker output is in
-`~/.local/state/framephone/desktop.log`. Settings remember the layout path and
-camera choices in `~/.config/framephone/settings.json`.
-
-Enable **Record paired images** when collecting evidence for debugging. It
-records grayscale image pairs and their manifest and can use substantial disk
-space. Check actual images for complete tag boundaries and quiet zones. Phone
-visibility in headset passthrough alone does not establish visibility in these
-mono tracking cameras.
-
-The GUI uses the pinned broker's mono V4L2 timestamp convention as a shared
-capture clock, with a maximum stereo skew of 3 ms. That is an assumption to check
-on hardware, not a measured clock mapping. Verify front camera identity,
-resolution/crop, tag detectability, metric scale and sustained processing cost
-before trusting pose measurements. Full validation is in
-[TRACKING_VALIDATION.md](TRACKING_VALIDATION.md).
-
-Poses are **head-relative** T_HP, with head axes right/up/back and translations
-in meters. This is a desktop tracking test, not a VR screen or world-space pose.
-The app reuses Frametop's camera/calibration foundations but runs independently;
-coexistence with a Frametop installation is deferred.
+Use opt-in recordings for difficult cases and measure pose against an independent
+reference. Camera calibration/mapping, clock assumptions and real tracking
+accuracy remain to be verified. See [validation](TRACKING_VALIDATION.md).

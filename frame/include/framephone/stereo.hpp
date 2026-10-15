@@ -1,5 +1,5 @@
 #pragma once
-#include "framephone/pose.hpp"
+#include "framephone/geometry.hpp"
 #include <deque>
 
 namespace framephone {
@@ -51,28 +51,4 @@ struct TriangulatedPoint {
 std::optional<TriangulatedPoint> triangulate_stereo(const StereoRig &rig,
                                                     const std::array<ImagePoint, 2> &pixels);
 
-struct StereoPoseResult {
-    std::string status;
-    // Same storage as PoseCandidate, but these transforms are T_HP, NOT T_CP.
-    std::vector<PoseCandidate> candidates;
-    std::size_t shared_tags{};
-};
-class StereoPoseEstimator {
-  public:
-    StereoPoseEstimator(PhoneLayout layout, StereoRig rig);
-    StereoPoseResult estimate(const StereoPair &pair,
-                              const std::array<DetectionBatch, 2> &detections) const;
-    const PhoneLayout &layout() const {
-        return layout_;
-    }
-    const StereoRig &rig() const {
-        return rig_;
-    }
-
-  private:
-    PhoneLayout layout_;
-    StereoRig rig_;
-};
-void write_stereo_jsonl(std::ostream &output, const StereoPair &pair,
-                        const StereoPoseEstimator &estimator, const StereoPoseResult &result);
 } // namespace framephone

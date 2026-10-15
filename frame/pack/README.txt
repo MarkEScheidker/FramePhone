@@ -5,7 +5,7 @@ Output: frame/build/dist/FramePhone-arm64.run
 Copy this executable to the Steam Frame, allow execution in file Properties,
 and open it. Phone telemetry provides LAN discovery, pairing and live sensor
 readings. Compare the pairing fingerprint on both devices and approve both.
-Camera/legacy tracking diagnostics remain in a separate tab. No runtime commands
+Front camera previews and a geometry self-test are in Camera setup. No runtime commands
 are needed on the headset.
 
 Docker/Podman is a build-machine requirement only. Runtime libraries, Python/Tk

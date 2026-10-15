@@ -2,45 +2,59 @@
 
 FramePhone's goal is to locate a phone in Steam Frame's view and eventually draw
 its correctly sized screen in VR. The current milestone is paired live phone
-telemetry as a foundation for markerless tracking.
+telemetry and an initial markerless optical diagnostic.
 
 ## Implemented
 
+- Markerless desktop workflow: synchronized capture, physically labelled corners,
+  calibrated T_HB body-pose estimation, local complete-front-outline tracking,
+  explicit ambiguity/loss, saved calibration and optional raw telemetry/replay.
 - Android manual body dimensions, user-started sensor service, LAN discovery,
   TLS fingerprint pairing and revocable saved reconnect credentials.
 - Frame phone telemetry tab with live values, measured rates, sensor availability,
   drops/gaps and rough clock-offset/sample-age diagnostics.
-- Removed the Android fiducial overlay and export UI. Native marker diagnostics
-  remain available for old exports, fixtures and camera experiments.
-- Native real AprilTag detection, desktop preview, synthetic input and local replay.
+- Front-camera desktop previews and native grayscale recording/replay.
 - Read-only Frametop camera-ring adapter and factory KB4 camera/head calibration.
-- Calibrated planar and stereo rigid-phone estimation, whole-tag outlier checks,
+- Joint calibrated stereo body estimation,
   ambiguity/loss states, and explicit capture/camera/calibration identities.
-- Opt-in detection/pose logs and paired grayscale recording for repeatable analysis.
+- Opt-in pose logs and paired grayscale recording for repeatable analysis.
 - Automated software tests and build workflows; a separate OpenVR rendering demo.
 - Shared Linux build recipe producing one self-extracting desktop executable,
-  with bundled libraries, camera broker, layout chooser, live previews, tracking
+  with bundled libraries, camera broker, live previews, tracking
   controls and a camera-independent startup test.
 
-## Next: validate pairing and sensor delivery
+## Next: validate and extend markerless tracking
+
+The owner has confirmed pairing and live telemetry on the phone and Steam Frame.
+The [markerless tracking research and plan](../frame/docs/MARKERLESS_TRACKING.md)
+proposes OpenCV outline acquisition, IPPE hypotheses, joint stereo validation
+and a RAPID silhouette tracker, followed by aligned gyro prediction. The
+[first diagnostic](../frame/docs/MARKERLESS_DIAGNOSTIC.md) implements manual
+initialization and a complete-front-outline baseline. Collect actual Frame
+recordings and independent pose references next; compare automatic acquisition
+and RAPID on those trials. Partial occlusion, automatic visual association and
+gyro fusion are not implemented yet.
+
+## Continue validating the sensor link
 
 Pair on the real LAN, check sensor axes/rates, Stop/Forget, reconnect after IP
 changes, unavailable sensors, Wi-Fi loss and sleep/resume. Measure transport
 latency and power. Software tests do not validate Android Keystore/TLS behavior
-or sensor delivery on the owner's phone. Then add temporary visual association,
-off-the-shelf phone detection and physical outline estimation.
+or sustained sensor delivery on the owner's phone. Basic pairing/telemetry has
+now been observed; rates, timing, reconnect and loss behavior still need trials.
 
 ## Camera validation
 
 Build on ARM64, establish the camera broker/identity/clock mapping, and collect
-paired captures with the actual phone export. Measure detection coverage,
+paired captures with measured body geometry and independent pose references.
+Measure outline coverage,
 reprojection error, distance/rotation accuracy, latency and sustained CPU cost.
 Repeat across distance, tilt, lighting and headset sleep/restart. The
 [headset procedure](../frame/docs/HEADSET_TEST.md) and
 [validation guide](../frame/docs/TRACKING_VALIDATION.md) define the starting point.
 
 Factory calibration import and synthetic tests do not establish real camera
-accuracy. Tag visibility in headset passthrough does not establish detectability
+accuracy. Phone visibility in headset passthrough does not establish outline contrast
 in the monochrome tracking cameras. Record these separately.
 
 ## Then: tracked VR visualization
