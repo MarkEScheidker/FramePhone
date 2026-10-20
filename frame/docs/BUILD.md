@@ -84,6 +84,8 @@ broker. It bundles an Ubuntu runtime with AprilTag, OpenCV, Pillow, Python/Tk, T
 libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
+Its POSIX/PAX tar format preserves long runtime symlink targets, including the
+certificate links; the default ustar format cannot represent all of them.
 
 AprilTag remains included for retained diagnostics. The static-photo experiment
 also bundles XFeat/LighterGlue source/weights, CPU PyTorch, Kornia and Python

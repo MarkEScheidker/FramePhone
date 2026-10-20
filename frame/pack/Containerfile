@@ -55,7 +55,7 @@ RUN python3 /src/frame/pack/prepare-runtime.py /payload/rootfs \
     && mkdir /out \
     && cp /usr/share/doc/makeself/copyright /payload/makeself-copyright \
     && cp /usr/share/common-licenses/GPL-2 /payload/makeself-GPL-2 \
-    && makeself --quiet --nox11 --gzip --sha256 /payload /out/FramePhone.run "FramePhone" ./AppRun
+    && makeself --quiet --nox11 --gzip --sha256 --tar-format posix /payload /out/FramePhone.run "FramePhone" ./AppRun
 
 FROM scratch AS executable
 COPY --from=package /out/FramePhone.run /out/FramePhone.run

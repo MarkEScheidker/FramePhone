@@ -11,9 +11,10 @@ using namespace framephone;
 namespace {
 using Json = nlohmann::json;
 const cv::Matx33d hc(1, 0, 0, 0, -1, 0, 0, 0, -1);
+std::string scenario = "setup";
 void check(bool ok, const std::string &why) {
     if (!ok)
-        throw std::runtime_error(why);
+        throw std::runtime_error(scenario + ": " + why);
 }
 StereoRig rig() {
     StereoRig r;
@@ -74,13 +75,22 @@ CameraFrame reference() {
     image.setTo(210);
     cv::RNG rng(516829);
     for (int i = 0; i < 380; ++i) {
-        cv::Point p(rng.uniform(4, 476), rng.uniform(4, 716));
+        // Function argument evaluation order differs between GCC's AMD64 and
+        // ARM64 targets. Sequence RNG draws explicitly to render the same photo
+        // on both, preserving the original AMD64 fixture's draw order.
+        const auto y = rng.uniform(4, 716);
+        const auto x = rng.uniform(4, 476);
+        cv::Point p(x, y);
         int radius = rng.uniform(3, 19);
-        cv::circle(image, p, radius, cv::Scalar(rng.uniform(0, 255)), rng.uniform(1, 4),
-                   cv::LINE_AA);
-        if (i % 4 == 0)
-            cv::line(image, p, cv::Point(rng.uniform(0, 480), rng.uniform(0, 720)),
-                     cv::Scalar(rng.uniform(0, 255)), 1, cv::LINE_AA);
+        const auto thickness = rng.uniform(1, 4);
+        const auto intensity = rng.uniform(0, 255);
+        cv::circle(image, p, radius, cv::Scalar(intensity), thickness, cv::LINE_AA);
+        if (i % 4 == 0) {
+            const auto line_intensity = rng.uniform(0, 255);
+            const auto end_y = rng.uniform(0, 720);
+            const auto end_x = rng.uniform(0, 480);
+            cv::line(image, p, cv::Point(end_x, end_y), cv::Scalar(line_intensity), 1, cv::LINE_AA);
+        }
     }
     return f;
 }
@@ -181,8 +191,10 @@ int main(int argc, char **argv) {
                 auto world = rotation * cv::Vec3d(p.x * .072, p.y * .072, 0) + t;
                 matches.push_back({p, project(r, world)});
             }
+        scenario = "exact stereo correspondences";
         auto estimate = estimate_photo_pose(r, pair, matches, 1.5);
         accuracy(estimate, rotation, t, 1e-5, 1e-4);
+        scenario = "previous-pose initialization";
         auto moved_matches = matches;
         const auto moved_t = t + cv::Vec3d(.01, -.005, .015);
         for (auto &m : moved_matches)
@@ -192,6 +204,7 @@ int main(int argc, char **argv) {
                  1e-5, 1e-4);
         check(estimate_photo_pose(r, pair, {}, 1.5, &estimate).status == "lost",
               "previous pose substituted for missing observations");
+        scenario = "outlier rejection";
         for (std::size_t i = 0; i < 8; ++i) {
             auto wrong = matches[i];
             wrong.reference.x += .25;
@@ -199,6 +212,7 @@ int main(int argc, char **argv) {
             matches.push_back(wrong);
         }
         accuracy(estimate_photo_pose(r, pair, matches, 1.5), rotation, t, 1e-5, 1e-4);
+        scenario = "spatial coverage rejection";
         auto clustered = matches;
         for (auto &m : clustered) {
             m.reference.x *= .1;
@@ -218,6 +232,7 @@ int main(int argc, char **argv) {
               "small patch accepted as a full photo pose");
         check(estimate_photo_pose(r, pair, low_coverage, 1.5, &estimate).status == "lost",
               "previous pose bypassed current coverage requirement");
+        scenario = "calibration and clock rejection";
         auto wrong = pair;
         wrong.frames[1].calibration_id = "wrong";
         bool rejected = false;
@@ -236,16 +251,19 @@ int main(int argc, char **argv) {
             rejected = true;
         }
         check(rejected, "excessive stereo capture skew accepted");
+        scenario = "raster acquisition";
         PhotoTracker tracker(ref, r);
         auto photo = render(r, ref, rotation, t);
         auto result = tracker.update(photo);
         accuracy(result, rotation, t, .008, .08);
         check(result.matches.size() >= 12, "not enough stereo features");
+        scenario = "blank image";
         auto lost = tracker.update(blank(r));
         check(lost.status == "lost" && lost.reason == "too_few_camera_features" &&
                   lost.scene_features[0] == 0 && lost.scene_features[1] == 0 &&
                   lost.matches.empty(),
               "lost photo reused previous pose or hid diagnostic stage");
+        scenario = "one-camera visibility";
         auto one_eye = photo;
         one_eye.frames[1] = blank(r).frames[1];
         auto partial = tracker.update(one_eye);
@@ -253,12 +271,14 @@ int main(int argc, char **argv) {
                   !partial.view_points[0].empty() && partial.view_points[1].empty() &&
                   partial.stereo_candidates == 0 && partial.matches.empty(),
               "one-view recognition was hidden or promoted to a stereo pose");
+        scenario = "inconsistent stereo";
         auto inconsistent = photo;
         inconsistent.frames[1] = render(r, ref, rotation, t + cv::Vec3d(0, .05, 0)).frames[1];
         auto bad_stereo = tracker.update(inconsistent);
         check(bad_stereo.status == "lost" && bad_stereo.view_inliers[0] >= 12 &&
                   bad_stereo.view_inliers[1] >= 12 && bad_stereo.matches.empty(),
               "inconsistent stereo views accepted or image evidence hidden");
+        scenario = "reacquisition";
         accuracy(tracker.update(photo), rotation, t, .008, .08);
         auto angled = r;
         for (std::size_t v = 0; v < 2; ++v) {
@@ -268,6 +288,7 @@ int main(int argc, char **argv) {
             std::copy_n(extrinsic.val, 9, angled.cameras[v].rotation.begin());
             angled.cameras[v].origin_m = {v ? .034 : -.031, v ? -.004 : .006, v ? -.005 : .003};
         }
+        scenario = "nonparallel cameras";
         PhotoTracker angled_tracker(ref, angled);
         accuracy(angled_tracker.update(render(angled, ref, rotation, t)), rotation, t, .008, .08);
         auto wide = r;
@@ -281,10 +302,12 @@ int main(int argc, char **argv) {
             }
             PhotoTracker trial(soft, wide);
             auto visible = render(wide, soft, rotation, t);
+            scenario = "small target, focal " + std::to_string(int(focal));
             accuracy(trial.update(visible), rotation, t, .015, .15);
             for (auto &frame : visible.frames)
                 for (auto &pixel : frame.pixels)
                     pixel = std::uint8_t(75 + .45 * pixel);
+            scenario += ", low contrast";
             accuracy(trial.update(visible), rotation, t, .02, .2);
         }
         auto high_resolution = r;
@@ -297,6 +320,7 @@ int main(int argc, char **argv) {
             k.cx = 639.5;
             k.cy = 511.5;
         }
+        scenario = "1280-pixel camera detail";
         PhotoTracker full_detail(ref, high_resolution);
         accuracy(full_detail.update(render(high_resolution, ref, rotation, t)), rotation, t, .012,
                  .12);
