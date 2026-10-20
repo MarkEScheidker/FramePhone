@@ -11,9 +11,9 @@ and two-front-camera setup.
 
 | Target | Purpose |
 | --- | --- |
-| FramePhone-*.run | One desktop executable with runtime, AprilTag and camera broker. |
+| FramePhone-*.run | One desktop executable with CPU inference, pretrained models, runtime and camera broker. |
 | framephone-fiducial | Automatic stereo ID 0 pose, replay and synthetic self-test. |
-| framephone-photo | Fixed-photo feature matching, metric stereo pose/scale and replay. |
+| framephone-photo | XFeat/LighterGlue or RootSIFT fixed-photo matching, metric stereo pose/scale and replay. |
 | framephone-camera | Camera-ring and factory calibration discovery. |
 | framephone-openvr-demo | Optional simulated renderer, separate from tracking. |
 

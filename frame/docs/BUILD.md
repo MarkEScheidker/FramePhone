@@ -85,9 +85,14 @@ libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
 
-AprilTag is included in the build/runtime. There are no neural weights, model
-downloads or Python OpenCV/NumPy runtime dependencies. See
-[photo tracking](PHOTO_TRACKING.md) and the retained legacy marker diagnostic.
+AprilTag remains included for retained diagnostics. The static-photo experiment
+also bundles XFeat/LighterGlue source/weights, CPU PyTorch, Kornia and Python
+OpenCV/NumPy. Source, weights and architecture-specific Torch wheels are pinned
+and SHA-256 checked during the container build; support package versions are
+pinned. No model or Python dependency download occurs at runtime. This CPU test
+adds hundreds of MiB to the extracted runtime; allow additional build/download
+and extraction space. See [photo tracking](PHOTO_TRACKING.md) and
+[model provenance](../third_party/xfeat/README.md).
 
 At launch the app checks/unpacks its payload to a temporary directory, opens
 the GUI and removes the extracted runtime on exit. Allow free disk space for

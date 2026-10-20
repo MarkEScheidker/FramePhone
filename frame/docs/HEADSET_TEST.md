@@ -5,6 +5,11 @@ APK, pair/connect, and choose a detailed photo on the phone. Keep it displayed.
 On Frame choose **Photo tracking → Use phone photo → Enable cameras → Refresh
 cameras → Start photo tracking**. Confirm inlier counts, outline, XYZ/distance,
 rotation and photo size. Cover/reveal the screen to test loss/reacquisition.
+Use **Learned (XFeat/LighterGlue)** for the new static-image experiment. It searches
+calibrated front-camera views and narrows the search around the last accepted
+photo. Hold still for a search cycle. **Camera setup → Model check** tests model
+loading separately from the geometry self-test. A working Android photo transfer
+needs no new APK for this change; rebuild the Frame `.run` with the normal command.
 See [the fixed-photo procedure](PHOTO_TRACKING.md) for details and limits.
 
 The historical instructions below describe the retained marker source/tool;

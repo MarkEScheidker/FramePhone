@@ -9,7 +9,7 @@ IMU remains diagnostic. ARCore/world alignment is not active yet.
 flowchart LR
     Phone[Android selected photo] --> TLS[Authenticated one-time photo transfer]
     TLS --> Reference[Cached multi-scale photo features]
-    Camera[Two front Gray8 cameras] --> Matcher[Calibrated views and SIFT matching]
+    Camera[Two front Gray8 cameras] --> Matcher[Calibrated views and learned matching]
     Reference --> Matcher
     Calibration[Factory KB4 and camera poses] --> Matcher
     Matcher --> Solver[Ray triangulation and robust stereo plane fit]
@@ -26,12 +26,15 @@ flowchart LR
 | geometry.hpp / RigCamera | Shared types, factory calibration, KB4 projection/rays, head transforms. |
 | StereoFramePairer | Fresh bounded pairing in one clock, <=3 ms skew. |
 | PhotoTracker | Multi-scale reference features, calibrated-view matching and robust homography filtering. |
+| LearnedPhotoTracker / PhotoWorker | Calibrated tiled search and bounded local CPU model IPC; previous pose restricts search only. |
+| learned_worker.py | Pinned offline XFeat/LighterGlue, cached reference features and bounded, masked scene matching. |
 | estimate_photo_pose | Stereo intersections, robust similarity fit, native KB4 refinement and quality gates. |
 | photo_panel.py | Download/start/stop, inliers, pose/scale, exact-pair overlays and stale/disconnect clearing. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera/sensor evidence with source timestamps. |
 
 The privileged camera broker is separate from unprivileged tracking/TLS/UI.
-No neural weights or Python OpenCV runtime are needed. Only status measured
+The learned static-photo test bundles CPU inference, pretrained weights and
+Python OpenCV/NumPy. RootSIFT remains a comparison backend. Only status measured
 supplies a current pose; alternatives are diagnostic. Camera clock mapping,
 factory associations and metric accuracy still require hardware verification.
 The old marker modules remain regression-tested but are absent from the normal

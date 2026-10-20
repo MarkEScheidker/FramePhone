@@ -21,12 +21,19 @@ bash frame/build.sh
 Open **`frame/build/dist/FramePhone-arm64.run`** on the headset after enabling
 execution in file Properties. Libraries, the photo decoder and camera broker are
 bundled. Docker/Podman is needed only to build. No Frametop install is required.
+The static-photo test also bundles pretrained XFeat/LighterGlue and a CPU
+inference runtime. These are fetched during the build; no runtime model download
+is needed.
 
 Build/install the updated Android app from `phone/`. Enter phone/case dimensions,
 start the connection, then pair in **Phone telemetry**. Tap **Choose tracking photo**
 on Android; it opens full-screen. On Frame, use **Photo tracking → Use phone photo →
 Enable cameras → Refresh cameras → Start photo tracking**. No manual corners or
 target-size entry.
+Keep **Learned (XFeat/LighterGlue)** selected for the new experiment; **RootSIFT
+baseline** is available for comparison. Hold the photo still while the calibrated
+search views cycle. Camera setup also has a **Model check** independent of the
+geometry self-test. The existing Android photo app needs no changes for this test.
 
 Metric scale comes from the factory stereo baseline rather than display DPI.
 Poses refer to the displayed photo center. See

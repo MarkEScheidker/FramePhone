@@ -47,11 +47,13 @@ class PhotoPanel:
         self.events = queue.SimpleQueue()
         self.images = self.result = self.config = self.session = None
         self.last_update = 0
+        self.has_results = False
         self.reference_id = ""
         self.status = tk.StringVar(value="Choose and show a tracking photo on the phone, then download it here.")
         self.pose = tk.StringVar(value="No current photo pose")
         self.reference_status = tk.StringVar(value="No reference downloaded")
         self.record = tk.BooleanVar(value=False)
+        self.backend = tk.StringVar(value="Learned (XFeat/LighterGlue)")
         panel = ttk.Frame(parent, padding=12)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Photo stereo tracking", font=("sans", 20, "bold")).pack(anchor="w")
@@ -81,6 +83,9 @@ class PhotoPanel:
         self.start_button = ttk.Button(controls, text="Start photo tracking", command=self.start)
         self.start_button.pack(side="left")
         ttk.Button(controls, text="Stop", command=self.stop).pack(side="left", padx=8)
+        self.backend_box = ttk.Combobox(controls, textvariable=self.backend, state="readonly", width=27,
+                                      values=("Learned (XFeat/LighterGlue)", "RootSIFT baseline"))
+        self.backend_box.pack(side="left", padx=4)
         ttk.Checkbutton(controls, text="Record camera trial (512 MiB max)", variable=self.record).pack(side="left")
         images = ttk.Frame(panel)
         images.pack(fill="both", expand=True)
@@ -133,7 +138,8 @@ class PhotoPanel:
             selections = [var.get() for var in (self.app.left, self.app.right, self.app.left_stream, self.app.right_stream)]
             session = self.app.sessions / ("photo-" + uuid.uuid4().hex[:12])
             self.config = create_session(session, getattr(self.app.runtime, "factory_root", Path("/")),
-                                         selections, self.app.runtime.ring, data, metadata, snapshot["session"], self.record.get())
+                                         selections, self.app.runtime.ring, data, metadata, snapshot["session"], self.record.get(),
+                                         "xfeat" if self.backend.get() == "Learned (XFeat/LighterGlue)" else "rootsift")
             self.session = session
             command = self.app.runtime.command("photo", "--session", session, "--track", "--output", session / "run")
         except (OSError, ValueError, KeyError, ImportError) as error:
@@ -148,10 +154,12 @@ class PhotoPanel:
         self.images = self.result = None
         self.redraw()
         self.busy = True
+        self.has_results = False
         self.last_update = time.monotonic()
         self.pose.set("Acquiring — no current pose")
-        self.status.set("Matching photo features in both front cameras…")
+        self.status.set("Loading matcher, then searching the two front cameras…")
         self.start_button.configure(state="disabled")
+        self.backend_box.configure(state="disabled")
         for box in self.boxes:
             box.configure(state="disabled")
         def run():
@@ -219,8 +227,10 @@ class PhotoPanel:
         counts = result["view_inliers"]
         features = result.get("scene_features", [0, 0])
         candidates = result.get("descriptor_matches", [0, 0])
+        method = "patch tracking" if result.get("tracking_method") == "normalized_patches" else "feature matching"
         self.status.set(
-            f"Reference features {result.get('reference_features', 0)} · left/right camera features {features[0]}/{features[1]} · "
+            f"{result.get('backend', 'rootsift')} · {method} · search view {result.get('search_view', 0)+1}/{result.get('search_view_count', 1)} · "
+            f"reference features {result.get('reference_features', 0)} · left/right camera features {features[0]}/{features[1]} · "
             f"reference matches {candidates[0]}/{candidates[1]} · photo inliers {counts[0]}/{counts[1]}\n"
             f"Stereo matched {result.get('stereo_candidates', 0)} · triangulated {result.get('triangulated', 0)} · "
             f"pose inliers {result.get('pose_inliers', 0)} · {result['processing_ms']:.0f} ms · "
@@ -284,6 +294,7 @@ class PhotoPanel:
         try:
             result, images = self.latest.get_nowait()
             if not self.cancelled.is_set():
+                self.has_results = True
                 self.images = images
                 self.last_update = time.monotonic()
                 self.show_result(result)
@@ -299,7 +310,7 @@ class PhotoPanel:
                 self.status.set("Phone/photo/camera state changed. Show the reference and start again.")
             elif time.monotonic()-self.last_update > 1.5:
                 self.result = None
-                self.pose.set("Stale — no current pose")
+                self.pose.set("Stale — no current pose" if self.has_results else "Loading matcher — waiting for the first camera result")
                 self.redraw()
         try:
             code, error = self.events.get_nowait()
@@ -307,9 +318,10 @@ class PhotoPanel:
             self.result = None
             self.pose.set("Stopped — no current pose")
             self.start_button.configure(state="normal")
+            self.backend_box.configure(state="readonly")
             for box in self.boxes:
                 box.configure(state="readonly")
-            if error.strip():
+            if code != 0 and error.strip() and not self.cancelled.is_set():
                 self.status.set(error.strip())
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished ({code}). Start again to retry.")

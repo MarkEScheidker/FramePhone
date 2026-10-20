@@ -71,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
     for name in ("left","left_stream"): getattr(window,name).set("slam_left")
     for name in ("right","right_stream"): getattr(window,name).set("slam_right")
     panel=window.photo_panel
+    if "--learned" not in sys.argv[2:]:
+        panel.backend.set("RootSIFT baseline")
     def until(predicate,timeout=20):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:

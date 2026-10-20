@@ -1,10 +1,13 @@
 #include "calibration_json.hpp"
 #include "framephone/frametop_ring.hpp"
+#include "framephone/learned_photo.hpp"
 #include "framephone/photo.hpp"
 #include "framephone/stereo_recording.hpp"
+#include "photo_worker.hpp"
 #include <csignal>
 #include <iostream>
 #include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
 #include <thread>
 
 namespace {
@@ -13,6 +16,28 @@ using namespace calibration_json;
 volatile std::sig_atomic_t stopped = 0;
 void stop(int) {
     stopped = 1;
+}
+void model_self_test() {
+    cv::Mat image(384, 256, CV_8U, cv::Scalar(190));
+    cv::RNG rng(64109);
+    for (int i = 0; i < 180; ++i)
+        cv::circle(image, {rng.uniform(8, 248), rng.uniform(8, 376)}, rng.uniform(3, 16),
+                   cv::Scalar(rng.uniform(0, 255)), 2, cv::LINE_AA);
+    PhotoWorker worker([] { return bool(stopped); });
+    std::vector<std::uint8_t> gray(image.data, image.data + image.total());
+    auto ready =
+        worker.exchange({{"op", "init"}, {"width", image.cols}, {"height", image.rows}}, {gray});
+    require(ready.at("op") == "ready", "learned model initialization failed");
+    auto result = worker.exchange(
+        {{"op", "match"}, {"sequence", 1}, {"width", image.cols}, {"height", image.rows}},
+        {gray, gray, std::vector<std::uint8_t>(gray.size(), 255),
+         std::vector<std::uint8_t>(gray.size(), 255)});
+    bool matched = false;
+    for (const auto &bank : result.at("banks"))
+        matched |= bank.at("matches").at(0).size() >= 12 && bank.at("matches").at(1).size() >= 12;
+    require(matched, "learned models did not match the synthetic identity image");
+    std::cout << "XFeat/LighterGlue model self-test passed (synthetic identity-image matching; "
+                 "real-camera acquisition and accuracy unverified).\n";
 }
 void self_test() {
     StereoRig rig;
@@ -75,6 +100,10 @@ Json result_json(const StereoPair &pair, const PhotoPose &result, const std::str
            {"reference_id", identity},
            {"status", result.status},
            {"reason", result.reason},
+           {"backend", result.backend},
+           {"tracking_method", result.tracking_method},
+           {"search_view", result.search_view},
+           {"search_view_count", result.search_view_count},
            {"view_inliers", result.view_inliers},
            {"reference_features", result.reference_features},
            {"scene_features", result.scene_features},
@@ -154,6 +183,12 @@ int main(int argc, char **argv) {
     std::cout.setf(std::ios::unitbuf);
     try {
         cv::setNumThreads(2);
+        std::signal(SIGINT, stop);
+        std::signal(SIGTERM, stop);
+        if (argc == 2 && std::string(argv[1]) == "--model-self-test") {
+            model_self_test();
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--self-test") {
             self_test();
             return 0;
@@ -162,12 +197,15 @@ int main(int argc, char **argv) {
             std::cout
                 << "FramePhone fixed-photo stereo tracker\n"
                    "  --self-test\n"
+                   "  --model-self-test\n"
                    "  --session DIR --track --output NEW_DIR\n"
                    "  --session DIR --replay RECORDING --output NEW_DIR\n"
+                   "  --backend rootsift|xfeat (default session backend, otherwise rootsift)\n"
                    "Uses factory KB4 pixel rays; no target-size/DPI assumption or ARCore fusion.\n";
             return 0;
         }
         std::filesystem::path session, output, replay_path;
+        std::string backend;
         bool live = false;
         std::set<std::string> seen;
         for (int i = 1; i < argc; ++i) {
@@ -175,7 +213,11 @@ int main(int argc, char **argv) {
             require(seen.insert(arg).second, "duplicate photo option");
             if (arg == "--track")
                 live = true;
-            else if (arg == "--session" || arg == "--output" || arg == "--replay") {
+            else if (arg == "--backend") {
+                require(i + 1 < argc, "missing backend value");
+                backend = argv[++i];
+                require(backend == "rootsift" || backend == "xfeat", "unknown photo backend");
+            } else if (arg == "--session" || arg == "--output" || arg == "--replay") {
                 require(i + 1 < argc, "missing option value");
                 std::filesystem::path value = argv[++i];
                 if (arg == "--session")
@@ -191,6 +233,9 @@ int main(int argc, char **argv) {
                 "provide --session, --output and one of --track/--replay; see --help");
         auto config = read_json(session / "session.json");
         require(config.at("schema") == "framephone-photo-session-v1", "unsupported photo session");
+        if (backend.empty())
+            backend = config.value("backend", "rootsift");
+        require(backend == "rootsift" || backend == "xfeat", "unknown photo backend");
         auto id = string(config.at("calibration_id")),
              reference_id = string(config.at("reference_id"));
         auto cameras = load_frametop_calibration(session / "factory", id);
@@ -202,7 +247,16 @@ int main(int argc, char **argv) {
         auto reference = references.next();
         require(reference && !references.next(), "expected one reference image");
         require(reference->calibration_id == reference_id, "reference identity mismatch");
-        PhotoTracker tracker(std::move(*reference), rig);
+        std::signal(SIGINT, stop);
+        std::signal(SIGTERM, stop);
+        std::unique_ptr<PhotoTracker> tracker;
+        std::unique_ptr<LearnedPhotoTracker> learned;
+        if (backend == "xfeat") {
+            std::cerr << "Loading bundled XFeat/LighterGlue CPU models…\n";
+            learned = std::make_unique<LearnedPhotoTracker>(std::move(*reference), rig,
+                                                            [] { return bool(stopped); });
+        } else
+            tracker = std::make_unique<PhotoTracker>(std::move(*reference), rig);
         StereoFramePairer pairer(rig);
         std::array<std::unique_ptr<FrametopRing>, 2> rings;
         std::unique_ptr<RecordedFrameSource> replay;
@@ -253,7 +307,7 @@ int main(int argc, char **argv) {
                 require(bytes <= 512ULL * 1024 * 1024, "512 MiB camera recording limit reached");
                 recorder->write(*pair, index);
             }
-            auto result = tracker.update(*pair);
+            auto result = learned ? learned->update(*pair) : tracker->update(*pair);
             auto j = result_json(*pair, result, reference_id);
             j["processing_ms"] =
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - last)
@@ -270,6 +324,8 @@ int main(int argc, char **argv) {
         require(index > 0 || stopped, "input ended without synchronized camera pairs");
         return 0;
     } catch (const std::exception &e) {
+        if (stopped)
+            return 0;
         std::cerr << "framephone-photo: " << e.what() << '\n';
         return 1;
     }

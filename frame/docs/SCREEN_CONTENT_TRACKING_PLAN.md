@@ -8,6 +8,21 @@ now implements the initial optical experiment, with a phone-selected reference
 sent once over paired TLS. ARCore, screen streaming and world alignment remain
 future milestones. The static reference does not require MediaProjection.
 
+Research update, 2026-10-19: the owner reports no real-camera acquisition after
+the SIFT/RootSIFT changes. Synthetic tests establish geometry/regression coverage,
+not usable headset acquisition. The next candidate is pretrained XFeat with
+LighterGlue, together with wider calibrated view coverage and temporal tracking.
+The follow-up static-image implementation integrates XFeat/LighterGlue and
+calibrated search views; it has not been benchmarked on physical Frame hardware.
+See the [static-photo test](PHOTO_TRACKING.md) and the
+[revised optical milestone](#revised-optical-milestone-after-hardware-acquisition-failure).
+
+The follow-up [changing-display decision](SCREEN_TRACKING_DECISION.md) records the
+selected acquisition/refinement architecture, timestamped reference history,
+content-change handling, candidate comparison and concrete experiment gates.
+It is the current optical implementation decision; the stages below retain the
+broader ARCore, capture, geometry and delivery requirements.
+
 ## Decision and intended experience
 
 Use ARCore for continuous phone motion and the phone's actual display content
@@ -103,8 +118,8 @@ ARCore pose, capture and headset pose; their integration is ours.
 | Reference transport | Separate authenticated TLS image stream, bounded binary framing | New; existing JSON messages have a 64 KiB limit. |
 | Frame cameras | Existing broker, ring and stereo pairer | Reuse; verify physical front stream-to-factory mapping. |
 | Headset world pose | Small OpenVR background helper | New; installed SteamVR, independent of Frametop. |
-| Acquisition | OpenCV ORB + Hamming; SIFT comparison | Add explicit features2d/imgcodecs dependencies. |
-| Pretrained comparison | XFeat, then optional LighterGlue | Offline candidate; ship only after a verified ARM64 port earns its cost. |
+| Acquisition baseline | Existing SIFT/RootSIFT fixed-photo pipeline | Retain for identical-recording comparisons; owner reports no real-camera acquisition. |
+| Next acquisition candidate | Pretrained XFeat + LighterGlue | Compare with EfficientLoFTR on real captures; ship after matching and ARM64 runtime/package validation. |
 | Optical geometry | Robust homography, planar PnP alternatives, stereo refinement | Generalize four-corner solver to arbitrary screen points. |
 | Alignment/recovery | Robust rigid-transform fitting and explicit states | New; histories, confidence gates, recenter/session handling. |
 | Diagnostics/delivery | Existing desktop UI, replay and single .run build | Extend; keep processing off UI thread and preserve pairing. |
@@ -166,6 +181,71 @@ captures and projection stop without inventing visual observations. No overlay
 exclusion or privileged capture is needed.
 
 ## Matching and calibrated pose
+
+### Revised optical milestone after hardware acquisition failure
+
+The current implementation searches one central perspective view per camera and
+reacquires from scratch on every pair. Local descriptors can match a partially
+visible reference in principle, but that alone does not provide temporal tracking
+or cover all usable fisheye pixels. The revision needs the following components:
+
+1. **A replay benchmark from real front-camera recordings.** Use the existing
+   Record camera trial control, which saves paired native images, the exact
+   reference and factory calibration in the photo session. Include partial
+   visibility, center/periphery, grayscale contrast differences, glare, room
+   lighting, stationary and moving phones, and negative views without the phone.
+   Report verified image matches separately from accepted metric poses; record
+   acquisition/reacquisition time, false acquisitions and latency. An annotated
+   evaluation split is test data, not neural-network training.
+2. **Pretrained correspondence extraction.** Compare XFeat + LighterGlue with the
+   baseline. XFeat's official model accepts grayscale and internally reduces RGB
+   to one channel, and the official repository supplies trained LighterGlue.
+   No per-phone model training is required. Also compare pretrained EfficientLoFTR
+   as an offline alternative for difficult matches; its outdoor-trained default
+   weights have a documented indoor domain-gap caveat. Neither has established
+   Frame screen-matching reliability or ARM64 latency here.
+   [XFeat model](https://github.com/verlab/accelerated_features/blob/main/modules/model.py),
+   [XFeat/LighterGlue](https://github.com/verlab/accelerated_features#xfeat-with-lightglue),
+   [EfficientLoFTR](https://github.com/zju3dv/EfficientLoFTR).
+3. **Calibrated fisheye coverage.** Form overlapping perspective tiles with the
+   factory KB4 model across the usable front-camera field of view. Cache remaps,
+   preserve detail and inverse pixel/ray mappings, deduplicate overlapping-tile
+   observations and bound the acquisition workload. Track in a predicted local
+   tile after acquisition. Keep final stereo residuals in native camera pixels;
+   a learned matcher is not a replacement for lens calibration. OpenCV exposes
+   rectification rotation and the destination camera matrix for these views.
+   [OpenCV fisheye mapping](https://docs.opencv.org/4.x/db/d58/group__calib3d__fisheye.html).
+4. **Appearance and partial-view checks.** Match grayscale reference representations
+   to grayscale capture. Compare original images with local contrast normalization
+   and conservative denoising on identical trials; preserve small features and
+   do not amplify sensor noise blindly. Accept a well-conditioned visible subset
+   without requiring the complete outline or all corners. A tiny, clustered or
+   nearly collinear subset can still leave pose/scale unobservable. Retain stereo
+   consistency, outlier rejection and native reprojection gates. No matcher can
+   reconstruct screen information destroyed by clipping or occlusion.
+5. **Temporal tracking after acquisition.** Carry verified reference identities
+   through image pyramids using forward/backward-checked Lucas–Kanade patches;
+   periodically rematch to reject drift and replace lost points. Re-estimate pose
+   from fresh stereo observations. Keep reacquisition asynchronous and bounded.
+   Optical flow requires texture and cannot initialize an unseen reference; with
+   future streaming, invalidate correspondences when display content changes.
+   [OpenCV tracking APIs](https://docs.opencv.org/4.x/dc/d6b/group__video__track.html).
+6. **Motion bridging and packaging.** Add ARCore/head-pose/clock registration only
+   with explicit transform and timing validation. Raw IMU telemetry is not a
+   drift-free position source. Benchmark the official learned model first, then
+   verify any ARM64 inference/export backend against it, bundle pinned weights,
+   preserve notices and keep the one-file .run workflow. Do not assume CUDA,
+   desktop CPU results or an unvalidated ONNX port will work on Frame.
+
+Controller tracking is evidence that the cameras can support accurate optical
+tracking, not an arbitrary-screen matching benchmark. A firsthand teardown shows
+IR emitters distributed around each controller; Valve documents tracking with
+cameras, controller sensors and IMU data. Our screen needs recognizable image
+correspondences and later motion fusion. Body size alone does not determine the
+quality of those measurements. Valve's proprietary tracking algorithm is not
+being claimed or reproduced here.
+[iFixit controller observations](https://www.ifixit.com/News/119488/steam-frame-teardown-were-fans-except-of-the-fan),
+[Valve tracking guide](https://help.steampowered.com/en/faqs/view/2668-0B6E-79E0-A85B).
 
 ### Match the camera's appearance, not a pristine screenshot
 

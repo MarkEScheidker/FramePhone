@@ -15,8 +15,12 @@ libs="$root/usr/lib/$triplet:$root/lib/$triplet:$root/usr/lib"
 # paths for optional terminal diagnostics instead of deleting outputs on exit.
 if [ -n "${USER_PWD:-}" ]; then cd -- "$USER_PWD"; fi
 export FRAMEPHONE_RUNTIME_ROOT="$root" FRAMEPHONE_LOADER="$loader" FRAMEPHONE_LIBRARY_PATH="$libs"
+export PYTHONHOME="$root/usr" TCL_LIBRARY="$root/usr/share/tcltk/tcl8.6" TK_LIBRARY="$root/usr/share/tcltk/tk8.6"
+export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
+unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
 if [ "${1:-}" = --self-test ]; then
     [ "$#" = 1 ] || exit 2
+    "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-photo" --model-self-test
     exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-photo" --self-test
 fi
 case "${1:-}" in
@@ -24,7 +28,4 @@ case "${1:-}" in
         tool=${1#--}; shift
         exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-$tool" "$@" ;;
 esac
-export PYTHONHOME="$root/usr" TCL_LIBRARY="$root/usr/share/tcltk/tcl8.6" TK_LIBRARY="$root/usr/share/tcltk/tk8.6"
-export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
-unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
 exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/app.py" "$@"

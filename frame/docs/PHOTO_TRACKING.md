@@ -3,7 +3,9 @@
 This milestone automatically matches one user-selected photo in the two front
 Frame cameras and measures its head-relative position, orientation, distance and
 physical size. The phone sends the photo once over the existing paired TLS link.
-There is no screen recording, neural model download or manual corner selection.
+The default test uses pretrained XFeat/LighterGlue with native stereo geometry;
+RootSIFT remains a comparison mode. There is no screen recording, per-phone model
+training, runtime model download or manual corner selection.
 
 ## Run on the devices
 
@@ -25,6 +27,14 @@ There is no screen recording, neural model download or manual corner selection.
    are video3/slam_left and video0/slam_right; cover lenses to check identity.
 5. Keep the photo visible on the phone and click **Start photo tracking**. Begin
    at a normal viewing distance with slow motion and both cameras seeing it.
+   Leave **Learned (XFeat/LighterGlue)** selected for this experiment. Hold still
+   while search views cycle; after a valid pose the search stays in that view.
+   **RootSIFT baseline** runs the earlier matcher against the same selected photo.
+
+**Camera setup → Model check** verifies the bundled neural assets with synthetic
+identity-image matching. **Geometry self-test** checks geometry separately.
+Neither establishes real-camera acquisition or accuracy. The packaged terminal
+`--self-test` runs both checks.
 
 The same build command works on a Linux PC or the headset:
 
@@ -33,15 +43,24 @@ bash frame/build.sh
 ```
 
 Open `frame/build/dist/FramePhone-arm64.run` on Frame. The package includes
-OpenCV, Pillow, Python/Tk and the camera broker. No Frametop install is required.
+OpenCV, Pillow, Python/Tk, CPU PyTorch/Kornia, pretrained weights and the camera
+broker. The first build fetches pinned models and CPU wheels into the container;
+the headset needs no pip/model installation or internet download at runtime.
+No Frametop install is required. The learned runtime increases package size and
+extracted disk space; use the normal build command on either Linux architecture.
 APK output is `phone/app/build/outputs/apk/debug/app-debug.apk` after the normal
-Android build. Both applications need updating for the new photo commands.
+Android build. If phone photo selection/transfer already works, this learned
+test needs only a rebuilt Frame app; the Android photo flow is unchanged.
 
 ## What to expect
 
 The UI shows reference features and left/right camera features, descriptor
 matches, homography inliers, stereo correspondences, triangulated points, pose
 inliers, processing time and a rejection reason with a suggested next step.
+It also identifies feature matching versus local patch tracking, the backend and
+current calibrated search view. During patch tracking the feature/match counts
+describe the tracked anchor patches rather than a new descriptor extraction.
+Model loading can take several seconds before the first result; Stop remains available.
 A dashed blue boundary shows the area searched in each raw camera view; keep the
 photo inside both boundaries. Amber dots show per-view homography inliers even
 when no pose is accepted. These are image observations, not a valid 3D pose.
@@ -70,7 +89,43 @@ views are intersected in metric space using the factory stereo baseline.
 [OpenCV's fisheye model](https://docs.opencv.org/4.x/db/d58/group__calib3d__fisheye.html)
 uses the same angular projection form.
 
-The implementation caches multi-scale SIFT reference descriptors (long edges
+The learned backend caches XFeat reference features at 240/480-pixel long edges
+and uses the official LighterGlue matcher. It extracts candidates with XFeat,
+then retains up to 768 spatially balanced points per image for matching. The
+worker is CPU-only, persistent for the session and limited to two Torch threads.
+Runtime downloads are disabled and local model hashes are verified before use.
+See [model provenance and pins](../third_party/xfeat/README.md).
+
+The native tracker prepares up to nine overlapping perspective views in common
+head-space directions, accounting for both cameras' factory extrinsics. Invalid
+source pixels are masked. Each new pair searches one view in both cameras;
+views with too little usable source area are omitted. A successful view remains
+active until three missed pairs restart the search. These are search hints;
+every displayed pose still requires a fresh stereo measurement.
+While active, a padded region around the last accepted photo limits the feature
+search. Extraction retains a stable sampling grid while filtering observations
+by that mask; the blue boundary shows the actual search area. Moving outside it
+triggers recovery; the previous pose is never returned as a new measurement.
+
+After acquisition, normalized correlation tracks textured interior patches from
+the last accepted learned image pair. Forward/backward checks reject inconsistent
+patches; fresh observations in both cameras pass the same metric geometry gates.
+The previous pose supplies a search and optimization seed only. This handles
+modest exposure changes and partial occlusion without rerunning the network on
+every good frame. Learned matching attempts to refresh the anchors every ten
+successful patch frames and runs immediately when patch tracking fails. This first version
+assumes unchanged photo content and modest inter-frame motion; it does not yet
+handle scrolling or app switches.
+
+Both backends map observations to native KB4 pixels, require consistent reference
+features in both views, triangulate and fit a scaled rigid plane. In addition to
+3D-fit initialization, OpenCV planar IPPE candidates from both cameras initialize
+joint native-pixel refinement; their unit-scale translations are related through
+the factory baseline. Acceptance thresholds remain unchanged. This avoids relying
+only on a noisy triangulated plane for initialization. The proposed solver using
+nonidentical points in each camera and ARCore fusion remain future work.
+
+The RootSIFT baseline caches multi-scale SIFT reference descriptors (long edges
 60/120/240/480/960 pixels, limited to the source size). It applies
 [RootSIFT normalization](https://www.robots.ox.ac.uk/~vgg/publications/2012/Arandjelovic12/arandjelovic12.pdf)
 to reference and camera descriptors. Matching retains up to a 1280-pixel camera
@@ -87,11 +142,11 @@ or entered body dimensions. No requirement to detect all four photo corners.
 
 Acceptance requires at least 12 surviving stereo features, at least 12% reference
 convex-hull coverage, plausible scale/facing/depth and bounded native reprojection
-error. Missing/weak/inconsistent observations are rejected. Matching currently
-uses the central calibrated perspective view, so extreme peripheral/fisheye views
-can fail to acquire. This first CPU SIFT implementation has no ARCore prediction
-or learned feature matcher yet; headset speed and ordinary-photo reliability
-still need measurement.
+error. Missing/weak/inconsistent observations are rejected. RootSIFT uses a
+central calibrated perspective view; the learned mode searches additional views.
+Neither mode has ARCore prediction yet. Sustained headset speed and ordinary-photo
+reliability still need measurement. The CPU learned mode is an experimental
+optical test, not the complete motion-tracking product.
 
 A QR code selected as a photo is currently ordinary reference texture: this path
 does not decode QR codes or use their finder-pattern geometry. Repetitive patterns
@@ -157,6 +212,20 @@ pose/scale, coverage and quality. Diagnostic observations are emitted on rejecte
 results too; `matches` and `pose` remain reserved for accepted stereo poses.
 Rejected results contain no current pose. Scale is factory-derived and still
 needs independent accuracy validation.
+
+The saved session records `backend`; replay uses that mode unless overridden:
+
+```bash
+./FramePhone-arm64.run -- --photo --session SESSION --replay RECORDING --output NEW_DIR --backend xfeat
+```
+
+Use `--backend rootsift` for a baseline replay into a different new output
+directory. There is no silent fallback if learned models fail to load. The log
+reports the missing dependency/asset or inference error. Native source builds
+can still run RootSIFT/geometry tests without Torch; learned source development
+also needs the pinned CPU dependencies and fetched model assets. Set
+`FRAMEPHONE_PHOTO_MODELS` to their directory. The container recipe handles the
+dependency installation and bundling for users.
 
 The existing v1 TLS framing remains at 64 KiB/message. The client opts in with
 `photo_reference_v1: true` in hello; the server advertises support in its profile.

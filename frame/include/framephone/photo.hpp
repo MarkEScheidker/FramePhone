@@ -11,6 +11,9 @@ struct PhotoMatch {
 };
 struct PhotoPose {
     std::string status{"lost"}, reason{"insufficient_stereo_matches"};
+    std::string backend{"rootsift"};
+    std::string tracking_method{"feature_matching"};
+    std::size_t search_view{}, search_view_count{1};
     Pose pose;
     double width_m{}, height_m{}, coverage{};
     std::size_t reference_features{}, stereo_candidates{}, triangulated{}, pose_inliers{};
@@ -22,7 +25,8 @@ struct PhotoPose {
     std::array<std::vector<ImagePoint>, 2> outline;
 };
 PhotoPose estimate_photo_pose(const StereoRig &, const StereoPair &,
-                              const std::vector<PhotoMatch> &, double aspect);
+                              const std::vector<PhotoMatch> &, double aspect,
+                              const PhotoPose *initial = nullptr);
 
 // CPU SIFT with cached multi-scale references and calibrated perspective views.
 // Every result is a fresh stereo measurement. No temporal pose is fabricated.

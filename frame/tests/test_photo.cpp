@@ -183,6 +183,15 @@ int main(int argc, char **argv) {
             }
         auto estimate = estimate_photo_pose(r, pair, matches, 1.5);
         accuracy(estimate, rotation, t, 1e-5, 1e-4);
+        auto moved_matches = matches;
+        const auto moved_t = t + cv::Vec3d(.01, -.005, .015);
+        for (auto &m : moved_matches)
+            m.pixels = project(
+                r, rotation * cv::Vec3d(m.reference.x * .072, m.reference.y * .072, 0) + moved_t);
+        accuracy(estimate_photo_pose(r, pair, moved_matches, 1.5, &estimate), rotation, moved_t,
+                 1e-5, 1e-4);
+        check(estimate_photo_pose(r, pair, {}, 1.5, &estimate).status == "lost",
+              "previous pose substituted for missing observations");
         for (std::size_t i = 0; i < 8; ++i) {
             auto wrong = matches[i];
             wrong.reference.x += .25;
@@ -207,6 +216,8 @@ int main(int argc, char **argv) {
         auto small_patch = estimate_photo_pose(r, pair, low_coverage, 1.5);
         check(small_patch.status == "lost" && small_patch.reason == "insufficient_spatial_coverage",
               "small patch accepted as a full photo pose");
+        check(estimate_photo_pose(r, pair, low_coverage, 1.5, &estimate).status == "lost",
+              "previous pose bypassed current coverage requirement");
         auto wrong = pair;
         wrong.frames[1].calibration_id = "wrong";
         bool rejected = false;

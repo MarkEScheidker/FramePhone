@@ -92,11 +92,13 @@ class PhotoReceiver:
                 "downloading": self.request is not None, "error": self.error}
 
 
-def create_session(directory, factory_root, selections, ring, photo, metadata, phone_session, record=False):
+def create_session(directory, factory_root, selections, ring, photo, metadata, phone_session, record=False, backend="rootsift"):
     from PIL import Image
     left, right, left_stream, right_stream = selections
     if not all(selections) or left == right or left_stream == right_stream:
         raise ValueError("Choose two distinct front streams and their factory calibrations.")
+    if backend not in ("rootsift", "xfeat"):
+        raise ValueError("Unknown photo matcher")
     if not photo or len(photo) > MAX_PHOTO or hashlib.sha256(photo).hexdigest() != metadata["id"]:
         raise ValueError("Download the phone photo before starting tracking.")
     with Image.open(io.BytesIO(photo)) as source:
@@ -120,7 +122,7 @@ def create_session(directory, factory_root, selections, ring, photo, metadata, p
     (reference / "photo.pgm").write_bytes(f"P5\n{gray.width} {gray.height}\n255\n".encode() + gray.tobytes())
     (reference / "manifest.tsv").write_text("framephone-recording-v1\nreference\t1\tstatic_reference\t"
                                            + metadata["id"] + "\t-\tphoto.pgm\n")
-    config = {"schema": "framephone-photo-session-v1", "phone_session": phone_session,
+    config = {"schema": "framephone-photo-session-v1", "phone_session": phone_session, "backend": backend,
               "reference_id": metadata["id"], "calibration_id": "factory-sha256-" + hashlib.sha256(
                   b"".join(data for _, data in calibration)).hexdigest(),
               "left": left, "right": right, "left_stream": left_stream, "right_stream": right_stream,

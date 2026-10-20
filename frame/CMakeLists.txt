@@ -52,15 +52,17 @@ target_link_libraries(framephone_photo PUBLIC framephone_geometry PRIVATE "${POS
     "${POSE_OPENCV_IMGPROC}" "${POSE_OPENCV_CALIB}" "${POSE_OPENCV_CORE}")
 target_include_directories(framephone_photo SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}")
 target_compile_options(framephone_photo PRIVATE -Wall -Wextra -Wpedantic)
-add_executable(framephone-photo src/photo_main.cpp)
+add_executable(framephone-photo src/photo_main.cpp src/learned_photo.cpp src/photo_worker.cpp)
 target_link_libraries(framephone-photo PRIVATE framephone_photo)
 target_include_directories(framephone-photo SYSTEM PRIVATE "${POSE_JSON_INCLUDE}" "${POSE_OPENCV_INCLUDE}")
+target_compile_definitions(framephone-photo PRIVATE FRAMEPHONE_DESKTOP_DIR="${CMAKE_CURRENT_SOURCE_DIR}/desktop")
 target_compile_options(framephone-photo PRIVATE -Wall -Wextra -Wpedantic)
 
 install(TARGETS framephone-photo framephone-fiducial framephone-camera RUNTIME DESTINATION bin)
 install(FILES THIRD_PARTY_NOTICES.md "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE" DESTINATION share/framephone)
 install(FILES third_party/apriltag/LICENSE DESTINATION share/framephone/third_party/apriltag)
 install(FILES third_party/frametop/LICENSE third_party/frametop/README.md DESTINATION share/framephone/third_party/frametop)
+install(FILES third_party/xfeat/README.md third_party/xfeat/manifest.json DESTINATION share/framephone/third_party/xfeat)
 install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN "*.md")
 
 if(FRAMEPHONE_BUILD_OPENVR_OVERLAY)

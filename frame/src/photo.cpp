@@ -172,18 +172,73 @@ bool refine(Fit &f, const StereoRig &rig, const std::vector<PhotoMatch> &m) {
     cv::Mat p =
         (cv::Mat_<double>(7, 1) << rv[0], rv[1], rv[2], f.t[0], f.t[1], f.t[2], std::log(f.scale));
     auto callback = cv::makePtr<Residual>(rig, m);
-    auto count = cv::LMSolver::create(callback, 50, 1e-7)->run(p);
-    if (count < 0 || count >= 50 || !cv::checkRange(p))
+    constexpr int max_iterations = 100;
+    // Keep convergence stricter than image precision; final native reprojection
+    // and coverage gates independently validate the optimized pose.
+    auto count = cv::LMSolver::create(callback, max_iterations, 1e-6)->run(p);
+    if (count < 0 || count >= max_iterations || !cv::checkRange(p))
         return false;
     cv::Rodrigues(cv::Vec3d(p.at<double>(0), p.at<double>(1), p.at<double>(2)), f.r);
     f.t = {p.at<double>(3), p.at<double>(4), p.at<double>(5)};
     f.scale = std::exp(p.at<double>(6));
     return true;
 }
+std::vector<Fit> planar_seeds(const StereoRig &rig, const std::vector<PhotoMatch> &matches) {
+    struct UnitPose {
+        cv::Matx33d r;
+        cv::Vec3d t;
+    };
+    std::array<std::vector<UnitPose>, 2> poses;
+    std::vector<cv::Point3d> object;
+    for (const auto &m : matches)
+        object.emplace_back(m.reference.x, m.reference.y, 0);
+    for (std::size_t v = 0; v < 2; ++v) {
+        const auto &camera = rig.cameras[v];
+        cv::Matx33d hc(camera.rotation.data());
+        std::vector<cv::Point2d> normalized;
+        for (const auto &m : matches) {
+            auto ray = hc.t() * vec(camera.ray(m.pixels[v]));
+            if (ray[2] <= .01)
+                return {};
+            normalized.emplace_back(ray[0] / ray[2], ray[1] / ray[2]);
+        }
+        std::vector<cv::Mat> rotations, translations;
+        try {
+            cv::solvePnPGeneric(object, normalized, cv::Matx33d::eye(), cv::noArray(), rotations,
+                                translations, false, cv::SOLVEPNP_IPPE);
+        } catch (const cv::Exception &) {
+            return {};
+        }
+        for (std::size_t i = 0; i < rotations.size(); ++i) {
+            if (!cv::checkRange(rotations[i]) || !cv::checkRange(translations[i]))
+                continue;
+            cv::Matx33d r;
+            cv::Rodrigues(rotations[i], r);
+            poses[v].push_back({hc * r, hc * cv::Vec3d(translations[i].ptr<double>())});
+        }
+    }
+    // Unit-plane translations differ by the known factory baseline divided by
+    // target width. Recover that width, then refine in both native camera images.
+    const cv::Vec3d o0(rig.cameras[0].origin_m.data()), o1(rig.cameras[1].origin_m.data());
+    const auto baseline = o1 - o0;
+    std::vector<Fit> out;
+    for (const auto &left : poses[0])
+        for (const auto &right : poses[1]) {
+            auto difference = left.t - right.t;
+            if (difference.dot(difference) < 1e-8)
+                continue;
+            auto scale = baseline.dot(difference) / difference.dot(difference);
+            auto t = (o0 + o1 + scale * (left.t + right.t)) / 2;
+            out.push_back({left.r, t, scale});
+            out.push_back({right.r, t, scale});
+        }
+    return out;
+}
 } // namespace
 
 PhotoPose estimate_photo_pose(const StereoRig &rig, const StereoPair &pair,
-                              const std::vector<PhotoMatch> &input, double aspect) {
+                              const std::vector<PhotoMatch> &input, double aspect,
+                              const PhotoPose *initial) {
     validate_stereo_rig(rig);
     validate(rig, pair);
     require(std::isfinite(aspect) && aspect >= .2 && aspect <= 5 && input.size() <= 3000,
@@ -222,9 +277,15 @@ PhotoPose estimate_photo_pose(const StereoRig &rig, const StereoPair &pair,
     Fit winner{};
     double best_error = 1e30;
     std::mt19937 rng(0x50484f54);
-    for (int trial = 0; trial < 161; ++trial) {
+    auto seeds = planar_seeds(rig, matches);
+    // A previous accepted pose is only an optimization seed. Current stereo
+    // observations must independently pass the same refinement and error gates.
+    if (initial && initial->status == "measured")
+        seeds.push_back({cv::Matx33d(initial->pose.rotation.data()),
+                         cv::Vec3d(initial->pose.translation_m.data()), initial->width_m});
+    for (std::size_t trial = 0; trial < 161 + seeds.size(); ++trial) {
         std::vector<std::size_t> ids = all;
-        if (trial) {
+        if (trial && trial < 161) {
             ids.clear();
             while (ids.size() < 3) {
                 auto id = std::size_t(rng()) % matches.size();
@@ -232,7 +293,9 @@ PhotoPose estimate_photo_pose(const StereoRig &rig, const StereoPair &pair,
                     ids.push_back(id);
             }
         }
-        auto f = fit(matches, points, ids);
+        auto f = trial < 161 ? fit(matches, points, ids) : std::optional<Fit>(seeds[trial - 161]);
+        if (trial >= 161 && (!plausible(*f, rig, aspect) || !refine(*f, rig, matches)))
+            continue;
         if (!f || !plausible(*f, rig, aspect))
             continue;
         std::vector<PhotoMatch> accepted;

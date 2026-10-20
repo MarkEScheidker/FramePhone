@@ -45,3 +45,10 @@ copyright and license are retained beside AppRun. This is aggregation with the
 MIT application, not a replacement of any dependency's license. The static
 broker is built from the included C sources with Ubuntu's libc toolchain.
 
+The learned static-photo test bundles pinned pretrained XFeat and LighterGlue
+source/weights from verlab/accelerated_features (Apache-2.0), plus CPU PyTorch,
+Kornia and supporting Python packages. Build-time downloads are hash checked;
+their license/metadata directories and the upstream XFeat LICENSE are retained
+in the runtime. See [XFeat provenance](third_party/xfeat/README.md) for the pinned
+revision, artifact hashes, integration settings and dependency notices.
+

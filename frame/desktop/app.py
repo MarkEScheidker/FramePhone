@@ -110,6 +110,8 @@ class Window:
         ttk.Button(actions, text="Refresh cameras", command=self.refresh).pack(side="left", padx=8)
         self.test_button = ttk.Button(actions, text="Geometry self-test", command=self.self_test)
         self.test_button.pack(side="left")
+        self.model_test_button = ttk.Button(actions, text="Model check", command=self.model_test)
+        self.model_test_button.pack(side="left", padx=5)
         ttk.Checkbutton(actions, text="Show front camera views", variable=self.show_views,
                         command=self.toggle_views).pack(side="left", padx=8)
         self.preview_panel = ttk.Frame(panel)
@@ -204,6 +206,13 @@ class Window:
                 self.test_button.configure(state="normal")
                 self.self_test_result = False
 
+    def model_test(self):
+        if "model-test" not in self.processes:
+            self.status.set("Checking bundled learned models on a synthetic image…")
+            self.model_test_button.configure(state="disabled")
+            if not self.spawn("model-test", self.runtime.command("photo", "--model-self-test")):
+                self.model_test_button.configure(state="normal")
+
     def enable_cameras(self):
         try:
             command = self.runtime.camera_command()
@@ -272,6 +281,10 @@ class Window:
                     self.status.set("Camera broker stopped. Enable cameras to retry.")
                     if self.tracking_panel.busy:
                         self.tracking_panel.stop()
+                elif name == "model-test":
+                    self.model_test_button.configure(state="normal")
+                    self.status.set("Learned model check passed (synthetic; camera tracking unverified)."
+                                    if value == 0 else "Learned model check failed; see log.")
                 else:
                     self.self_test_result = value == 0
                     self.test_button.configure(state="normal")
