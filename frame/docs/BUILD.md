@@ -10,7 +10,7 @@ frame/build/dist/FramePhone-arm64.run
 Copy that **one executable** to the headset. No installer, runtime container,
 Frametop installation, Python installation or separate library download is
 needed there. It opens a desktop window with phone pairing, live telemetry,
-markerless tracking, and Camera setup with front previews and a geometry self-test.
+photo stereo tracking and front-camera previews/self-test.
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the mouse-only test procedure.
 
 ## Build-machine setup
@@ -80,15 +80,14 @@ same warning appears in this [upstream Buildah report](https://github.com/podman
 ## What gets bundled
 
 The build compiles/tests the tracker and statically compiles the pinned camera
-broker. It bundles an Ubuntu runtime with OpenCV, Python/Tk, Tcl/Tk,
+broker. It bundles an Ubuntu runtime with AprilTag, OpenCV, Pillow, Python/Tk, Tcl/Tk,
 libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
 
-The build also fetches a pinned, checksum-verified OpenCV Zoo YOLOX-S model and
-bundles Python OpenCV/NumPy for automatic phone detection. Model download and
-real CPU inference are checked during the build. No model download is needed
-when launching on the headset. See [automatic detection](AUTO_DETECTION.md).
+AprilTag is included in the build/runtime. There are no neural weights, model
+downloads or Python OpenCV/NumPy runtime dependencies. See
+[photo tracking](PHOTO_TRACKING.md) and the retained legacy marker diagnostic.
 
 At launch the app checks/unpacks its payload to a temporary directory, opens
 the GUI and removes the extracted runtime on exit. Allow free disk space for
@@ -127,7 +126,7 @@ Optional terminal diagnostics on a build/test PC:
 ```bash
 ./frame/build/dist/FramePhone-amd64.run -- --self-test
 ./frame/build/dist/FramePhone-amd64.run -- --camera --help
-./frame/build/dist/FramePhone-amd64.run -- --markerless --help
+./frame/build/dist/FramePhone-amd64.run -- --fiducial --help
 ```
 
 The first `--` passes arguments through the self-extractor to the app.

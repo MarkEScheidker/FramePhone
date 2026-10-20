@@ -1,47 +1,46 @@
-# Test on a Steam Frame desktop
+# Test on Steam Frame
 
-Build **`FramePhone-arm64.run`** on Linux desktop or the headset using
-[BUILD.md](BUILD.md), or download the ARM64 artifact from a successful repository
-workflow. Transfer the single file to Downloads. In file Properties enable
-execution, then open it. Frametop and a runtime container are not required.
+The primary experiment is now **Photo tracking**. Install the updated Android
+APK, pair/connect, and choose a detailed photo on the phone. Keep it displayed.
+On Frame choose **Photo tracking → Use phone photo → Enable cameras → Refresh
+cameras → Start photo tracking**. Confirm inlier counts, outline, XYZ/distance,
+rotation and photo size. Cover/reveal the screen to test loss/reacquisition.
+See [the fixed-photo procedure](PHOTO_TRACKING.md) for details and limits.
 
-## Pair and receive sensors
+The historical instructions below describe the retained marker source/tool;
+that workflow is no longer exposed in the normal app UI. Use the photo procedure
+above for current headset testing.
 
-On the phone, enter the outside body/case dimensions and start pairing.
-Use **Phone telemetry → Find phones → Pair new phone**, compare the fingerprint
-and approve both screens. Live sensor values and dimensions should appear.
-Use **Connect saved phone** on later connections. See [pairing](PAIRING_AND_IMU.md).
+Build with **`bash frame/build.sh`**, on the headset or a Linux PC, and open
+`frame/build/dist/FramePhone-arm64.run` on Frame after enabling execution in file
+Properties. Runtime libraries and the camera broker are bundled.
 
-## Set up the front cameras
+Install the updated Android APK, enter phone/case dimensions and start the
+connection. In **Phone telemetry**, find/pair the phone and approve matching
+fingerprints, or connect the saved phone. Tap **Show large tracking marker** on
+Android. It automatically fills the screen width with one centered tag plus
+the required white margin; there is no marker-size input.
 
-Choose **Enable cameras** and approve the desktop authorization prompt. The app
-starts its bundled broker; no separate install is needed. Refresh if necessary.
-Select the two front streams and their matching factory cameras in **Markerless
-tracking**. **Camera setup → Show front camera views** exposes only that pair;
-open full-size views to inspect native source pixels. Cover each physical lens
-to verify the streams.
+In **Marker tracking**, enable cameras and approve desktop authorization.
+Refresh cameras, choose the two front streams and their matching factory
+calibrations, then **Start tracking**. No frozen capture or corner labelling.
+The expected front defaults are `og01a1b_4-0060_video3` with `slam_left` and
+`og01a1b_4-0036_video0` with `slam_right`. Cover each front lens to verify the
+stream. Factory-to-stream association remains provisional; sensor names alone
+do not prove identity. Side cameras are not used.
 
-Defaults use the owner's front-left `og01a1b_4-0060_video3` with `slam_left`,
-and front-right `og01a1b_4-0036_video0` with `slam_right`. Existing available
-selections take priority. These factory associations remain provisional;
-sensor names/video numbers do not prove calibration identity. Missing defaults
-stay unselected instead of substituting another stream. Ignore the side cameras.
+**Camera setup → Show front camera views** provides previews and full-size
+native pixels. The geometry self-test exercises detection/pose plumbing using
+synthetic inputs, not headset accuracy.
 
-**Geometry self-test** exercises the native body-pose solver without hardware.
-The integrated log shows discovery, source dimensions and broker failures.
+Start with the entire marker visible to both views, then tilt/move it slowly.
+You should see ID counts, marker outlines and marker-center XYZ/rotation.
+Hide it: current pose must disappear. Reveal it: tracking should reacquire.
+A single view's detection is shown but cannot produce this stereo pose.
+Use optional camera/telemetry recording for difficult trials.
 
-## Try markerless pose
-
-Start with **Markerless tracking → Start phone detection**. It runs the bundled
-pretrained model continuously, showing phone boxes/confidence and optional
-visible outlines without corner selection. See [automatic detection](AUTO_DETECTION.md).
-This verifies visual acquisition; boxes and 2D angles are not metric 3D poses.
-
-Follow the [markerless diagnostic](MARKERLESS_DIAGNOSTIC.md): capture a synchronized
-pair, label the same physical front corners in each view, estimate pose, and
-start local outline tracking. Hold still during initialization and move slowly.
-It needs a clear front boundary in both cameras. Capture again after loss.
-
-Use opt-in recordings for difficult cases and measure pose against an independent
-reference. Camera calibration/mapping, clock assumptions and real tracking
-accuracy remain to be verified. See [validation](TRACKING_VALIDATION.md).
+Distance scale comes from Android's unverified physical display DPI. Check it
+against known distances before interpreting accuracy. See
+[single-marker tracking](FIDUCIAL_TRACKING.md), [calibration](CALIBRATION.md)
+and [validation](TRACKING_VALIDATION.md). Whole-phone screen recording is
+separate and has [on-screen marker constraints](SCREEN_CAPTURE.md).

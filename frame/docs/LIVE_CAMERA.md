@@ -21,7 +21,7 @@ The pairer requires increasing timestamps, one shared clock domain, compatible
 metadata and capture spread no greater than 3 ms. Capture-clock identity and
 factory mapping still require hardware verification.
 
-The markerless CLI consumes the ring path and camera mapping from its session
-file. Its live no-pair timeout is five seconds; tracking also rejects excessive
-gaps between processed pairs. See [headset setup](HEADSET_TEST.md) and
-[markerless sessions](MARKERLESS_DIAGNOSTIC.md).
+The fiducial CLI consumes the ring path and camera mapping from its session
+file. Its live no-pair timeout is five seconds; each pose comes from the current
+synchronized pair and tag decode. See [headset setup](HEADSET_TEST.md) and
+[fiducial sessions](FIDUCIAL_TRACKING.md).

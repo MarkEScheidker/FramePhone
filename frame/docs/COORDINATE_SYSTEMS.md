@@ -1,34 +1,39 @@
 # Coordinates and units
 
-`T_AB` maps points from B into A. Rigid transforms use right-handed frames and
-meters. Native body poses contain a row-major 3×3 rotation and translation.
+`T_AB` maps B into A. Rigid transforms are right-handed and metric.
 
 | Frame | Definition |
 | --- | --- |
-| B | Phone body/case center; X right, Y toward physical top, Z through front. |
+| P | Displayed photo center; X photo right, Y photo up, Z out of its front. |
+| M | Black marker-square center on the screen; X right, Y decoded top, Z out of its front. |
 | C | Optical camera; X image right, Y image down, Z forward. |
-| H | Factory head frame; OpenVR-style X right, Y up, Z backward. |
-| W | Future selected XR reference space, with explicit identity/reset history. |
+| H | Factory head frame; X right, Y up, Z backward. |
+| B | Future calibrated phone-body frame; no measured T_MB is currently supplied. |
+| W | Future selected XR reference space, with identity/reset history. |
 
-The markerless estimator outputs **T_HB**. Front-face corners in B are
-`(-w/2,+h/2,+d/2), (+w/2,+h/2,+d/2), (+w/2,-h/2,+d/2), (-w/2,-h/2,+d/2)`.
-The user labels physical top/front; a rectangle alone cannot resolve top/bottom
-symmetry. IPPE solves a local Z=0 front plane; its translation is corrected by
-the rotated half-thickness to report the body center.
+The photo estimator publishes **T_HP**, not T_HB. Its reference coordinates use
+photo width as one unit, centered with Y up; stereo estimates width in meters.
+Black letterbox bars are outside that target. It does not use display DPI or
+body/case dimensions for scale. Photo-to-body/camera offsets remain uncalibrated.
 
-Pixel observations use native OpenCV pixel centers, top-left (0,0), X right and
-Y down. Rectification preserves the explicit virtual intrinsics. Factory
-`T_HC` includes the optical-to-head rotation; do not apply an extra axis flip.
+The legacy marker estimator publishes **T_HM**, not T_HB. Marker corners are
+`(-s/2,+s/2,0), (+s/2,+s/2,0), (+s/2,-s/2,0), (-s/2,-s/2,0)`.
+AprilTag's decoded orientation labels these corners, including tilted/rotated
+views. Physical edge s excludes the white quiet zone. Android's reported
+display DPI supplies its initial, explicitly unverified scale.
 
-Android IMU axes remain natural-device axes, independent of display rotation.
-Sensor-to-body alignment has not been measured. Body dimensions do not supply
-active-display size/offset; future screen rendering needs that separate mapping.
+Raw observations use native pixel centers, origin top-left, X right/Y down.
+Factory KB4 projection and T_HC handle distortion and camera-to-head axes.
+Do not add another axis flip or substitute pinhole intrinsics.
 
-Future world composition is:
-`T_WB(t_capture) = T_WH(t_capture) * T_HB(t_capture)`.
-It requires historical, timestamp-aligned headset poses and camera-to-XR time
-mapping. Camera capture, Android elapsed realtime, host monotonic receipt and
-XR clocks are not interchangeable. Current clock diagnostics and stereo skew
-gates do not compensate independent phone/headset motion.
+Android IMU remains in natural-device coordinates. Sensor-to-marker alignment
+and lever arm have not been measured. A case/body size is not an active-screen
+calibration or a marker-to-body offset.
 
-See the [markerless guide](MARKERLESS_DIAGNOSTIC.md) for result states and limits.
+Future photo world composition is
+`T_WP(t_capture) = T_WH(t_capture) * T_HP(t_capture)`.
+The corresponding legacy marker composition is
+`T_WM(t_capture) = T_WH(t_capture) * T_HM(t_capture)`.
+It needs historical headset poses and camera-to-XR time mapping. Camera,
+Android elapsed realtime, host monotonic receipt and XR clocks are not
+interchangeable. Current output has no inertial fusion or motion compensation.

@@ -27,7 +27,7 @@ https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb28199
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/camd/fhring.h
 https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb2819944/hands/README.md
 
-The markerless body model and joint two-view pixel optimization are
+The single-marker planar model and joint two-view pixel optimization are
 FramePhone code, using OpenCV's SVD and Levenberg–Marquardt solver. Neural hand
 models, articulated priors and gesture code are not included.
 

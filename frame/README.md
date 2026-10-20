@@ -1,40 +1,38 @@
-# Frame desktop app and native tools
+# Frame desktop and native tools
 
-The desktop app provides paired phone telemetry, markerless optical trials and
-front-camera setup. Native C++20 code owns calibrated geometry and outline tracking;
-Python OpenCV DNN runs the bundled pretrained phone detector.
+The current experiment is [fixed-photo stereo tracking](docs/PHOTO_TRACKING.md).
+The next product stage is ARCore motion tracking with incremental registration
+from phone-screen content. See the
+[component research and implementation plan](docs/SCREEN_CONTENT_TRACKING_PLAN.md).
+ARCore/world alignment is not implemented yet; the single-marker path remains a legacy diagnostic.
+
+The desktop provides paired phone telemetry, automatic photo tracking
+and two-front-camera setup.
 
 | Target | Purpose |
 | --- | --- |
-| `FramePhone-*.run` | Single desktop executable with bundled runtime and camera broker. |
-| `framephone-markerless` | Capture, labelled body-pose solve, local outline tracking, replay and geometry self-test. |
-| `framephone-camera` | Discover camera-ring streams and factory calibrations. |
-| `framephone-openvr-demo` | Optional simulated screen-outline renderer; does not consume tracking results. |
+| FramePhone-*.run | One desktop executable with runtime, AprilTag and camera broker. |
+| framephone-fiducial | Automatic stereo ID 0 pose, replay and synthetic self-test. |
+| framephone-photo | Fixed-photo feature matching, metric stereo pose/scale and replay. |
+| framephone-camera | Camera-ring and factory calibration discovery. |
+| framephone-openvr-demo | Optional simulated renderer, separate from tracking. |
 
-The estimator returns **T_HB**, mapping body-center meters into head axes
-right/up/back. It does not yet provide world-space pose or fused IMU output.
+Use **`bash frame/build.sh`** on Linux desktop or headset. For native development,
+install AprilTag 3, OpenCV core/calib3d/imgproc/features2d and nlohmann JSON; then use CMake
+and CTest as described in [development](../docs/DEVELOPMENT.md).
+The dependency-free subset is `make -C frame test`.
 
-Use **`bash frame/build.sh`** on Linux desktop or headset to produce the ARM64
-package. See [BUILD.md](docs/BUILD.md). For development, install OpenCV
-core/calib3d/imgproc and nlohmann JSON, then:
+Photo output is **T_HP**, relative to the factory head frame in meters, with
+stereo-derived scale. Factory mapping and accuracy need hardware verification.
+No screen recording, world-space
+pose, IMU fusion or neural phone detector is included.
 
-```bash
-cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
-cmake --build frame/build/desktop --parallel 4
-ctest --test-dir frame/build/desktop --output-on-failure
-frame/build/desktop/framephone-markerless --self-test
-```
-
-`make -C frame test` runs the dependency-free recording/ring tests only.
-`build-openvr-demo.sh` builds the optional renderer separately.
-
-- [Markerless workflow and replay](docs/MARKERLESS_DIAGNOSTIC.md)
-- [Automatic pretrained phone detection](docs/AUTO_DETECTION.md)
-- [Headset testing](docs/HEADSET_TEST.md)
-- [Architecture](docs/ARCHITECTURE.md) and [coordinates](docs/COORDINATE_SYSTEMS.md)
-- [Ring input](docs/LIVE_CAMERA.md) and [recordings](docs/RECORDINGS.md)
-- [Calibration](docs/CALIBRATION.md) and [validation](docs/TRACKING_VALIDATION.md)
-- [Frametop provenance](third_party/frametop/README.md) and [notices](THIRD_PARTY_NOTICES.md)
-
-Factory calibration is labelled `factory_imported`, not hardware verified.
-A low reprojection error alone does not establish metric accuracy.
+- [Build](docs/BUILD.md), [headset test](docs/HEADSET_TEST.md)
+- [Single-marker tracking and replay](docs/FIDUCIAL_TRACKING.md)
+- [Photo tracking and replay](docs/PHOTO_TRACKING.md)
+- [Screen capture constraints](docs/SCREEN_CAPTURE.md)
+- [Screen-content tracking plan](docs/SCREEN_CONTENT_TRACKING_PLAN.md)
+- [Architecture](docs/ARCHITECTURE.md), [coordinates](docs/COORDINATE_SYSTEMS.md)
+- [Calibration](docs/CALIBRATION.md), [validation](docs/TRACKING_VALIDATION.md)
+- [Camera input](docs/LIVE_CAMERA.md), [recording format](docs/RECORDINGS.md)
+- [Frametop provenance](third_party/frametop/README.md), [notices](THIRD_PARTY_NOTICES.md)

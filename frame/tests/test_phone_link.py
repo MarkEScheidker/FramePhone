@@ -157,7 +157,7 @@ class TLSTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False):
+    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, photo=False):
         errors, received, notices = [], [], []
         ready = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
@@ -172,6 +172,8 @@ class TLSTests(unittest.TestCase):
                 notices.append((kind, value))
                 if record and kind == "status" and value.startswith("Connected"):
                     client.start_recording(recording_path)
+                if photo and kind == "status" and value.startswith("Connected"):
+                    client.request_photo()
             client = PhoneLink(store, notify, confirm)
             listener = socket.socket()
             listener.bind(("127.0.0.1", 0))
@@ -202,12 +204,23 @@ class TLSTests(unittest.TestCase):
                             self.assertEqual(hello["credential"], "a" * 64)
                             if reject_credential:
                                 return
-                        write_message(conn, profile())
+                        capabilities = profile()
+                        capabilities["photo_reference_v1"] = photo
+                        write_message(conn, capabilities)
                         ping = read_message(conn)
+                        request = None
+                        if ping.get("type") == "request_photo":
+                            request = ping["request"]
+                            ping = read_message(conn)
                         phone_time = time.monotonic_ns() + 1_000_000_000
                         write_message(conn, {"type": "pong", "session": "test-session", "h0": ping["h0"],
                                              "p1": phone_time, "p2": phone_time})
                         write_message(conn, batch(timestamp=phone_time))
+                        if photo:
+                            from test_photo_reference import messages
+                            self.assertIsNotNone(request)
+                            for message in messages(request):
+                                write_message(conn, message | {"session":"test-session"})
                         ready.set()
                         # Keep the session open while the test checks the live snapshot.
                         conn.recv(1)
@@ -230,6 +243,12 @@ class TLSTests(unittest.TestCase):
                 self.assertTrue(snapshot["rows"]["gyro"]["live"])
                 self.assertIsNotNone(snapshot["rtt_ms"])
                 self.assertEqual(store.load()["pin"], self.pin)
+                if photo:
+                    from test_photo_reference import png
+                    deadline=time.monotonic()+3
+                    while client.photo_reference()[0] is None and time.monotonic()<deadline:
+                        time.sleep(.01)
+                    self.assertEqual(client.photo_reference()[0],png())
                 client.stop()
             client_thread.join(6)
             server_thread.join(6)
@@ -254,6 +273,9 @@ class TLSTests(unittest.TestCase):
 
     def test_pinned_reconnect(self):
         self.exercise(pair=False)
+
+    def test_authenticated_one_time_photo_with_live_telemetry(self):
+        self.exercise(pair=False,photo=True)
 
     def test_opt_in_recording_receives_validated_tls_evidence(self):
         self.exercise(record=True)

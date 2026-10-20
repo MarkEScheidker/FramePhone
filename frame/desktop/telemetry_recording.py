@@ -12,6 +12,8 @@ def evidence_message(message):
     if kind == "profile":
         result = select(message, ("type", "version", "session", "clock", "axes"))
         result["dimensions"] = select(message["dimensions"], ("width_m", "height_m", "thickness_m", "boundary"))
+        if "fiducial" in message:
+            result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source"))
         result["sensors"] = [select(sensor, ("sensor", "available", "units", "uncalibrated", "requested_hz"))
                              for sensor in message["sensors"]]
     elif kind == "samples":

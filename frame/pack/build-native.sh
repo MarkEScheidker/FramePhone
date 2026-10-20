@@ -13,5 +13,7 @@ ctest_tool=${CTEST_COMMAND:-ctest}
 "$ctest_tool" --test-dir "$build" --output-on-failure
 "$cmake_tool" --install "$build"
 "$prefix/bin/framephone-camera" --help
-"$prefix/bin/framephone-markerless" --help
-"$prefix/bin/framephone-markerless" --self-test
+"$prefix/bin/framephone-photo" --help
+"$prefix/bin/framephone-photo" --self-test
+"$prefix/bin/framephone-fiducial" --help
+"$prefix/bin/framephone-fiducial" --self-test

@@ -4,7 +4,7 @@
 
 namespace framephone {
 void write_pgm(const std::filesystem::path &path, const CameraFrame &frame);
-// Shared by markerless capture, live recording and replay.
+// Shared by fiducial live recording and replay.
 class StereoRecorder {
   public:
     explicit StereoRecorder(std::filesystem::path directory);

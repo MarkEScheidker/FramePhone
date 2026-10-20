@@ -17,19 +17,14 @@ if [ -n "${USER_PWD:-}" ]; then cd -- "$USER_PWD"; fi
 export FRAMEPHONE_RUNTIME_ROOT="$root" FRAMEPHONE_LOADER="$loader" FRAMEPHONE_LIBRARY_PATH="$libs"
 if [ "${1:-}" = --self-test ]; then
     [ "$#" = 1 ] || exit 2
-    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-markerless" --self-test
+    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-photo" --self-test
 fi
 case "${1:-}" in
-    --camera|--markerless)
+    --camera|--fiducial|--photo)
         tool=${1#--}; shift
         exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-$tool" "$@" ;;
 esac
 export PYTHONHOME="$root/usr" TCL_LIBRARY="$root/usr/share/tcltk/tcl8.6" TK_LIBRARY="$root/usr/share/tcltk/tk8.6"
 export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
 unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
-if [ "${1:-}" = --detect ]; then
-    shift
-    exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/phone_detection.py" \
-        --model "$root/opt/framephone/share/framephone/models/object_detection_yolox_2022nov.onnx" "$@"
-fi
 exec "$loader" --library-path "$libs" "$root/usr/bin/python3" "$root/opt/framephone/desktop/app.py" "$@"

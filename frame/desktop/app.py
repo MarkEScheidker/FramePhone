@@ -46,12 +46,6 @@ class Runtime:
                 str(self.root / "opt/framephone/bin/framephone-camd"),
                 "--status", "2"]
 
-    def detector_command(self, *args):
-        return [self.loader, "--library-path", self.libraries,
-                str(self.root / "usr/bin/python3"),
-                str(self.root / "opt/framephone/desktop/phone_detection.py"),
-                "--model", str(self.root / "opt/framephone/share/framephone/models/object_detection_yolox_2022nov.onnx"),
-                *map(str, args)]
 
 
 class Window:
@@ -86,7 +80,7 @@ class Window:
         for key in ("left", "right", "left_stream", "right_stream"):
             setattr(self, key, tk.StringVar(value=mapping.get(key, "")))
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_views", False)))
-        self.status = tk.StringVar(value="Markerless tracking provides automatic phone detection. Phone telemetry provides pairing and sensors.")
+        self.status = tk.StringVar(value="Pair the phone, choose a photo on it, then open Photo tracking.")
         root.title("FramePhone")
         root.geometry("1000x900")
         root.minsize(720, 600)
@@ -94,19 +88,20 @@ class Window:
         ttk.Label(root, textvariable=self.status, wraplength=950, padding=8).pack(side="bottom", fill="x")
         tabs = ttk.Notebook(root)
         tabs.pack(fill="both", expand=True)
-        phone_tab, markerless_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
+        phone_tab, photo_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
         tabs.add(phone_tab, text="Phone telemetry")
-        tabs.add(markerless_tab, text="Markerless tracking")
+        tabs.add(photo_tab, text="Photo tracking")
         tabs.add(camera_tab, text="Camera setup")
         from phone_panel import PhonePanel
         self.phone_panel = PhonePanel(phone_tab, self.config.parent)
-        from markerless_panel import MarkerlessPanel
-        self.markerless_panel = MarkerlessPanel(markerless_tab, self)
+        from photo_panel import PhotoPanel
+        self.photo_panel = PhotoPanel(photo_tab, self)
+        self.tracking_panel = self.photo_panel
         panel = ttk.Frame(camera_tab, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(3, weight=1)
-        ttk.Label(panel, text="Front camera setup — choose streams in Markerless tracking",
+        ttk.Label(panel, text="Front camera setup — choose streams in Photo tracking",
                   font=("sans", 16, "bold")).grid(row=0, column=0, sticky="w")
         actions = ttk.Frame(panel)
         actions.grid(row=1, column=0, sticky="ew", pady=10)
@@ -205,7 +200,7 @@ class Window:
             self.self_test_result = None
             self.status.set("Running synthetic body-pose self-test…")
             self.test_button.configure(state="disabled")
-            if not self.spawn("self-test", self.runtime.command("markerless", "--self-test")):
+            if not self.spawn("self-test", self.runtime.command("photo", "--self-test")):
                 self.test_button.configure(state="normal")
                 self.self_test_result = False
 
@@ -223,7 +218,7 @@ class Window:
             self.log(str(error))
 
     def refresh(self):
-        if self.markerless_panel.busy:
+        if self.tracking_panel.busy:
             self.status.set("Stop tracking before refreshing the camera mapping.")
             return
         if "scan" in self.jobs:
@@ -275,8 +270,8 @@ class Window:
                 if name == "camera":
                     self.camera_button.configure(state="normal")
                     self.status.set("Camera broker stopped. Enable cameras to retry.")
-                    if self.markerless_panel.busy:
-                        self.markerless_panel.stop()
+                    if self.tracking_panel.busy:
+                        self.tracking_panel.stop()
                 else:
                     self.self_test_result = value == 0
                     self.test_button.configure(state="normal")
@@ -349,15 +344,15 @@ class Window:
 
     def close(self):
         self.closing = True
-        self.markerless_panel.close()
+        self.tracking_panel.close()
         self.phone_panel.close()
         for name in list(self.processes):
             self.terminate(name)
         deadline = time.monotonic() + 3
         def finish():
             active = [p for name, p in self.processes.items() if name != "camera" and p.poll() is None]
-            with self.markerless_panel.process_lock:
-                process = self.markerless_panel.process
+            with self.tracking_panel.process_lock:
+                process = self.tracking_panel.process
                 if process and process.poll() is None:
                     active.append(process)
             if active and time.monotonic() < deadline:

@@ -17,7 +17,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.FramePhone">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MarkerActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".PhotoActivity" android:exported="false" android:screenOrientation="portrait" />
+        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

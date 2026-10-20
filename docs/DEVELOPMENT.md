@@ -5,23 +5,22 @@ the [root README](../README.md); this page describes dependency options and test
 
 ## Native Linux
 
-Requirements: C++20 compiler, CMake >=3.20, OpenCV 4 (`core`,
-`calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
-tests. Python/Tk provides the desktop window. Automatic detection additionally
-uses Python OpenCV/NumPy and the pinned pretrained model; see
-[automatic detection](../frame/docs/AUTO_DETECTION.md). Native libraries are not vendored.
+Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
+`calib3d`, `imgproc`, `features2d`), and nlohmann JSON headers. Python 3 runs CLI
+tests. Python/Tk and Pillow provide desktop/photo decoding. Native libraries are installed by
+the container build or local package manager.
 
 Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake python3 libopencv-dev nlohmann-json3-dev python3-tk
+sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk python3-pil
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install gcc-c++ cmake make python3 opencv-devel json-devel python3-tkinter
+sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel python3-tkinter python3-pillow
 ```
 
 From the repository root:
@@ -30,7 +29,7 @@ From the repository root:
 cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
-frame/build/desktop/framephone-markerless --self-test
+frame/build/desktop/framephone-photo --self-test
 ```
 
 Missing geometry dependencies are a configuration error. `POSE_SDK_ROOT` can
@@ -45,7 +44,7 @@ make -C frame test
 ```
 
 It tests frame sources and ring input. Use the full CMake build for calibrated
-geometry and markerless tracking tests.
+geometry and single-tag tracking tests.
 
 ### Steam Frame
 

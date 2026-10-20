@@ -7,7 +7,8 @@ replace notices for third-party code or linked libraries.
 | --- | --- | --- |
 | Frametop, commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` | Bundled camera broker; adapted calibration/ray math and pairing policy; camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
 | OpenCV and nlohmann JSON | Native pose estimation and JSON parsing | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
-| OpenCV Zoo YOLOX-S | Bundled COCO-pretrained phone detector and adapted preprocessing/decoding | [Apache-2.0 license and Megvii notice](frame/models/LICENSE.YOLOX), [pinned model metadata](frame/models/yolox.json) |
+| Pillow | Decode the one-time phone photo reference in the desktop app | Ubuntu package copyright retained in the bundled runtime; [native notices](frame/THIRD_PARTY_NOTICES.md) |
+| AprilTag 3 / tag36h11 codeword | Native single-marker detection and Android raster | [BSD-2-Clause license](frame/third_party/apriltag/LICENSE), [Android notice](phone/app/src/main/assets/APRILTAG_LICENSE.txt) |
 | Valve OpenVR SDK | Optional, separate rendering demo | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
 
 Android dependencies are declared in `phone/gradle/libs.versions.toml` and

@@ -3,8 +3,10 @@
 Measure the outside phone/case width, height and thickness in millimeters and
 save them in Android before pairing. These describe the rigid body, not the
 active display. A case change requires updated dimensions and a new optical trial.
-Screen offsets, camera bumps and rounded corners are not independently modelled
-by the initial rectangular front-face estimator.
+The tag fills the display width automatically including its quiet margin.
+Its physical edge is estimated from reported display DPI; this initial scale is
+unverified. The pose origin is the marker center. No marker-to-body offset or
+active-display physical calibration is inferred from body dimensions.
 
 The native pipeline imports factory KB4 intrinsics and camera-to-head transforms
 from `/persist/xrservice.json` and `/persist/device_config.json`. Each trial
@@ -24,4 +26,4 @@ factory parameters. The current pipeline expects factory-format KB4 data;
 the former single-camera interchange loader is not supported.
 
 See [coordinates](COORDINATE_SYSTEMS.md), [headset setup](HEADSET_TEST.md) and
-[markerless validation](TRACKING_VALIDATION.md).
+[tracking validation](TRACKING_VALIDATION.md).

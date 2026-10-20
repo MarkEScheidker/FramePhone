@@ -1,16 +1,12 @@
 # Third-party notices
 
-The bundled OpenCV Zoo YOLOX-S COCO model is pinned at revision
-`47534e27c9851bb1128ccc0102f1145e27f23f98`; its SHA-256, source URL and size are
-recorded in [yolox.json](models/yolox.json). Retain [LICENSE.YOLOX](models/LICENSE.YOLOX)
-(Apache-2.0, copyright 2021–2022 Megvii Inc.). Preprocessing/grid decoding in
-`desktop/phone_detection.py` adapts that revision's `yolox.py`/`demo.py`; the file
-marks its changes and retains Apache-2.0 licensing. This changes neither the
-MIT license for original FramePhone code nor other dependency licenses. The
-package includes the model, manifest and notice under `share/framephone/models`.
-Source: https://github.com/opencv/opencv_zoo/tree/47534e27c9851bb1128ccc0102f1145e27f23f98/models/object_detection_yolox
-Python OpenCV/NumPy and their transitive Ubuntu copyright notices remain in
-the runtime's `/usr/share/doc` and `/usr/share/common-licenses`.
+AprilTag 3 is linked for tag36h11 detection. Its BSD-2-Clause notice is retained
+in [third_party/apriltag/LICENSE](third_party/apriltag/LICENSE). Android's ID 0
+raster is verified against apriltag_to_image and includes the same notice in
+[its asset](../phone/app/src/main/assets/APRILTAG_LICENSE.txt). The local test
+library is AprilTag 3.3.0; packaged Ubuntu versions may differ. Runtime package
+copyright files remain in /usr/share/doc. Source:
+https://github.com/AprilRobotics/apriltag
 
 The optional `build-openvr-demo.sh` fetches `openvr.h` from ValveSoftware/openvr tag `v2.15.6` and
 checks its SHA-256 before compiling. The OpenVR SDK is licensed under the
@@ -42,7 +38,8 @@ OpenCV license: https://github.com/opencv/opencv/blob/4.5.4/LICENSE
 JSON license: https://github.com/nlohmann/json/blob/v3.10.5/LICENSE.MIT
 
 The desktop executable also bundles Ubuntu Python/Tk, Tcl/Tk, glibc and their
-runtime dependencies. Their copyright files and common licenses remain in the
+runtime dependencies, plus Pillow for decoding the selected PNG reference.
+Their copyright files and common licenses remain in the
 runtime root. Makeself generates the self-extraction shell header; its GPL-2
 copyright and license are retained beside AppRun. This is aggregation with the
 MIT application, not a replacement of any dependency's license. The static

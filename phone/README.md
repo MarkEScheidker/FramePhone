@@ -2,8 +2,9 @@
 
 FramePhone sends live gyroscope, accelerometer and magnetometer observations to
 the Frame desktop app over an authenticated TLS connection. Android 12+;
-application ID `com.example.framephone`. The old fiducial overlay, display
-calibration and layout-export UI have been removed.
+application ID `com.example.framephone`. Choose a tracking photo on the phone;
+it displays full-screen and can be downloaded once by the paired Frame app for
+automatic stereo tracking. No screen capture permission is required for this test.
 
 ## Build
 
@@ -51,6 +52,15 @@ The enabled connection uses a connected-device foreground service, not an overla
 
 ## Current limits
 
+After pairing, tap **Choose tracking photo**, select a detailed photo and keep
+it displayed. On Frame use **Photo tracking → Use phone photo**, then start the
+stereo test. Tap the photo or Back to return to settings; **Show tracking photo**
+reopens it. Selection remains in memory for the app process. Source files are
+bounded to 16 MiB and decoded/resized to at most 960 pixels on the long edge.
+Frame receives the exact prepared PNG once, rather than a changing screen stream.
+No manual corners or physical target-size entry is required. See
+[photo tracking](../frame/docs/PHOTO_TRACKING.md).
+
 Pairing uses manual fingerprint comparison, not QR scanning. Discovery is IPv4
 UDP broadcast; telemetry uses TLS 1.3/TCP on port 47643. Guest Wi-Fi/client
 isolation, firewall rules or future Android local-network permission changes may
@@ -62,5 +72,6 @@ with vendor bias estimates separate; calibrated channels are explicit fallbacks.
 Original integer nanosecond timestamps and fixed natural-device axes are retained.
 Sampling during lock/sleep and power management still need device validation.
 
-No optical association, pose fusion, QR scanning, screen capture or remote input
-is included. See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
+The Frame estimates photo pose optically. ARCore/world alignment, robust paired-device
+visual identity, QR scanning, screen capture and remote input are not included.
+See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).

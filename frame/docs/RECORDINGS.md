@@ -27,7 +27,7 @@ The values above are illustrative. Do not infer timestamp origins, exposure
 units, calibration quality, or headset pose from a filename. Record the source's
 clock and calibration identifiers in the manifest from trusted metadata.
 
-The markerless capture and optional live recorder write this format for paired
-front-camera images. See [the markerless diagnostic](MARKERLESS_DIAGNOSTIC.md)
+The optional single-tag trial recorder write this format for paired
+front-camera images. See [single-marker tracking](FIDUCIAL_TRACKING.md)
 for capture, session metadata and replay. Synthetic fixtures exercise the same
 reader but do not establish headset camera accuracy.

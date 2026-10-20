@@ -1,80 +1,72 @@
 # FramePhone
 
-An experimental phone companion for Valve Steam Frame. The Android app pairs
-over the LAN and sends measured phone dimensions and live motion sensors to the
-Frame desktop app. A bundled pretrained detector finds phones automatically in
-the front camera views. A separate optical diagnostic estimates a phone-body
-pose from labelled stereo corners, then tracks its visible front outline.
+An experimental Android companion for Valve Steam Frame. The phone pairs over
+the LAN, sends motion sensors and displays a user-selected photo. Frame downloads
+that photo once and matches it in its two front cameras to estimate head-relative
+position, orientation and distance using calibrated fisheye stereo geometry.
 
-**Early development:** pairing and live telemetry have been confirmed on the
-owner's phone and Steam Frame. Markerless accuracy, front-camera calibration
-mapping, tracking range and sustained performance still need hardware validation.
-There is no tracked VR display, screen streaming or inertial pose fusion yet.
+**Early development:** camera previews, pairing and telemetry have been observed
+on the owner's hardware. The new photo tracker passes synthetic/replay tests;
+real-photo accuracy, camera mapping and sustained headset performance still need
+validation. There is no screen streaming, ARCore integration or world-space overlay yet.
 
 ## Build and run
 
-From the repository root on Linux desktop or directly on the headset:
+From the repository root on Linux desktop or directly on Steam Frame:
 
 ```bash
 bash frame/build.sh
 ```
 
-This produces **`frame/build/dist/FramePhone-arm64.run`**. Copy that single file
-to the headset, allow execution in file Properties, and open it. Runtime
-libraries and the camera broker are bundled. Docker/Podman is only needed on the
-build machine; no Frametop installation is required.
+Open **`frame/build/dist/FramePhone-arm64.run`** on the headset after enabling
+execution in file Properties. Libraries, the photo decoder and camera broker are
+bundled. Docker/Podman is needed only to build. No Frametop install is required.
 
-On the Android app, enter the outside phone/case width, height and thickness,
-then start pairing. In **Phone telemetry**, choose **Find phones → Pair new phone**,
-compare the fingerprint and approve on both devices. Later use **Connect saved phone**.
+Build/install the updated Android app from `phone/`. Enter phone/case dimensions,
+start the connection, then pair in **Phone telemetry**. Tap **Choose tracking photo**
+on Android; it opens full-screen. On Frame, use **Photo tracking → Use phone photo →
+Enable cameras → Refresh cameras → Start photo tracking**. No manual corners or
+target-size entry.
 
-For automatic visual testing: **Markerless tracking → Enable cameras → Refresh
-cameras → Start phone detection**. Green boxes show pretrained detections and
-confidence; amber outlines show visible quadrilaterals with a 2D image angle.
-No corner clicks are required. Automatic metric 3D pose is still future work.
-The optional manual stereo diagnostic remains available for geometry checks.
-**Camera setup** provides the two front previews, native-size
-views, a geometry self-test and the integrated log.
-
-See the [headset guide](frame/docs/HEADSET_TEST.md) and
-[markerless diagnostic guide](frame/docs/MARKERLESS_DIAGNOSTIC.md).
+Metric scale comes from the factory stereo baseline rather than display DPI.
+Poses refer to the displayed photo center. See
+[headset testing](frame/docs/HEADSET_TEST.md) and [photo tracking](frame/docs/PHOTO_TRACKING.md).
+The earlier marker implementation remains in source/tests while the replacement
+undergoes headset validation; the normal UI uses photo tracking.
 
 ## Development
 
-Open `phone/` in Android Studio with JDK 17 and Android SDK 36, or run:
+Android Studio: open `phone/`, or use JDK 17 and Android SDK 36:
 
 ```bash
 cd phone
 bash gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-Use `gradlew.bat` on Windows. For a native Linux development build:
+Windows uses `gradlew.bat`. Native Linux:
 
 ```bash
-sudo apt-get install build-essential cmake python3 libopencv-dev nlohmann-json3-dev
+sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev
 cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
-frame/build/desktop/framephone-markerless --self-test
+frame/build/desktop/framephone-photo --self-test
 ```
-
-OpenCV core/calib3d/imgproc and nlohmann JSON are required. Python/Tk powers the
-desktop interface. Synthetic tests exercise software, not real-world accuracy.
 
 ## Documentation
 
 - [Android companion](phone/README.md)
-- [Build setup](frame/docs/BUILD.md) and [development](docs/DEVELOPMENT.md)
-- [Markerless usage and replay](frame/docs/MARKERLESS_DIAGNOSTIC.md)
-- [Automatic phone detection](frame/docs/AUTO_DETECTION.md)
-- [Markerless research and next stages](frame/docs/MARKERLESS_TRACKING.md)
-- [Pairing and sensor protocol](frame/docs/PAIRING_AND_IMU.md)
-- [Architecture](frame/docs/ARCHITECTURE.md) and [coordinates](frame/docs/COORDINATE_SYSTEMS.md)
-- [Calibration](frame/docs/CALIBRATION.md) and [validation](frame/docs/TRACKING_VALIDATION.md)
+- [Build](frame/docs/BUILD.md) and [development](docs/DEVELOPMENT.md)
+- [Marker tracking and replay](frame/docs/FIDUCIAL_TRACKING.md)
+- [Photo tracking and replay](frame/docs/PHOTO_TRACKING.md)
+- [Screen capture constraints](frame/docs/SCREEN_CAPTURE.md)
+- [Pairing and telemetry](frame/docs/PAIRING_AND_IMU.md)
+- [Architecture](frame/docs/ARCHITECTURE.md), [coordinates](frame/docs/COORDINATE_SYSTEMS.md)
+- [Calibration](frame/docs/CALIBRATION.md), [validation](frame/docs/TRACKING_VALIDATION.md)
 - [Roadmap](docs/ROADMAP.md) and [contributing](CONTRIBUTING.md)
 
-## License and acknowledgments
+## License
 
-Original code is [MIT licensed](LICENSE). Adapted Frametop camera/calibration code
-retains its notices; see [third-party notices](THIRD_PARTY_NOTICES.md).
-FramePhone is an independent project and is not affiliated with Valve.
+Original code is [MIT licensed](LICENSE). AprilTag and adapted Frametop code
+retain their notices; see [third-party notices](THIRD_PARTY_NOTICES.md).
+FramePhone is independent of Valve.

@@ -83,8 +83,9 @@ malformed data, unexpected sessions and reordered samples close the connection.
 
 The profile's `dimensions` has `width_m`, `height_m`, `thickness_m`,
 `boundary:body_or_case`, `source:manual`. These dimensions do not imply active
-screen size, physical IMU location or a camera pose. Markerless geometry uses
-these body dimensions; a future display overlay needs its own body-to-screen mapping.
+screen size, physical IMU location or a camera pose. Single-tag pose uses the separate fiducial profile's black edge and decoded
+orientation. Its initial scale is from unverified Android display DPI; body size
+is not substituted for marker size.
 
 Each capability names `gyro`, `accel` or `mag`, with `available`, Android
 sensor type, units, calibrated/uncalibrated flag, requested rate, minimum delay
@@ -128,7 +129,7 @@ Future pose estimation must account for independently moving phone and headset.
 Ordinary camera-rigid IMU odometry is not a drop-in replacement. Use historical
 headset poses for optical observations; gravity/magnetometer need reliability
 gates, and inertial integration cannot maintain reliable position indefinitely
-without optical corrections. QR/markerless target association, axis/lever-arm
+without optical corrections. QR/optical target association, axis/lever-arm
 calibration, camera/XR clock alignment and visual-inertial fusion remain future work.
 
 ## Validation

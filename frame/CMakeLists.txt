@@ -19,6 +19,8 @@ foreach(component CORE CALIB IMGPROC)
     find_library(POSE_OPENCV_${component} "${library}" HINTS "${POSE_SDK_ROOT}"
         PATH_SUFFIXES lib "lib/${CMAKE_LIBRARY_ARCHITECTURE}" REQUIRED)
 endforeach()
+find_library(POSE_OPENCV_FEATURES opencv_features2d HINTS "${POSE_SDK_ROOT}"
+    PATH_SUFFIXES lib "lib/${CMAKE_LIBRARY_ARCHITECTURE}" REQUIRED)
 
 add_library(framephone_camera STATIC src/camera_source.cpp src/frametop_ring.cpp)
 target_include_directories(framephone_camera PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -29,22 +31,35 @@ target_link_libraries(framephone_geometry PUBLIC framephone_camera PRIVATE "${PO
 target_include_directories(framephone_geometry SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")
 target_compile_options(framephone_geometry PRIVATE -Wall -Wextra -Wpedantic)
 
-add_library(framephone_markerless STATIC src/markerless.cpp)
-target_link_libraries(framephone_markerless PUBLIC framephone_geometry PRIVATE "${POSE_OPENCV_IMGPROC}" "${POSE_OPENCV_CALIB}" "${POSE_OPENCV_CORE}")
-target_include_directories(framephone_markerless SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}")
-target_compile_options(framephone_markerless PRIVATE -Wall -Wextra -Wpedantic)
+set(APRILTAG_ROOT "" CACHE PATH "Optional local AprilTag prefix")
+find_path(APRILTAG_INCLUDE apriltag.h HINTS "${APRILTAG_ROOT}" PATH_SUFFIXES include/apriltag REQUIRED)
+find_library(APRILTAG_LIBRARY apriltag HINTS "${APRILTAG_ROOT}" PATH_SUFFIXES lib "lib/${CMAKE_LIBRARY_ARCHITECTURE}" REQUIRED)
+add_library(framephone_fiducial STATIC src/planar_pose.cpp src/fiducial.cpp)
+target_link_libraries(framephone_fiducial PUBLIC framephone_geometry PRIVATE "${APRILTAG_LIBRARY}" "${POSE_OPENCV_IMGPROC}" "${POSE_OPENCV_CALIB}" "${POSE_OPENCV_CORE}")
+target_include_directories(framephone_fiducial SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${APRILTAG_INCLUDE}")
+target_compile_options(framephone_fiducial PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(framephone-markerless src/markerless_main.cpp)
-target_link_libraries(framephone-markerless PRIVATE framephone_markerless)
-target_include_directories(framephone-markerless SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
-target_compile_options(framephone-markerless PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(framephone-fiducial src/fiducial_main.cpp)
+target_link_libraries(framephone-fiducial PRIVATE framephone_fiducial)
+target_include_directories(framephone-fiducial SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
+target_compile_options(framephone-fiducial PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(framephone-camera src/camera_main.cpp)
 target_link_libraries(framephone-camera PRIVATE framephone_geometry)
 target_compile_options(framephone-camera PRIVATE -Wall -Wextra -Wpedantic)
 
-install(TARGETS framephone-markerless framephone-camera RUNTIME DESTINATION bin)
+add_library(framephone_photo STATIC src/photo.cpp)
+target_link_libraries(framephone_photo PUBLIC framephone_geometry PRIVATE "${POSE_OPENCV_FEATURES}"
+    "${POSE_OPENCV_IMGPROC}" "${POSE_OPENCV_CALIB}" "${POSE_OPENCV_CORE}")
+target_include_directories(framephone_photo SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}")
+target_compile_options(framephone_photo PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(framephone-photo src/photo_main.cpp)
+target_link_libraries(framephone-photo PRIVATE framephone_photo)
+target_include_directories(framephone-photo SYSTEM PRIVATE "${POSE_JSON_INCLUDE}" "${POSE_OPENCV_INCLUDE}")
+target_compile_options(framephone-photo PRIVATE -Wall -Wextra -Wpedantic)
+
+install(TARGETS framephone-photo framephone-fiducial framephone-camera RUNTIME DESTINATION bin)
 install(FILES THIRD_PARTY_NOTICES.md "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE" DESTINATION share/framephone)
-install(FILES models/yolox.json models/LICENSE.YOLOX DESTINATION share/framephone/models)
+install(FILES third_party/apriltag/LICENSE DESTINATION share/framephone/third_party/apriltag)
 install(FILES third_party/frametop/LICENSE third_party/frametop/README.md DESTINATION share/framephone/third_party/frametop)
 install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN "*.md")
 
@@ -61,23 +76,33 @@ if(FRAMEPHONE_BUILD_OPENVR_OVERLAY)
 endif()
 
 if(BUILD_TESTING)
+    add_executable(framephone-photo-tests tests/test_photo.cpp)
+    target_link_libraries(framephone-photo-tests PRIVATE framephone_photo "${POSE_OPENCV_CORE}"
+        "${POSE_OPENCV_CALIB}" "${POSE_OPENCV_IMGPROC}")
+    target_include_directories(framephone-photo-tests SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")
+    target_compile_definitions(framephone-photo-tests PRIVATE FRAMEPHONE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    add_test(NAME framephone-photo-geometry COMMAND framephone-photo-tests)
+    add_test(NAME framephone-photo-self-test COMMAND framephone-photo --self-test)
     foreach(test camera_source frametop_ring)
         add_executable(framephone-${test}-tests tests/test_${test}.cpp)
         target_link_libraries(framephone-${test}-tests PRIVATE framephone_camera)
         target_compile_options(framephone-${test}-tests PRIVATE -Wall -Wextra -Wpedantic)
         add_test(NAME framephone-${test} COMMAND framephone-${test}-tests)
     endforeach()
-    add_executable(framephone-markerless-tests tests/test_markerless.cpp)
-    target_link_libraries(framephone-markerless-tests PRIVATE framephone_markerless "${POSE_OPENCV_CORE}" "${POSE_OPENCV_CALIB}")
-    target_include_directories(framephone-markerless-tests SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")
-    target_compile_definitions(framephone-markerless-tests PRIVATE FRAMEPHONE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
-    target_compile_options(framephone-markerless-tests PRIVATE -Wall -Wextra -Wpedantic)
-    add_test(NAME framephone-markerless-geometry COMMAND framephone-markerless-tests)
-    add_test(NAME framephone-markerless-self-test COMMAND framephone-markerless --self-test)
+    add_executable(framephone-fiducial-tests tests/test_fiducial.cpp)
+    target_link_libraries(framephone-fiducial-tests PRIVATE framephone_fiducial "${POSE_OPENCV_CORE}" "${POSE_OPENCV_CALIB}")
+    target_include_directories(framephone-fiducial-tests SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")
+    target_compile_definitions(framephone-fiducial-tests PRIVATE FRAMEPHONE_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+    target_compile_options(framephone-fiducial-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME framephone-fiducial-geometry COMMAND framephone-fiducial-tests)
+    add_test(NAME framephone-fiducial-self-test COMMAND framephone-fiducial --self-test)
     add_test(NAME framephone-camera-discovery COMMAND framephone-camera --list-cameras
         --factory-root "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/stereo-factory" --calibration-id test-factory)
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
-    add_test(NAME framephone-markerless-cli COMMAND "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_markerless_cli.py" "$<TARGET_FILE:framephone-markerless>"
-        "$<TARGET_FILE:framephone-markerless-tests>")
+    add_test(NAME framephone-photo-cli COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_photo_cli.py" "$<TARGET_FILE:framephone-photo>"
+        "$<TARGET_FILE:framephone-photo-tests>")
+    add_test(NAME framephone-fiducial-cli COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_fiducial_cli.py" "$<TARGET_FILE:framephone-fiducial>"
+        "$<TARGET_FILE:framephone-fiducial-tests>")
 endif()
