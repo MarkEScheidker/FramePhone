@@ -118,9 +118,12 @@ StereoPair render(const StereoRig &r, const CameraFrame &ref, cv::Matx33d rotati
     return pair;
 }
 void accuracy(const PhotoPose &p, cv::Matx33d r, cv::Vec3d t, double meters, double radians) {
-    check(p.status == "measured", "rejected: " + p.reason + " inliers " +
-                                      std::to_string(p.view_inliers[0]) + "/" +
-                                      std::to_string(p.view_inliers[1]));
+    check(p.status == "measured",
+          "rejected: " + p.reason + " inliers " + std::to_string(p.view_inliers[0]) + "/" +
+              std::to_string(p.view_inliers[1]) + " candidates " +
+              std::to_string(p.descriptor_matches[0]) + "/" +
+              std::to_string(p.descriptor_matches[1]) + " scene " +
+              std::to_string(p.scene_features[0]) + "/" + std::to_string(p.scene_features[1]));
     check(cv::norm(cv::Vec3d(p.pose.translation_m.data()) - t) < meters, "translation error");
     double trace = 0;
     for (int i = 0; i < 9; ++i)
@@ -227,7 +230,24 @@ int main(int argc, char **argv) {
         auto result = tracker.update(photo);
         accuracy(result, rotation, t, .008, .08);
         check(result.matches.size() >= 12, "not enough stereo features");
-        check(tracker.update(blank(r)).status == "lost", "lost photo reused previous pose");
+        auto lost = tracker.update(blank(r));
+        check(lost.status == "lost" && lost.reason == "too_few_camera_features" &&
+                  lost.scene_features[0] == 0 && lost.scene_features[1] == 0 &&
+                  lost.matches.empty(),
+              "lost photo reused previous pose or hid diagnostic stage");
+        auto one_eye = photo;
+        one_eye.frames[1] = blank(r).frames[1];
+        auto partial = tracker.update(one_eye);
+        check(partial.status == "lost" && partial.view_inliers[0] >= 12 &&
+                  !partial.view_points[0].empty() && partial.view_points[1].empty() &&
+                  partial.stereo_candidates == 0 && partial.matches.empty(),
+              "one-view recognition was hidden or promoted to a stereo pose");
+        auto inconsistent = photo;
+        inconsistent.frames[1] = render(r, ref, rotation, t + cv::Vec3d(0, .05, 0)).frames[1];
+        auto bad_stereo = tracker.update(inconsistent);
+        check(bad_stereo.status == "lost" && bad_stereo.view_inliers[0] >= 12 &&
+                  bad_stereo.view_inliers[1] >= 12 && bad_stereo.matches.empty(),
+              "inconsistent stereo views accepted or image evidence hidden");
         accuracy(tracker.update(photo), rotation, t, .008, .08);
         auto angled = r;
         for (std::size_t v = 0; v < 2; ++v) {
@@ -239,8 +259,40 @@ int main(int argc, char **argv) {
         }
         PhotoTracker angled_tracker(ref, angled);
         accuracy(angled_tracker.update(render(angled, ref, rotation, t)), rotation, t, .008, .08);
-        std::cout << "Photo tests passed: independent fisheye raster, stereo scale/pose, outliers, "
-                     "loss and reacquisition.\n";
+        auto wide = r;
+        auto soft = ref;
+        cv::Mat texture(int(soft.height), int(soft.width), CV_8U, soft.pixels.data());
+        cv::GaussianBlur(texture, texture, {}, 4);
+        for (double focal : {300., 340.}) {
+            for (auto &camera : wide.cameras) {
+                camera.calibration.fx = focal;
+                camera.calibration.fy = focal;
+            }
+            PhotoTracker trial(soft, wide);
+            auto visible = render(wide, soft, rotation, t);
+            accuracy(trial.update(visible), rotation, t, .015, .15);
+            for (auto &frame : visible.frames)
+                for (auto &pixel : frame.pixels)
+                    pixel = std::uint8_t(75 + .45 * pixel);
+            accuracy(trial.update(visible), rotation, t, .02, .2);
+        }
+        auto high_resolution = r;
+        for (auto &camera : high_resolution.cameras) {
+            auto &k = camera.calibration;
+            k.width = 1280;
+            k.height = 1024;
+            k.fx = 520;
+            k.fy = 530;
+            k.cx = 639.5;
+            k.cy = 511.5;
+        }
+        PhotoTracker full_detail(ref, high_resolution);
+        accuracy(full_detail.update(render(high_resolution, ref, rotation, t)), rotation, t, .012,
+                 .12);
+        std::cout
+            << "Photo tests passed: independent fisheye raster, stereo scale/pose, outliers, "
+               "small/low-contrast targets, 1280px detail, one-view diagnostics, inconsistent "
+               "stereo, loss and reacquisition.\n";
         return 0;
     } catch (const std::exception &e) {
         std::cerr << e.what() << '\n';

@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
         data[offset+32:offset+32+len(name)]=name
         struct.pack_into("<IIIIIIQQ",data,offset+64,v,0,width,height,width,4,1344+v*4*slot_bytes,slot_bytes)
     ring=root_path/"ring"; ring.write_bytes(data)
-    stop,blank=threading.Event(),threading.Event()
+    stop,blank,right_blank=threading.Event(),threading.Event(),threading.Event()
     def publish():
         number=0
         with ring.open("r+b",buffering=0) as file:
@@ -46,7 +46,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
                 for v in range(2):
                     start=1344+(v*4+number%4)*slot_bytes
                     os.pwrite(file.fileno(),struct.pack("<QQQQQIf",2*number+1,number,now+v*100000,now,now,number,100.),start)
-                    os.pwrite(file.fileno(),bytes([100])*len(images[v]) if blank.is_set() else images[v],start+64)
+                    hidden=blank.is_set() or (v == 1 and right_blank.is_set())
+                    os.pwrite(file.fileno(),bytes([100])*len(images[v]) if hidden else images[v],start+64)
                     os.pwrite(file.fileno(),struct.pack("<Q",2*number+2),start)
                     os.pwrite(file.fileno(),struct.pack("<Q",number),64+v*160+104)
                 stop.wait(.04)
@@ -84,6 +85,17 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
         until(lambda:panel.result is not None and panel.result["status"]=="measured")
         assert "Photo XYZ" in panel.pose.get()
         assert panel.result["pose"]["rms_px"]<1.8
+        assert panel.canvases[0].find_withtag("matching-area")
+        assert panel.canvases[0].find_withtag("pose-match")
+        right_blank.set()
+        until(lambda:panel.result is not None and panel.result["status"]=="lost"
+              and panel.result["view_inliers"][0]>=12 and panel.result["scene_features"][1]==0)
+        assert "no current pose" in panel.pose.get()
+        assert panel.canvases[0].find_withtag("image-match")
+        assert not panel.canvases[0].find_withtag("pose-match")
+        assert "reference matches" in panel.status.get() and "Stereo matched" in panel.status.get()
+        right_blank.clear()
+        until(lambda:panel.result is not None and panel.result["status"]=="measured")
         blank.set()
         until(lambda:panel.result is not None and panel.result["status"]=="lost")
         assert "no current pose" in panel.pose.get()
@@ -108,4 +120,4 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
                 root.update()
             except tk.TclError: break
             time.sleep(.01)
-print("Photo Tk/native workflow passed: acquisition, loss, reacquisition, hidden photo and disconnect.")
+print("Photo Tk/native workflow passed: acquisition, one-camera evidence, loss, reacquisition, hidden photo and disconnect.")

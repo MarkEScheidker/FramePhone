@@ -18,7 +18,6 @@ class PhotoActivity : Activity() {
         val photo = PhotoReference.current ?: run { finish(); return }
         photoId = photo.id
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.attributes = window.attributes.apply { screenBrightness = 1f }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())

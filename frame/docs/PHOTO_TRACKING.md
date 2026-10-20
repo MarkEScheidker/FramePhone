@@ -14,6 +14,10 @@ There is no screen recording, neural model download or manual corner selection.
    opens it full-screen in a fixed portrait layout so the reference stays rigid
    to the phone when it rotates. Tap the photo or Back to return; **Show tracking photo**
    opens it again. The selected reference lives in memory for this app process.
+   The app leaves brightness under Android/user control, including adaptive
+   brightness when enabled; it no longer forces maximum brightness. If the
+   display looks white/clipped in the Frame cameras, lower brightness or reduce
+   glare. Room-based adaptive brightness does not guarantee correct camera exposure.
 3. On Frame, open **Photo tracking** and click **Use phone photo**. Confirm the
    thumbnail and downloaded dimensions. This is a one-time request, not streaming.
 4. Enable cameras, approve desktop authorization and refresh. Verify the physical
@@ -35,9 +39,13 @@ Android build. Both applications need updating for the new photo commands.
 
 ## What to expect
 
-The UI shows left/right reference inlier counts, accepted stereo features,
-processing time and a rejection reason. Accepted native-pixel features and a
-curved photo outline appear over the two camera views. It reports photo-center
+The UI shows reference features and left/right camera features, descriptor
+matches, homography inliers, stereo correspondences, triangulated points, pose
+inliers, processing time and a rejection reason with a suggested next step.
+A dashed blue boundary shows the area searched in each raw camera view; keep the
+photo inside both boundaries. Amber dots show per-view homography inliers even
+when no pose is accepted. These are image observations, not a valid 3D pose.
+Green features and a curved photo outline mark an accepted stereo pose. It reports photo-center
 XYZ in meters, distance from factory head origin, Z/Y/X Euler angles, estimated
 photo width/height and two-view reprojection RMS.
 
@@ -62,9 +70,16 @@ views are intersected in metric space using the factory stereo baseline.
 [OpenCV's fisheye model](https://docs.opencv.org/4.x/db/d58/group__calib3d__fisheye.html)
 uses the same angular projection form.
 
-The implementation caches multi-scale SIFT reference descriptors, matches in
-calibrated perspective images, filters homographies and associates identical
-reference features across views. It maps those observations back to raw pixels,
+The implementation caches multi-scale SIFT reference descriptors (long edges
+60/120/240/480/960 pixels, limited to the source size). It applies
+[RootSIFT normalization](https://www.robots.ox.ac.uk/~vgg/publications/2012/Arandjelovic12/arandjelovic12.pdf)
+to reference and camera descriptors. Matching retains up to a 1280-pixel camera
+long edge instead of resizing 1280-pixel inputs to 960. It matches in calibrated
+perspective images, filters homographies and joins observations using both shared
+reference locations and direct descriptor matching between the verified camera
+observations. Multiple SIFT orientations at one location are grouped; stereo
+observations are not counted twice. Direct stereo matches must also agree with
+the other view's reference homography. It maps those observations back to raw pixels,
 triangulates, robustly fits a scaled rigid plane and jointly refines rotation,
 translation and scale against native KB4 projections in both views. Orientation
 comes from the photo's known coordinate layout; scale comes from stereo, not DPI
@@ -77,6 +92,26 @@ uses the central calibrated perspective view, so extreme peripheral/fisheye view
 can fail to acquire. This first CPU SIFT implementation has no ARCore prediction
 or learned feature matcher yet; headset speed and ordinary-photo reliability
 still need measurement.
+
+A QR code selected as a photo is currently ordinary reference texture: this path
+does not decode QR codes or use their finder-pattern geometry. Repetitive patterns
+can fail descriptor matching even when a purpose-built marker detector would see
+them. Start with a detailed photo containing distinctive larger shapes. Sparse
+feature matching still needs enough visible image detail; the code cannot recover
+detail lost to clipping, blur or a very small screen footprint.
+
+If acquisition fails, the diagnostic stages separate the causes:
+
+- Few camera features: inspect visibility, clipping, blur and the blue search area.
+- Camera features but few reference matches: the reference is not recognized in
+  both views; try a closer, less reflective view or a different photo.
+- Photo inliers in both views but few stereo matches: cross-camera association
+  failed; a 2D recognition is not sufficient for a stereo pose.
+- Many stereo matches but few triangulated points: verify the two physical front
+  stream/calibration assignments and hold still. Wrong mapping or inconsistent
+  observations can reject the stereo rays.
+- Triangulated points but no accepted pose: the plane fit, coverage or
+  reprojection checks failed. Read the displayed reason; acceptance is not relaxed.
 
 The optical test preserves camera timestamps and clock identity. It does not
 claim camera-to-XR clock alignment, motion compensation, tracking covariance or
@@ -116,7 +151,10 @@ as part of starting this explicit photo test.
 ```
 
 New `framephone-photo-pose-v1` results include reference identity, capture times,
-per-view match counts, raw correspondences, pose/scale, coverage and quality.
+per-stage counts, per-view homography observations (`view_points`, up to 256 per
+view), matching boundaries (`search_outline`), raw accepted correspondences,
+pose/scale, coverage and quality. Diagnostic observations are emitted on rejected
+results too; `matches` and `pose` remain reserved for accepted stereo poses.
 Rejected results contain no current pose. Scale is factory-derived and still
 needs independent accuracy validation.
 

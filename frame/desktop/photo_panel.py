@@ -10,6 +10,17 @@ import uuid
 
 from photo_reference import create_session
 
+REJECTION_HINTS = {
+    "too_few_camera_features": "Too little camera detail. Check that the photo is visible and not washed out.",
+    "too_few_descriptor_matches": "Reference not matched in both views. Keep it inside the blue boundaries; try closer or less glare.",
+    "photo_not_verified_in_both_views": "Feature matches found, but they do not verify the photo in both views.",
+    "too_few_stereo_feature_matches": "Photo found in both views, but too few features agree between cameras.",
+    "stereo_triangulation_rejected": "Stereo rays disagree. Verify camera/calibration mapping and hold still.",
+    "stereo_pose_fit_failed": "Stereo points do not fit a plausible photo pose. Check camera mapping and motion.",
+    "insufficient_spatial_coverage": "Matched features cover too little of the photo.",
+    "reprojection_error": "The pose does not align accurately enough with the camera observations.",
+}
+
 
 def preview_pair(directory, message):
     slot = directory / ("preview-" + str(message["preview_slot"]))
@@ -82,6 +93,8 @@ class PhotoPanel:
             self.canvases.append(canvas)
         ttk.Label(panel, textvariable=self.pose, font=("monospace", 12), wraplength=920).pack(anchor="w", pady=5)
         ttk.Label(panel, textvariable=self.status, wraplength=920).pack(anchor="w")
+        ttk.Label(panel, text="Blue boundary: matching area · Amber dots: image matches · Green: accepted stereo pose",
+                  wraplength=920).pack(anchor="w")
         ttk.Label(panel, text="Pose is relative to the headset's factory head frame. ARCore/world alignment is not active.",
                   wraplength=920).pack(anchor="w", pady=3)
         self.timer = parent.after(50, self.tick)
@@ -186,18 +199,32 @@ class PhotoPanel:
             scale = max(1, math.ceil(image.width() / max(430, canvas.winfo_width())))
             canvas.image = image.subsample(scale)
             canvas.create_image(0, 0, image=canvas.image, anchor="nw")
+            if self.result:
+                boundary = self.result.get("search_outline", [[], []])[v]
+                if boundary:
+                    canvas.create_line(*[n/scale for p in boundary + [boundary[0]] for n in p],
+                                       fill="#72b7ff", dash=(4, 4), tags="matching-area")
+                for point in self.result.get("view_points", [[], []])[v]:
+                    x, y = [n/scale for n in point]
+                    canvas.create_oval(x-2, y-2, x+2, y+2, outline="#ffc266", tags="image-match")
             if self.result and self.result["status"] == "measured":
                 for match in self.result["matches"]:
                     x, y = [n/scale for n in match["pixels"][v]]
-                    canvas.create_oval(x-2, y-2, x+2, y+2, outline="#52e0a2")
+                    canvas.create_oval(x-2, y-2, x+2, y+2, outline="#52e0a2", tags="pose-match")
                 points = self.result["outline"][v]
                 canvas.create_line(*[n/scale for p in points + [points[0]] for n in p], fill="#52e0a2", width=2)
 
     def show_result(self, result):
         self.result = result
         counts = result["view_inliers"]
-        self.status.set(f"Photo inliers: left {counts[0]} · right {counts[1]} · stereo {len(result['matches'])} · "
-                        f"{result['processing_ms']:.0f} ms · {result['reason'].replace('_', ' ')}")
+        features = result.get("scene_features", [0, 0])
+        candidates = result.get("descriptor_matches", [0, 0])
+        self.status.set(
+            f"Reference features {result.get('reference_features', 0)} · left/right camera features {features[0]}/{features[1]} · "
+            f"reference matches {candidates[0]}/{candidates[1]} · photo inliers {counts[0]}/{counts[1]}\n"
+            f"Stereo matched {result.get('stereo_candidates', 0)} · triangulated {result.get('triangulated', 0)} · "
+            f"pose inliers {result.get('pose_inliers', 0)} · {result['processing_ms']:.0f} ms · "
+            f"{result['reason'].replace('_', ' ')}")
         if result["status"] == "measured":
             p = result["pose"]
             x,y,z = p["translation_m"]
@@ -208,7 +235,8 @@ class PhotoPanel:
                           f"Z/Y/X {angles[0]:+.1f}°, {angles[1]:+.1f}°, {angles[2]:+.1f}° · "
                           f"photo {p['width_m']*1000:.0f}×{p['height_m']*1000:.0f} mm · RMS {p['rms_px']:.2f} px")
         else:
-            self.pose.set("Acquiring — no current pose")
+            hint = REJECTION_HINTS.get(result["reason"], "Not enough reliable stereo observations.")
+            self.pose.set("Acquiring — no current pose\n" + hint)
         self.redraw()
 
     def stop(self):

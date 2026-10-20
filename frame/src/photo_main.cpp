@@ -76,6 +76,12 @@ Json result_json(const StereoPair &pair, const PhotoPose &result, const std::str
            {"status", result.status},
            {"reason", result.reason},
            {"view_inliers", result.view_inliers},
+           {"reference_features", result.reference_features},
+           {"scene_features", result.scene_features},
+           {"descriptor_matches", result.descriptor_matches},
+           {"stereo_candidates", result.stereo_candidates},
+           {"triangulated", result.triangulated},
+           {"pose_inliers", result.pose_inliers},
            {"coverage", result.coverage},
            {"capture_skew_ns", pair.skew_ns()},
            {"scale_source", "factory_calibrated_stereo"},
@@ -83,7 +89,19 @@ Json result_json(const StereoPair &pair, const PhotoPose &result, const std::str
            {"alignment_status", "not_implemented"},
            {"frames", Json::array()},
            {"matches", Json::array()},
+           {"view_points", Json::array()},
+           {"search_outline", Json::array()},
            {"outline", Json::array()}};
+    for (std::size_t v = 0; v < 2; ++v) {
+        for (auto key : {"view_points", "search_outline"}) {
+            Json points = Json::array();
+            const auto &source = std::string(key) == "view_points" ? result.view_points[v]
+                                                                   : result.search_outline[v];
+            for (auto p : source)
+                points.push_back({p.x, p.y});
+            j[key].push_back(std::move(points));
+        }
+    }
     for (const auto &f : pair.frames) {
         Json frame{{"camera_id", f.camera_id}, {"capture_timestamp_ns", f.capture_time_ns},
                    {"clock", f.clock_domain},  {"calibration_id", f.calibration_id},

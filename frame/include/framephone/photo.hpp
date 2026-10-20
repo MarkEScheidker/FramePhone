@@ -13,7 +13,11 @@ struct PhotoPose {
     std::string status{"lost"}, reason{"insufficient_stereo_matches"};
     Pose pose;
     double width_m{}, height_m{}, coverage{};
+    std::size_t reference_features{}, stereo_candidates{}, triangulated{}, pose_inliers{};
+    std::array<std::size_t, 2> scene_features{}, descriptor_matches{};
     std::array<std::size_t, 2> view_inliers{};
+    // Per-view evidence is diagnostic only; it does not imply an accepted 3D pose.
+    std::array<std::vector<ImagePoint>, 2> view_points, search_outline;
     std::vector<PhotoMatch> matches;
     std::array<std::vector<ImagePoint>, 2> outline;
 };
