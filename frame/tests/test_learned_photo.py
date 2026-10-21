@@ -18,10 +18,10 @@ import numpy as np
 binary = Path(sys.argv[1]).resolve()
 
 
-def run(session, output, backend="xfeat"):
+def run(session, output, backend="xfeat", env=None):
     process = subprocess.run([str(binary/"framephone-photo"), "--backend", backend,
                               "--session", str(session), "--replay", str(session/"motion"),
-                              "--output", str(output)], capture_output=True, text=True, timeout=180)
+                              "--output", str(output)], capture_output=True, text=True, timeout=180,env=env)
     poses = [json.loads(line) for line in process.stdout.splitlines()]
     assert process.returncode == 0, ([(p["status"],p["reason"],p["view_inliers"],p["search_view"]) for p in poses], process.stderr[-4000:])
     return poses
@@ -59,6 +59,35 @@ with tempfile.TemporaryDirectory(prefix="framephone-learned-test-") as directory
     assert abs(basic[0]["pose"]["translation_m"][2] + .45) < .012
     assert "pose" not in basic[1] and not basic[1]["matches"]
     assert basic[1]["scene_features"] == [0, 0]
+
+    # Keep real model locations, but make reference identities disjoint between
+    # views. Acquisition must recover actual image-to-image observations instead
+    # of relying on shared IDs or inferred photo corners.
+    worker = root/"partition_worker.py"
+    desktop = Path(__file__).resolve().parents[1]/"desktop"
+    worker.write_text("import sys\nsys.path.insert(0,"+repr(str(desktop))+")\n"
+        "import learned_worker as w\noriginal=w.Matcher.pair\n"
+        "def pair(self,images,masks):\n"
+        "    result=original(self,images,masks)\n"
+        "    for bank in result['banks']:\n"
+        "        for v in range(2):\n"
+        "            bank['matches'][v]=[m for m in bank['matches'][v] if m[0]%2==v]\n"
+        "    return result\nw.Matcher.pair=pair\nsys.exit(w.main())\n")
+    partition_env=dict(os.environ,FRAMEPHONE_PHOTO_WORKER=str(worker))
+    partitioned=run(fixture,root/"partition-results",env=partition_env)
+    assert [p["status"] for p in partitioned]==["measured","lost","measured"],[(p['reason'],p['view_inliers']) for p in partitioned]
+    assert partitioned[0]["pose_method"]=="stereo_patch_refinement"
+    assert partitioned[0]["pose_inliers"]>=12
+    assert abs(partitioned[0]["pose"]["translation_m"][2]+.45)<.012
+    inconsistent=root/"inconsistent"
+    shutil.copytree(fixture,inconsistent)
+    for index in (1,3):
+        path=inconsistent/f"motion/pair-{index}-1.pgm"
+        image=cv2.imread(str(path),cv2.IMREAD_GRAYSCALE)
+        image=cv2.warpAffine(image,np.float32([[1,0,0],[0,1,40]]),(image.shape[1],image.shape[0]),borderValue=100)
+        cv2.imwrite(str(path),image)
+    rejected=run(inconsistent,root/"inconsistent-results",env=partition_env)
+    assert all(p['status']=='lost' and 'pose' not in p for p in rejected),"accepted inconsistent stereo images"
 
     # Wider factory cameras; target is beyond the old central perspective view.
     wide = root/"wide"
@@ -117,4 +146,4 @@ with tempfile.TemporaryDirectory(prefix="framephone-learned-test-") as directory
     failed = subprocess.run([str(binary/"framephone-photo"),"--model-self-test"], env=bad_env,
                             capture_output=True,text=True,timeout=30)
     assert failed.returncode != 0 and "learned photo worker" in failed.stderr, failed.stderr
-print("Learned static-photo integration passed: real weights, pose, peripheral search, partial/noisy view, negatives, loss/recovery and missing assets.")
+print("Learned static-photo integration passed: real weights, disjoint reference IDs, inconsistent-stereo rejection, pose, peripheral search, partial/noisy view, negatives, loss/recovery and missing assets.")

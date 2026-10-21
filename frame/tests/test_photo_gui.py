@@ -89,6 +89,11 @@ with tempfile.TemporaryDirectory(prefix="framephone-photo-gui-") as folder:
         assert panel.result["pose"]["rms_px"]<1.8
         assert panel.canvases[0].find_withtag("matching-area")
         assert panel.canvases[0].find_withtag("pose-match")
+        original=panel.result
+        panel.show_result(dict(original,pose_method="stereo_patch_refinement"))
+        assert "stereo patches" in panel.status.get()
+        assert panel.canvases[0].find_withtag("pose-match")
+        panel.show_result(original)
         right_blank.set()
         until(lambda:panel.result is not None and panel.result["status"]=="lost"
               and panel.result["view_inliers"][0]>=12 and panel.result["scene_features"][1]==0)

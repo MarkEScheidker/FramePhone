@@ -46,3 +46,4 @@ __pycache__/
 # Real calibration and camera captures belong outside source fixtures.
 /calibration/
 /recordings/
+/photo-*/

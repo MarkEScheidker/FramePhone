@@ -228,6 +228,8 @@ class PhotoPanel:
         features = result.get("scene_features", [0, 0])
         candidates = result.get("descriptor_matches", [0, 0])
         method = "patch tracking" if result.get("tracking_method") == "normalized_patches" else "feature matching"
+        if result.get("pose_method") == "stereo_patch_refinement":
+            method += " + stereo patches"
         self.status.set(
             f"{result.get('backend', 'rootsift')} · {method} · search view {result.get('search_view', 0)+1}/{result.get('search_view_count', 1)} · "
             f"reference features {result.get('reference_features', 0)} · left/right camera features {features[0]}/{features[1]} · "

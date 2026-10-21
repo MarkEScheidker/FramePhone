@@ -28,6 +28,12 @@ struct Observation {
 std::optional<cv::Point2f> correlate(const cv::Mat &anchor, const cv::Mat &current,
                                      cv::Point2f source, cv::Point2f expected, int radius) {
     constexpr int patch = 15, half = patch / 2;
+    if (!std::isfinite(source.x) || !std::isfinite(source.y) || !std::isfinite(expected.x) ||
+        !std::isfinite(expected.y))
+        return {};
+    if (expected.x < -radius || expected.y < -radius || expected.x > edge + radius ||
+        expected.y > edge + radius)
+        return {};
     if (source.x < half || source.y < half || source.x >= edge - half || source.y >= edge - half)
         return {};
     cv::Mat pattern;
@@ -169,10 +175,52 @@ struct LearnedPhotoTracker::Impl {
         return {float((edge - 1) / 2. + view.focal * ray[0] / ray[2]),
                 float((edge - 1) / 2. + view.focal * ray[1] / ray[2])};
     }
+    PhotoPose stereo_patches(const StereoPair &pair, const std::array<View, 2> &views,
+                             const std::vector<std::vector<std::uint8_t>> &payload,
+                             const std::vector<Observation> &left, const cv::Mat &right_h) const {
+        // Independent reference matches can choose different landmark IDs in
+        // each camera. Use their homographies only as search hints, then measure
+        // actual left/right image correspondences with bidirectional NCC.
+        std::vector<PhotoMatch> matches;
+        std::vector<cv::Point2f> used;
+        cv::Mat images[2] = {
+            cv::Mat(edge, edge, CV_8U, const_cast<std::uint8_t *>(payload[0].data())),
+            cv::Mat(edge, edge, CV_8U, const_cast<std::uint8_t *>(payload[1].data()))};
+        std::size_t attempts = 0;
+        for (const auto &o : left) {
+            if (++attempts > 256)
+                break;
+            if (std::abs(o.reference.x) > .45 || std::abs(o.reference.y) > .45 * aspect)
+                continue;
+            auto source = in_view(0, views[0], o.pixel);
+            std::vector<cv::Point2f> expected;
+            cv::perspectiveTransform(
+                std::vector<cv::Point2f>{{float(o.reference.x), float(o.reference.y)}}, expected,
+                right_h);
+            auto found = correlate(images[0], images[1], source, expected[0], 12);
+            if (!found || found->x < 0 || found->y < 0 || found->x >= edge || found->y >= edge ||
+                !payload[3][std::size_t(int(found->y)) * edge + std::size_t(int(found->x))])
+                continue;
+            auto back = correlate(images[1], images[0], *found, source, 3);
+            if (!back || cv::norm(*back - source) > .8)
+                continue;
+            if (std::any_of(used.begin(), used.end(),
+                            [&](auto p) { return cv::norm(p - *found) < 1.; }))
+                continue;
+            used.push_back(*found);
+            matches.push_back(
+                {o.reference, {o.pixel, project(rig.cameras[1], views[1], {found->x, found->y})}});
+        }
+        auto result = estimate_photo_pose(rig, pair, matches, aspect);
+        result.pose_method = "stereo_patch_refinement";
+        if (matches.size() < 12)
+            result.reason = "too_few_stereo_feature_matches";
+        return result;
+    }
     PhotoPose track_patches(const StereoPair &pair, const std::array<View, 2> &view,
                             const std::vector<std::vector<std::uint8_t>> &payload) const {
         std::vector<PhotoMatch> matches;
-        if (!previous || anchors.empty())
+        if (!previous || anchors.size() < 12)
             return {};
         cv::Matx33d r(previous->pose.rotation.data());
         cv::Vec3d t(previous->pose.translation_m.data());
@@ -324,6 +372,7 @@ PhotoPose LearnedPhotoTracker::update(const StereoPair &pair) {
             "invalid learned feature reply");
     for (const auto &bank : response.at("banks")) {
         std::array<std::map<int, Observation>, 2> accepted;
+        std::array<cv::Mat, 2> homographies;
         PhotoPose diagnostic;
         diagnostic.reference_features = bank.at("reference_features").get<std::size_t>();
         require(diagnostic.reference_features >= 12 && diagnostic.reference_features <= 4096 &&
@@ -364,6 +413,7 @@ PhotoPose LearnedPhotoTracker::update(const StereoPair &pair) {
             auto h = cv::findHomography(a, b, cv::RANSAC, 2.5, mask, 2000, .995);
             if (h.empty())
                 continue;
+            homographies[v] = h;
             for (std::size_t i = 0; i < a.size(); ++i)
                 if (mask.at<std::uint8_t>(int(i))) {
                     Observation observation{
@@ -384,13 +434,24 @@ PhotoPose LearnedPhotoTracker::update(const StereoPair &pair) {
                 common.push_back({left.reference, {left.pixel, right->second.pixel}});
             }
         auto result = estimate_photo_pose(s.rig, pair, common, s.aspect);
+        if (result.status != "measured" && accepted[0].size() >= 12 && accepted[1].size() >= 12) {
+            std::vector<Observation> left;
+            for (const auto &[id, o] : accepted[0])
+                left.push_back(o);
+            auto stereo = s.stereo_patches(pair, views, payload, left, homographies[1]);
+            if (stereo.status == "measured" ||
+                std::array<std::size_t, 2>{stereo.triangulated, stereo.stereo_candidates} >
+                    std::array<std::size_t, 2>{result.triangulated, result.stereo_candidates})
+                result = std::move(stereo);
+        }
         result.reference_features = diagnostic.reference_features;
         result.scene_features = diagnostic.scene_features;
         result.descriptor_matches = diagnostic.descriptor_matches;
         result.view_inliers = diagnostic.view_inliers;
         result.view_points = std::move(diagnostic.view_points);
         result.search_outline = std::move(diagnostic.search_outline);
-        if (common.size() < 12) {
+        if (result.status != "measured" && common.size() < 12 &&
+            result.pose_method != "stereo_patch_refinement") {
             if (result.scene_features[0] < 12 || result.scene_features[1] < 12)
                 result.reason = "too_few_camera_features";
             else if (result.descriptor_matches[0] < 12 || result.descriptor_matches[1] < 12)

@@ -13,6 +13,7 @@ struct PhotoPose {
     std::string status{"lost"}, reason{"insufficient_stereo_matches"};
     std::string backend{"rootsift"};
     std::string tracking_method{"feature_matching"};
+    std::string pose_method{"triangulated_features"};
     std::size_t search_view{}, search_view_count{1};
     Pose pose;
     double width_m{}, height_m{}, coverage{};

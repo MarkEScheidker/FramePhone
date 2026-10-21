@@ -194,6 +194,19 @@ int main(int argc, char **argv) {
         scenario = "exact stereo correspondences";
         auto estimate = estimate_photo_pose(r, pair, matches, 1.5);
         accuracy(estimate, rotation, t, 1e-5, 1e-4);
+        scenario = "opposite quarter-turn camera mounts";
+        auto rolled = r;
+        for (std::size_t v = 0; v < 2; ++v) {
+            cv::Matx33d roll;
+            cv::Rodrigues(cv::Vec3d(0, 0, v ? CV_PI / 2 : -CV_PI / 2), roll);
+            auto orientation = hc * roll;
+            std::copy_n(orientation.val, 9, rolled.cameras[v].rotation.begin());
+        }
+        auto rolled_matches = matches;
+        for (auto &m : rolled_matches)
+            m.pixels = project(
+                rolled, rotation * cv::Vec3d(m.reference.x * .072, m.reference.y * .072, 0) + t);
+        accuracy(estimate_photo_pose(rolled, pair, rolled_matches, 1.5), rotation, t, 1e-5, 1e-4);
         scenario = "previous-pose initialization";
         auto moved_matches = matches;
         const auto moved_t = t + cv::Vec3d(.01, -.005, .015);

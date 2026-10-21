@@ -80,6 +80,65 @@ pose. Reveal the photo to test optical reacquisition; if the phone leaves its
 photo Activity, show it again and restart the test. Changing the selected photo
 requires another download. Camera recording is optional and bounded to 512 MiB.
 
+## Collect a headset debugging trial
+
+The current app already records a replayable trial; no rebuild or terminal
+commands are needed. Camera pairs are more useful than IMU telemetry for an
+optical acquisition/stereo failure.
+
+1. Stop tracking, then enable **Record camera trial (512 MiB max)** before
+   starting again. Keep the same selected reference photo and camera mappings.
+2. Keep the headset level and hold the displayed photo still where both cameras
+   can see it for 20–30 seconds. If inference is especially slow, wait for the
+   search-view counter to complete a cycle. Then tilt the phone slowly a little
+   each way and briefly cover/reveal the screen. Stop before a long recording
+   fills the limit. Use a photo and surroundings you are comfortable sharing.
+3. Click **Open results**, sort by modification time and find the newest
+   `photo-*` directory. The normal location is
+   `~/.local/state/framephone/sessions/` (or the configured XDG state directory).
+4. Compress that entire `photo-*` directory with the desktop file manager and
+   attach the archive to the debugging conversation, or copy it into the shared
+   development workspace under `frame/build/debug-captures/` (ignored by Git).
+   Stop first so the files are complete.
+
+Keep these files together:
+
+| Path inside the trial | Purpose |
+| --- | --- |
+| `session.json` | Selected physical streams, factory camera mapping and matcher. |
+| `factory/persist/*.json` | The exact intrinsics and camera-to-head transforms used. |
+| `reference/` | The exact color/grayscale reference and its identity. |
+| `run/poses.jsonl` | Per-pair rejection reasons, matching counts, search view, processing time, camera timestamps and transport diagnostics. |
+| `run/paired-images/` | Recorded native grayscale pairs and capture-time manifest, needed for replay. |
+
+The recorder saves pairs processed by the tracker, not a full-rate camera video.
+Without recording enabled, `poses.jsonl` still exists but only three overwritten
+preview slots remain; those are not a complete trial. Note the approximate phone
+distance and whether each raw view appears clockwise or counterclockwise from
+upright. Cover each physical front lens separately in **Camera setup** to check
+stream identity before collecting another trial if the assignment is uncertain.
+
+The blue boundary is a **search region**, not a phone detection. Before a pose is
+accepted, the tracker cycles through calibrated views; the boundary moves with
+that search. Amber points are per-camera evidence. A green outline requires an
+accepted stereo pose. The Photo tracking previews update after processing each
+pair, so their speed is not a measurement of the cameras' native frame rate.
+
+Raw sensor previews can look sideways because of camera mounting. Learned
+matching already uses the imported full camera-to-head rotations, including
+roll, to make common head-oriented perspective views before extracting features.
+This is separate from rotating the preview for readability. A correctly mapped
+factory calibration should account for mounting roll. A stream/calibration or
+pixel-orientation mismatch can still break this, so check the saved images and
+factory transforms before adding another 90-degree rotation. Curved search
+boundaries show the projection model is in use; they do not verify its mapping.
+
+`too_few_stereo_feature_matches` means too few reference feature identities
+survived in both views. It precedes triangulation. `stereo_triangulation_rejected`
+means enough candidate correspondences were supplied but their calibrated rays
+were rejected. The recording distinguishes recognition/overlap problems from
+geometry, mapping and timing problems; a sideways preview alone cannot.
+
 ## Geometry and robustness
 
 The factory KB4 model already provides exactly the pixel-to-direction mapping
@@ -117,13 +176,23 @@ successful patch frames and runs immediately when patch tracking fails. This fir
 assumes unchanged photo content and modest inter-frame motion; it does not yet
 handle scrolling or app switches.
 
-Both backends map observations to native KB4 pixels, require consistent reference
-features in both views, triangulate and fit a scaled rigid plane. In addition to
+Both backends map observations to native KB4 pixels, require actual stereo
+correspondences, triangulate and fit a scaled rigid plane. In addition to
 3D-fit initialization, OpenCV planar IPPE candidates from both cameras initialize
 joint native-pixel refinement; their unit-scale translations are related through
 the factory baseline. Acceptance thresholds remain unchanged. This avoids relying
 only on a noisy triangulated plane for initialization. The proposed solver using
 nonidentical points in each camera and ARCore fusion remain future work.
+
+If both learned views recognize the photo but shared reference feature IDs cannot
+produce a pose, each view's verified homography supplies a search hint for direct
+left/right patch matching. The tracker reuses normalized correlation with
+subpixel sampling, forward/backward checks and duplicate rejection, bounded to
+256 candidate patches. It then passes the measured native-pixel correspondences
+through the same triangulation, 12-inlier, coverage and reprojection gates. It
+does not infer stereo measurements from predicted photo corners. Results identify
+this path as `pose_method: stereo_patch_refinement`; the UI says **stereo patches**.
+See the [first recorded headset replay findings](PHOTO_REPLAY_FINDINGS.md).
 
 The RootSIFT baseline caches multi-scale SIFT reference descriptors (long edges
 60/120/240/480/960 pixels, limited to the source size). It applies

@@ -102,6 +102,7 @@ Json result_json(const StereoPair &pair, const PhotoPose &result, const std::str
            {"reason", result.reason},
            {"backend", result.backend},
            {"tracking_method", result.tracking_method},
+           {"pose_method", result.pose_method},
            {"search_view", result.search_view},
            {"search_view_count", result.search_view_count},
            {"view_inliers", result.view_inliers},
