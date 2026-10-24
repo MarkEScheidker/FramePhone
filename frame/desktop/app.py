@@ -13,7 +13,9 @@ import threading
 import time
 
 from front_cameras import DEFAULT_CAMERAS, MAPPING_VERSION, default_selection, factory_cameras, mono_streams
+from camera_image import fit_image
 from camera_previews import CameraPreviews
+from ring_preview import preview, diagnostics
 
 
 def host_environment():
@@ -58,6 +60,8 @@ class Window:
         self.preview_reader = CameraPreviews(runtime)
         self.preview_updated = [0, 0]
         self.preview_selected = ["", ""]
+        self.camera_diagnostics = {}
+        self.last_camera_diagnostic = [0, 0]
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
@@ -327,12 +331,42 @@ class Window:
             if item is not None:
                 self.preview_updated[index] = time.monotonic()
             result, error = item if item else (None, "Waiting for camera/detector frames…" if stream.get() else "Select a camera stream.")
+            if stream.get() and (result is None or result[3].get("frame_status") == "paused"):
+                # Preserve the direct ring-reader route when detection/timing is
+                # unavailable. Never attach another frame's detections to it.
+                try:
+                    raw = preview(self.runtime.ring, stream.get(), metadata=True)
+                    if raw and (result is None or raw[3]["sequence"] != result[3]["sequence"]):
+                        width, height, pgm, metadata = raw
+                        result = (width, height, pgm, dict(metadata, detections=[], frame_status="raw",
+                                  reason="Raw image; tag annotations unavailable"))
+                    snapshot = diagnostics(self.runtime.ring, stream.get())
+                    self.camera_diagnostics[("left", "right")[index]] = dict(snapshot, preview_error=error)
+                    counters = f"sequence {snapshot['latest_sequence']} · published {snapshot['published_frames']} · dropped {snapshot['dropped_frames']}"
+                    if result:
+                        width, height, pgm, metadata = result
+                        result = (width, height, pgm, dict(metadata, counters=counters))
+                    else:
+                        error = counters + "; " + error
+                    if time.monotonic()-self.last_camera_diagnostic[index] >= 5:
+                        self.last_camera_diagnostic[index] = time.monotonic()
+                        self.log("[camera-preview] " + stream.get() + ": " + counters + "; " + error)
+                        self.sessions.mkdir(parents=True, exist_ok=True)
+                        temporary = self.sessions/"camera-status.json.tmp"
+                        temporary.write_text(json.dumps(self.camera_diagnostics, indent=2)+"\n")
+                        temporary.replace(self.sessions/"camera-status.json")
+                except (OSError, ValueError) as exc:
+                    if result is None:
+                        error = str(exc)
             try:
                 if result:
                     width, height, pgm, metadata = result
                     published = metadata["publish_monotonic_ns"]
-                    if published and not 0 <= time.monotonic_ns()-published <= 1_000_000_000:
-                        raise ValueError("Selected camera stopped delivering fresh frames.")
+                    if published:
+                        age = (time.monotonic_ns()-published)/1e6
+                        if age < 0 or age > 1000:
+                            metadata = dict(metadata, publication_warning=f"publisher age {age:.0f} ms")
+                            result = (width, height, pgm, metadata)
                     self.preview_updated[index] = time.monotonic()
                     # The native preview has already drawn this frame's tag boxes
                     # and centers. These observations need no synchronized pair.
@@ -344,7 +378,7 @@ class Window:
                         label.image = image
                     if self.show_views.get():
                         available = max(80, (self.preview_panel.winfo_width()-32)//2)
-                        scaled = image.subsample(max(1, (width+available-1)//available, (height+249)//250))
+                        scaled, _, _ = fit_image(pgm, available, 250)
                         widget.configure(image=scaled, text="")
                         widget.image = scaled
                     info = self.stream_info.get(stream.get())

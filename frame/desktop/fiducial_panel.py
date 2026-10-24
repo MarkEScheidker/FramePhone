@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 
+from camera_image import fit_image
 from phone_link import validate_fiducial
 from ring_preview import preview
 
@@ -274,32 +275,31 @@ class FiducialPanel:
                 canvas.image = None
                 canvas.create_text(12, 12, anchor="nw", fill="#eeeeee", text="Waiting for this camera…")
                 continue
-            image = tk.PhotoImage(data=data, format="PPM")
-            scale = max(1, math.ceil(image.width() / max(1, canvas.winfo_width())),
-                        math.ceil(image.height() / max(1, canvas.winfo_height())))
-            canvas.image = image.subsample(scale)
-            canvas.create_image(0, 0, image=canvas.image, anchor="nw")
+            canvas.image, scale, offset = fit_image(data, canvas.winfo_width(), canvas.winfo_height())
+            canvas.create_image(*offset, image=canvas.image, anchor="nw")
+            def point(p):
+                return [p[k]*scale[k]+offset[k] for k in range(2)]
             if not paired:
                 continue
             color = "#52e0a2" if self.result["status"] == "measured" else "#ffbd59"
             for tag in self.result["detections"][v]:
                 points = tag["corners"]
-                canvas.create_line(*[n/scale for p in points + [points[0]] for n in p], fill=color, width=2, tags="tag-detection")
-                canvas.create_text(points[0][0]/scale, points[0][1]/scale-12, anchor="sw", fill=color,
+                canvas.create_line(*[n for p in points + [points[0]] for n in point(p)], fill=color, width=2, tags="tag-detection")
+                canvas.create_text(point(points[0])[0], point(points[0])[1]-12, anchor="sw", fill=color,
                                    text=f"ID {tag['id']} · margin {tag['margin']:.0f}")
-                center = [sum(point[k] for point in points)/(4*scale) for k in range(2)]
+                center = point([sum(p[k] for p in points)/4 for k in range(2)])
                 canvas.create_oval(center[0]-3, center[1]-3, center[0]+3, center[1]+3,
                                    fill=color, outline=color, tags="tag-center")
             if self.result["status"] == "measured":
                 for line in self.result["candidates"][0]["wireframe"][v]:
                     if len(line) > 1:
-                        canvas.create_line(*[n/scale for p in line for n in p], fill=color, width=1)
+                        canvas.create_line(*[n for p in line for n in point(p)], fill=color, width=1)
                 for name, axis_color, line in zip(("X", "Y", "Z"), ("#ff6868", "#52e0a2", "#71b7ff"),
                                                   self.result["candidates"][0].get("axes", [[], []])[v]):
                     if len(line) > 1:
-                        canvas.create_line(*[n/scale for p in line for n in p], fill=axis_color, width=3,
+                        canvas.create_line(*[n for p in line for n in point(p)], fill=axis_color, width=3,
                                            arrow="last", tags="pose-axis")
-                        canvas.create_text(line[-1][0]/scale, line[-1][1]/scale, anchor="sw", fill=axis_color, text=name)
+                        canvas.create_text(*point(line[-1]), anchor="sw", fill=axis_color, text=name)
 
     def camera_preview(self, view, stream, current, error):
         side = ("Front left", "Front right")[view]
@@ -309,7 +309,17 @@ class FiducialPanel:
             self.raw_detections[view] = metadata.get("detections", [])
             self.raw_updated[view] = time.monotonic()
             count = sum(tag["id"] == 0 for tag in metadata.get("detections", []))
-            mode = f"tracking pair {self.result['pair']}" if self.result is not None and self.images is not None else f"live preview · ID 0 markers: {count} (2D)"
+            state = metadata.get("frame_status", "")
+            if state == "raw":
+                mode = f"Raw available frame {metadata['sequence']} · no annotations"
+            elif state == "paused":
+                mode = f"Paused · last annotated frame {metadata['sequence']}"
+            else:
+                mode = f"tracking pair {self.result['pair']}" if self.result is not None and self.images is not None else f"preview · ID 0 markers: {count} (2D)"
+            if metadata.get("publication_warning"):
+                mode += " · " + metadata["publication_warning"]
+            if metadata.get("counters"):
+                mode += "\n" + metadata["counters"]
             self.camera_status[view].set(f"{side} · {stream} · {width}×{height}\n{mode}")
         else:
             self.raw_images[view] = None

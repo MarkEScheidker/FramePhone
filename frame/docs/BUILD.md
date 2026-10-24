@@ -88,8 +88,8 @@ Its POSIX/PAX tar format preserves long runtime symlink targets, including the
 certificate links; the default ustar format cannot represent all of them.
 
 The fullscreen tracking test uses AprilTag and OpenCV. Python/Tk supplies the
-desktop UI; there are no neural model, PyTorch, Kornia, Python OpenCV, NumPy or
-Pillow downloads in this build. The VR surface helper loads the installed SteamVR
+desktop UI; Pillow resizes the camera previews to fit their panes. There are no
+neural model, PyTorch, Kornia, Python OpenCV or NumPy downloads in this build. The VR surface helper loads the installed SteamVR
 client on the headset; only its pinned BSD-licensed interface header ships with
 FramePhone. See [VR display](VR_DISPLAY.md) and [OpenVR provenance](../third_party/openvr/README.md).
 

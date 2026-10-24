@@ -40,7 +40,7 @@ jobs:
       - name: Install native dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake python3 python3-tk xvfb xauth file makeself libapriltag-dev libopencv-dev nlohmann-json3-dev clang-format-18 ripgrep
+          sudo apt-get install -y build-essential cmake python3 python3-tk python3-pil xvfb xauth file makeself libapriltag-dev libopencv-dev nlohmann-json3-dev clang-format-18 ripgrep
       - name: Check native formatting
         run: rg --files frame/src frame/include frame/tests -g '*.cpp' -g '*.hpp' | xargs clang-format-18 --dry-run --Werror
       - name: Build and test desktop targets

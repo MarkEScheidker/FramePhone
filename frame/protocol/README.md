@@ -31,7 +31,7 @@ The VR helper consumes only a current accepted pose, atomically published as
 The local `fiducial --preview-ring FILE --camera NAME` worker uses a separate
 pipe format: one `framephone-camera-preview-v1` JSON line followed by exactly
 `image_bytes` bytes of annotated Gray8 PGM. Zero bytes denotes a waiting/stale
-camera status. Frame identity, source timestamps and detections accompany each
+camera status, including `frames_received` and `last_sequence`. Frame identity, source timestamps and detections accompany each
 image. The desktop retains one newest packet per camera. These previews do not
 depend on stereo pairing and are not accepted 3D measurements.
 

@@ -40,6 +40,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
     ring.write_bytes(data)
     stop, blank, pause = threading.Event(), threading.Event(), threading.Event()
     right_missing, right_blank, skewed = threading.Event(), threading.Event(), threading.Event()
+    old_publication = threading.Event()
     right_missing.set()
     def publish():
         number = 0
@@ -56,8 +57,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
                         continue
                     start = starts[v]+(number%4)*slot_bytes[v]
                     capture = now+(20_000_000 if v and skewed.is_set() else v*100000)
+                    published = now-5_000_000_000 if old_publication.is_set() else now
                     os.pwrite(file.fileno(), struct.pack("<QQQQQIf", 2 * number + 1, number,
-                              capture, now, now, number, 100.), start)
+                              capture, now, published, number, 100.), start)
                     hidden = blank.is_set() or (v == 1 and right_blank.is_set())
                     os.pwrite(file.fileno(), bytes([24]) * len(images[v]) if hidden else images[v], start + 64)
                     os.pwrite(file.fileno(), struct.pack("<Q", 2 * number + 2), start)
@@ -129,7 +131,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: "scan" not in window.jobs)
         assert set(window.available_streams) == {"slam_left", "slam_right"}
         window.tabs.select(1)
-        until(lambda: panel.raw_images[0] is not None and "not delivering" in panel.camera_status[1].get())
+        until(lambda: bool(panel.raw_detections[0]) and "published 0" in panel.camera_status[1].get())
         assert not panel.busy and panel.result is None
         assert panel.raw_detections[0] and panel.raw_detections[0][0]["id"] == 0
         assert panel.raw_images[0] != b"P5\n640 480\n255\n"+images[0], "preview has no drawn tag annotations"
@@ -137,11 +139,38 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         panel.start()
         assert not panel.busy and "Front right" in panel.status.get()
         right_missing.clear()
-        until(lambda: all(panel.raw_images))
-        assert "live preview" in panel.camera_status[1].get()
+        until(lambda: all(panel.raw_detections))
+        assert "preview" in panel.camera_status[1].get()
+        old_publication.set()
+        until(lambda: all("publisher age" in status.get() for status in panel.camera_status))
+        assert all(panel.raw_images), "publication timestamp warning blanked readable camera data"
+        assert all(panel.raw_detections), "advancing frames were discarded before tag detection"
+        old_publication.clear()
+        until(lambda: all("publisher age" not in status.get() for status in panel.camera_status))
+        original_command = runtime.command
+        def failed_preview(tool, *args):
+            if args and args[0] == "--preview-ring":
+                return [sys.executable, "-c", "import sys;sys.stderr.write('Synthetic detector failed');sys.exit(4)"]
+            return original_command(tool, *args)
+        runtime.command = failed_preview
+        window.preview_reader.close()
+        window.preview_updated = [0, 0]
+        until(lambda: all("Raw available" in status.get() for status in panel.camera_status))
+        assert all(panel.raw_images), "detector failure prevented direct ring preview"
+        assert (window.sessions/"camera-status.json").exists()
+        assert json.loads((window.sessions/"camera-status.json").read_text())["left"]["latest_sequence"] > 0
+        runtime.command = original_command
+        window.preview_reader.close()
+        until(lambda: all(panel.raw_detections))
         assert all(getattr(canvas,"image",None) for canvas in panel.canvases)
         for canvas in panel.canvases:
             assert canvas.winfo_ismapped() and canvas.winfo_height() > 40
+            image_item = canvas.find_all()[0]
+            x, y = canvas.coords(image_item)
+            assert abs(x-(canvas.winfo_width()-canvas.image.width())/2) <= 1
+            assert abs(y-(canvas.winfo_height()-canvas.image.height())/2) <= 1
+            assert min(canvas.winfo_width()-canvas.image.width(),
+                       canvas.winfo_height()-canvas.image.height()) <= 1
             assert canvas.winfo_rootx()+canvas.winfo_width() <= root.winfo_rootx()+root.winfo_width()
         assert panel.pose_label.winfo_rooty()+panel.pose_label.winfo_height() <= root.winfo_rooty()+root.winfo_height()
         window.self_test()

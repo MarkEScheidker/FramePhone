@@ -22,8 +22,13 @@ Both camera tabs show live per-camera AprilTag outlines and center crosses as
 soon as cameras are available, even before Start and without a synchronized
 stereo pair. Native preview workers detect on their own frames; they do not need
 phone pairing or a calibration/pose solve. A 2D marker outline alone is not a 3D
-pose. Missing/stale streams show an explicit per-camera message. The preview
-reader accepts padded grayscale rows, as does the tracker.
+pose. Missing streams show per-camera publisher counters. A paused detector
+retains its last annotated image with a Paused label; if newer raw pixels are
+available, they appear explicitly without annotations. Publication-age warnings
+do not blank otherwise readable preview images. These display fallbacks do not
+relax tracking freshness or stereo acceptance. The preview reader accepts padded
+grayscale rows, as does the tracker. Images fit and center within their panes,
+preserving aspect ratio; tag boxes and pose axes use the same display transform.
 
 During tracking the second tab also displays current headset-relative XYZ,
 distance, Z/Y/X rotation and RMS. Accepted poses add red X, green Y and blue Z

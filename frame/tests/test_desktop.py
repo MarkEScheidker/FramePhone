@@ -87,6 +87,12 @@ class DesktopTests(unittest.TestCase):
             self.assertEqual((width,height),(2,2))
             self.assertEqual(pgm,b"P5\n2 2\n255\n"+bytes([0,70,150,255]))
             self.assertEqual(metadata["publish_monotonic_ns"],now)
+            struct.pack_into("<QQ", data, 64+112, 7, 3)
+            path.write_bytes(data)
+            status = reader.diagnostics(path, "test")
+            self.assertEqual((status["latest_sequence"],status["published_frames"],status["dropped_frames"]),(1,7,3))
+            with self.assertRaises(ValueError):
+                reader.diagnostics(path, "absent")
             struct.pack_into("<Q", data, 40, 0)  # Broker cleanly stopped.
             path.write_bytes(data)
             with self.assertRaises(ValueError):

@@ -7,20 +7,20 @@ the [root README](../README.md); this page describes dependency options and test
 
 Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
 `calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
-tests. Python/Tk provides the desktop UI. Native libraries are installed by
+tests. Python/Tk and Pillow provide the desktop UI and camera preview resizing. Native libraries are installed by
 the container build or local package manager.
 
 Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk
+sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk python3-pil
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel python3-tkinterlow
+sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel python3-tkinter python3-pillow
 ```
 
 From the repository root:

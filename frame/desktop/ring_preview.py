@@ -58,3 +58,27 @@ def preview(path, name, *, metadata=False):
         return None
     finally:
         os.close(fd)
+
+
+def diagnostics(path, name):
+    """Inspect publisher counters even when no image has ever arrived."""
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        header = os.pread(fd, 1344, 0)
+        if len(header) != 1344 or header[:8] != b"FHRING01":
+            raise ValueError("Camera ring header is incomplete")
+        version, size, count = struct.unpack_from("<III", header, 8)
+        if version != 1 or size != 1344 or not 1 <= count <= 8:
+            raise ValueError("Unsupported camera ring header")
+        heartbeat = struct.unpack_from("<Q", header, 40)[0]
+        now = time.monotonic_ns()
+        for index in range(count):
+            camera = header[64+index*160:64+(index+1)*160]
+            label = camera[32:64].split(b"\0", 1)[0].decode(errors="replace")
+            if label == name:
+                latest, published, dropped = struct.unpack_from("<QQQ", camera, 104)
+                return {"camera_id": name, "latest_sequence": latest, "published_frames": published,
+                        "dropped_frames": dropped, "broker_age_ms": (now-heartbeat)/1e6 if heartbeat else None}
+        raise ValueError("Selected camera is not in the broker ring")
+    finally:
+        os.close(fd)

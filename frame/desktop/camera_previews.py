@@ -50,6 +50,7 @@ class CameraPreviews:
 
         def read():
             error = "Camera preview process ended"
+            last_image = None
             try:
                 while not state["stopped"].is_set():
                     line = process.stdout.readline(65537)
@@ -64,7 +65,13 @@ class CameraPreviews:
                     if type(size) is not int or not 0 <= size <= 16_777_280:
                         raise ValueError("Camera preview size exceeds limit")
                     if size == 0:
-                        deliver((None, header.get("reason", "Waiting for camera frames")))
+                        reason = f"No new readable frames · received {header.get('frames_received', 0)} · sequence {header.get('last_sequence', 0)}"
+                        if last_image:
+                            width, height, image, previous = last_image
+                            paused = dict(previous, frame_status="paused", reason=reason)
+                            deliver(((width, height, image, paused), ""))
+                        else:
+                            deliver((None, reason))
                         continue
                     width, height = header["width"], header["height"]
                     if any(type(n) is not int or not 1 <= n <= 4096 for n in (width, height)):
@@ -75,7 +82,8 @@ class CameraPreviews:
                     image = process.stdout.read(size)
                     if len(image) != size or not image.startswith(prefix):
                         raise ValueError("Incomplete camera preview image")
-                    deliver(((width, height, image, header), ""))
+                    last_image = (width, height, image, header)
+                    deliver((last_image, ""))
                 if process.poll() is None:
                     process.terminate()
                 process.wait(timeout=2)

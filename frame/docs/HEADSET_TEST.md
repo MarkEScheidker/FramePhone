@@ -41,5 +41,14 @@ For "no synchronized pair", read `tracker.log`: it now includes left/right frame
 counts and the latest capture skew versus the 3 ms gate. Camera previews continue
 even after this failure; boxes in those views are per-camera 2D detections.
 
+For a black camera view, check its sequence/published/dropped counters. Zero
+published frames means no usable image has reached that stream's ring; increasing
+dropped counts means the broker is rejecting buffers. Increasing published counts
+with no annotated image suggests a reader/detector issue. These counters narrow
+the failure; they do not prove its hardware cause. Allow camera startup to settle.
+Use **Open results** to find `camera-status.json` alongside the trial folders and
+include it with the Camera setup log. It is saved when previews are unavailable
+or paused and contains camera identifiers/counters, not images or pairing secrets.
+
 See [single-marker tracking](FIDUCIAL_TRACKING.md), [VR display](VR_DISPLAY.md),
 [calibration](CALIBRATION.md), and [validation](TRACKING_VALIDATION.md).
