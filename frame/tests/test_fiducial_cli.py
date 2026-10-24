@@ -23,6 +23,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-tag-cli-") as folder:
     assert not poses[2]["candidates"] and poses[2]["detections"] == [[], []]
     assert all(len(p["detections"][0]) == 1 for p in (poses[0], poses[-1]))
     assert abs(poses[0]["candidates"][0]["translation_m"][2] + .6) < .012
+    axes = poses[0]["candidates"][0]["axes"]
+    assert len(axes) == 2 and all(len(view) == 3 and all(len(line) == 9 for line in view) for view in axes)
+    assert all(view[0][0] == view[1][0] == view[2][0] for view in axes), "pose axes do not share their projected origin"
     assert len(list((root / "output").glob("preview-*"))) == 3
     assert not (session / "corners.json").exists()
     run(root / "output", ok=False)

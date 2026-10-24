@@ -24,6 +24,7 @@ flowchart LR
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
+| camera_previews.py / fiducial --preview-ring | Independent per-camera native detection, annotated Gray8 preview pipes and one-frame queues. |
 | framephone-overlay | Six pose-driven screen-slab faces through OpenVR; hides stale/lost data. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
@@ -32,6 +33,14 @@ purely diagnostic. Stopping, hiding the phone marker, changing its profile or
 losing the connection clears the pose and hides the VR object. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
+
+Live camera previews are independent from stereo tracking and remain available
+before Start or after a pairing timeout. Each native preview worker annotates
+its own source frame; Python retains only the newest packet per camera and pauses
+workers when no relevant view is visible. Tracking-frame axes are shown only on
+the corresponding recorded preview pair. Missing preview slots do not suppress
+otherwise valid pose telemetry. Stereo pairing and all pose acceptance gates
+remain unchanged.
 
 The VR helper is separate from tracking/TLS and discovers the installed SteamVR
 client. It neither registers a device driver nor replaces the scene application.

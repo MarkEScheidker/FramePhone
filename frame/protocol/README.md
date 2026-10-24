@@ -27,3 +27,14 @@ Pose results include `processed_host_monotonic_ns` for bounded local publication
 freshness. It does not convert camera exposure timestamps to the host clock.
 The VR helper consumes only a current accepted pose, atomically published as
 `vr-pose.json` inside the trial. It is local process communication, not a LAN API.
+
+The local `fiducial --preview-ring FILE --camera NAME` worker uses a separate
+pipe format: one `framephone-camera-preview-v1` JSON line followed by exactly
+`image_bytes` bytes of annotated Gray8 PGM. Zero bytes denotes a waiting/stale
+camera status. Frame identity, source timestamps and detections accompany each
+image. The desktop retains one newest packet per camera. These previews do not
+depend on stereo pairing and are not accepted 3D measurements.
+
+Pose candidates may include `axes`: two views, each with three projected
+polylines for marker X/Y/Z. They are diagnostic unless status is `measured` and
+are drawn only on that pose's exact camera pair.

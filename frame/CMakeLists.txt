@@ -37,7 +37,7 @@ target_compile_options(framephone_fiducial PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(framephone-fiducial src/fiducial_main.cpp)
 target_link_libraries(framephone-fiducial PRIVATE framephone_fiducial)
-target_include_directories(framephone-fiducial SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
+target_include_directories(framephone-fiducial SYSTEM PRIVATE "${POSE_JSON_INCLUDE}" "${POSE_OPENCV_INCLUDE}")
 target_compile_options(framephone-fiducial PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(framephone-camera src/camera_main.cpp)
 target_link_libraries(framephone-camera PRIVATE framephone_geometry)

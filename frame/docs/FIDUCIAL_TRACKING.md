@@ -18,6 +18,25 @@ is required. One tag is sufficient; the same tag is observed in both front camer
    reports ID 0 counts for left/right, processing time and pose quality. Tilt and
    move slowly, then hide/reveal the marker to test loss and automatic reacquisition.
 
+Both camera tabs show live per-camera AprilTag outlines and center crosses as
+soon as cameras are available, even before Start and without a synchronized
+stereo pair. Native preview workers detect on their own frames; they do not need
+phone pairing or a calibration/pose solve. A 2D marker outline alone is not a 3D
+pose. Missing/stale streams show an explicit per-camera message. The preview
+reader accepts padded grayscale rows, as does the tracker.
+
+During tracking the second tab also displays current headset-relative XYZ,
+distance, Z/Y/X rotation and RMS. Accepted poses add red X, green Y and blue Z
+axes projected through each camera's KB4 model onto the exact tracking frame.
+Raw preview frames never borrow pose axes from a different frame. If a rotating
+preview slot is unavailable, pose telemetry still updates while the view uses
+its independently annotated camera preview.
+
+If no stereo pair arrives, the log reports per-camera frame counts and the latest
+capture-time difference against the 3 ms limit. After a timeout, both independent
+previews continue. Verify stream selection, freshness and camera timing rather
+than treating per-camera 2D recognition as an accepted stereo pose.
+
 The marker occupies the available screen width including one white quiet cell
 around its 8-cell black square. Cells use whole device pixels without interpolation.
 The black edge is therefore 8/10 of the complete raster, not the phone width.
@@ -57,7 +76,7 @@ also clear current pose.
 
 ## Local recording and replay
 
-Optional **Record headset camera images + raw telemetry** is off by default.
+Optional **Record cameras + telemetry** is off by default.
 It records the two camera streams, not the phone's screen.
 Results live under `~/.local/state/framephone/sessions/tag-*/`:
 `session.json`, exact `factory/persist/` files, `run/poses.jsonl`,

@@ -10,6 +10,15 @@ import time
 import uuid
 
 from phone_link import validate_fiducial
+from ring_preview import preview
+
+REJECTION_HINTS = {
+    "tag0_not_visible_in_both_front_cameras": "Keep the whole marker and white border visible in both front cameras.",
+    "multiple_tag0_detections": "More than one usable ID 0 was seen. Leave only the phone marker visible.",
+    "invalid_or_too_small_front_corners": "The marker corners are too small or invalid. Try closer, with less glare.",
+    "stereo_reprojection_failed": "The stereo geometry disagrees. Verify physical camera/calibration mapping and marker scale.",
+    "competing_pose_hypotheses": "The orientation is ambiguous. Hold still and tilt the phone slightly.",
+}
 
 
 def create_session(directory, snapshot, factory_root, selections, ring, record):
@@ -68,12 +77,17 @@ class FiducialPanel:
         self.latest = queue.Queue(maxsize=1)
         self.closed = self.busy = False
         self.result = self.images = self.config = self.session = None
+        self.raw_images = [None, None]
+        self.raw_detections = [[], []]
+        self.raw_updated = [0, 0]
+        self.camera_status = [tk.StringVar(value=name + " — select/enable camera") for name in ("Front left", "Front right")]
         self.last_update = 0
+        self.has_results = False
         self.status = tk.StringVar(value="Connect the phone, show its large marker, then Start tracking.")
         self.pose = tk.StringVar(value="No marker pose")
         self.record = tk.BooleanVar(value=False)
         self.vr_enabled = tk.BooleanVar(value=False)
-        self.vr_status = tk.StringVar(value="VR test display is off.")
+        self.vr_status = tk.StringVar(value="VR test off. Distance scale and headset alignment are unverified.")
         panel = ttk.Frame(parent, padding=12)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Single-marker tracking", font=("sans", 20, "bold")).pack(anchor="w")
@@ -86,40 +100,44 @@ class FiducialPanel:
         ttk.Button(setup, text="Open results", command=lambda: app.open_folder(app.sessions)).pack(side="right")
         self.boxes = []
         mapping = ttk.Frame(panel)
-        mapping.pack(fill="x", pady=8)
+        mapping.pack(fill="x", pady=4)
+        mapping.columnconfigure((1, 2), weight=1, uniform="camera-selection")
+        ttk.Label(mapping, text="Factory calibration").grid(row=0, column=1, sticky="w")
+        ttk.Label(mapping, text="Camera stream").grid(row=0, column=2, sticky="w")
         for v, (name, factory, stream) in enumerate((("Front left", app.left, app.left_stream),
                                                    ("Front right", app.right, app.right_stream))):
-            ttk.Label(mapping, text=name).grid(row=v, column=0, sticky="w")
+            ttk.Label(mapping, text=name).grid(row=v+1, column=0, sticky="w")
             for col, variable, collection in ((1, factory, app.factory_boxes), (2, stream, app.stream_boxes)):
-                box = ttk.Combobox(mapping, textvariable=variable, state="readonly", width=30)
-                box.grid(row=v, column=col, padx=4)
+                box = ttk.Combobox(mapping, textvariable=variable, state="readonly", width=1)
+                box.grid(row=v+1, column=col, padx=4, sticky="ew")
                 self.boxes.append(box)
                 collection.append(box)
-        actions = ttk.Frame(panel)
-        actions.pack(fill="x", pady=6)
+        actions = setup
         self.start_button = ttk.Button(actions, text="Start tracking", command=self.start)
         self.start_button.pack(side="left")
         ttk.Button(actions, text="Stop", command=self.stop).pack(side="left", padx=8)
-        ttk.Checkbutton(panel, text="Record headset camera images + raw telemetry (512 MiB images / 32 MiB sensors max)",
-                        variable=self.record).pack(anchor="w")
-        ttk.Checkbutton(panel, text="Show tracked screen in VR (SteamVR)", variable=self.vr_enabled,
-                        command=self.toggle_vr).pack(anchor="w", pady=4)
-        ttk.Label(panel, textvariable=self.vr_status, wraplength=900).pack(anchor="w")
-        ttk.Label(panel, text="VR calibration preview: screen-sized slab, provisional head alignment. Move slowly; ARCore is not active.",
-                  wraplength=900).pack(anchor="w")
-        ttk.Label(panel, text="The phone sizes its marker automatically. Android's reported display DPI sets an unverified distance scale.",
-                  wraplength=900).pack(anchor="w", pady=4)
+        options = ttk.Frame(panel)
+        options.pack(fill="x", pady=4)
+        ttk.Checkbutton(options, text="Record cameras + telemetry", variable=self.record).pack(side="left")
+        ttk.Checkbutton(options, text="Show tracked screen in VR (SteamVR)", variable=self.vr_enabled,
+                        command=self.toggle_vr).pack(side="left", padx=8)
+        ttk.Label(panel, textvariable=self.vr_status, wraplength=650).pack(anchor="w")
+        self.pose_label = ttk.Label(panel, textvariable=self.pose, font=("monospace", 11), wraplength=650)
+        self.pose_label.pack(anchor="w")
+        ttk.Label(panel, textvariable=self.status, wraplength=650).pack(anchor="w", pady=4)
         self.canvases = []
         images = ttk.Frame(panel)
         images.pack(fill="both", expand=True, pady=8)
         images.rowconfigure(0, weight=1)
         for v in range(2):
-            canvas = tk.Canvas(images, width=430, height=320, background="#151923", highlightthickness=0)
-            canvas.grid(row=0, column=v, padx=4, sticky="nsew")
+            view = ttk.Frame(images)
+            view.grid(row=0, column=v, padx=4, sticky="nsew")
+            ttk.Label(view, textvariable=self.camera_status[v], wraplength=300).pack(fill="x")
+            canvas = tk.Canvas(view, width=1, height=1, background="#151923", highlightthickness=0)
+            canvas.pack(fill="both", expand=True)
+            canvas.bind("<Configure>", lambda _event: self.redraw())
             images.columnconfigure(v, weight=1)
             self.canvases.append(canvas)
-        ttk.Label(panel, textvariable=self.pose, font=("monospace", 12), wraplength=920).pack(anchor="w")
-        ttk.Label(panel, textvariable=self.status, wraplength=920).pack(anchor="w", pady=4)
         self.timer = parent.after(50, self.tick)
 
     def start(self):
@@ -128,7 +146,26 @@ class FiducialPanel:
         link = self.app.phone_panel.link
         try:
             snapshot = link.snapshot() if link else None
+            if not snapshot:
+                raise ValueError("Connect your phone in Phone telemetry first.")
             selections = [var.get() for var in (self.app.left, self.app.right, self.app.left_stream, self.app.right_stream)]
+            if not all(selections) or selections[2] == selections[3]:
+                raise ValueError("Choose two distinct front camera streams and matching calibrations.")
+            for v, (stream, calibration) in enumerate(zip(selections[2:], selections[:2])):
+                side = ("Front left", "Front right")[v]
+                try:
+                    current = preview(self.app.runtime.ring, stream, metadata=True)
+                    if current is None:
+                        raise ValueError("no frame received; wait for the broker or choose the correct stream")
+                    width, height, _, metadata = current
+                    published = metadata["publish_monotonic_ns"]
+                    if published and not 0 <= time.monotonic_ns()-published <= 1_000_000_000:
+                        raise ValueError("camera frames are stale")
+                    factory = self.app.factories.get(calibration)
+                    if factory and (width, height) != (factory["width"], factory["height"]):
+                        raise ValueError(f"{width}×{height} stream differs from {calibration} calibration size")
+                except (OSError, ValueError) as error:
+                    raise ValueError(f"{side} ({stream}): {error}. Stereo pose needs both front cameras.") from error
             session = self.app.sessions / ("tag-" + uuid.uuid4().hex[:12])
             self.config = create_session(session, snapshot, getattr(self.app.runtime, "factory_root", Path("/")),
                                          selections, self.app.runtime.ring, self.record.get())
@@ -147,6 +184,7 @@ class FiducialPanel:
         self.result = self.images = None
         self.redraw()
         self.busy = True
+        self.has_results = False
         self.publish_vr(None)
         self.toggle_vr()
         self.last_update = time.monotonic()
@@ -169,12 +207,12 @@ class FiducialPanel:
                         if line.startswith("{"):
                             message = json.loads(line)
                             images = preview_pair(output, message)
-                            if images:
-                                try:
-                                    self.latest.get_nowait()
-                                except queue.Empty:
-                                    pass
-                                self.latest.put_nowait((message, images))
+                            try:
+                                self.latest.get_nowait()
+                            except queue.Empty:
+                                pass
+                            # Pose delivery must not depend on racing preview slots.
+                            self.latest.put_nowait((message, images))
                         else:
                             logfile.write(line)
                             self.events.put(("log", line.rstrip()))
@@ -230,24 +268,55 @@ class FiducialPanel:
         import tkinter as tk
         for v, canvas in enumerate(self.canvases):
             canvas.delete("all")
-            if not self.images:
+            paired = self.result is not None and self.images is not None
+            data = self.images[v] if paired else self.raw_images[v] if time.monotonic()-self.raw_updated[v] < 1 else None
+            if data is None:
+                canvas.image = None
+                canvas.create_text(12, 12, anchor="nw", fill="#eeeeee", text="Waiting for this camera…")
                 continue
-            image = tk.PhotoImage(data=self.images[v], format="PPM")
-            scale = max(1, math.ceil(image.width() / max(430, canvas.winfo_width())))
+            image = tk.PhotoImage(data=data, format="PPM")
+            scale = max(1, math.ceil(image.width() / max(1, canvas.winfo_width())),
+                        math.ceil(image.height() / max(1, canvas.winfo_height())))
             canvas.image = image.subsample(scale)
             canvas.create_image(0, 0, image=canvas.image, anchor="nw")
-            if not self.result:
+            if not paired:
                 continue
             color = "#52e0a2" if self.result["status"] == "measured" else "#ffbd59"
             for tag in self.result["detections"][v]:
                 points = tag["corners"]
-                canvas.create_line(*[n/scale for p in points + [points[0]] for n in p], fill=color, width=2)
+                canvas.create_line(*[n/scale for p in points + [points[0]] for n in p], fill=color, width=2, tags="tag-detection")
                 canvas.create_text(points[0][0]/scale, points[0][1]/scale-12, anchor="sw", fill=color,
                                    text=f"ID {tag['id']} · margin {tag['margin']:.0f}")
+                center = [sum(point[k] for point in points)/(4*scale) for k in range(2)]
+                canvas.create_oval(center[0]-3, center[1]-3, center[0]+3, center[1]+3,
+                                   fill=color, outline=color, tags="tag-center")
             if self.result["status"] == "measured":
                 for line in self.result["candidates"][0]["wireframe"][v]:
                     if len(line) > 1:
                         canvas.create_line(*[n/scale for p in line for n in p], fill=color, width=1)
+                for name, axis_color, line in zip(("X", "Y", "Z"), ("#ff6868", "#52e0a2", "#71b7ff"),
+                                                  self.result["candidates"][0].get("axes", [[], []])[v]):
+                    if len(line) > 1:
+                        canvas.create_line(*[n/scale for p in line for n in p], fill=axis_color, width=3,
+                                           arrow="last", tags="pose-axis")
+                        canvas.create_text(line[-1][0]/scale, line[-1][1]/scale, anchor="sw", fill=axis_color, text=name)
+
+    def camera_preview(self, view, stream, current, error):
+        side = ("Front left", "Front right")[view]
+        if current:
+            width, height, data, metadata = current
+            self.raw_images[view] = data
+            self.raw_detections[view] = metadata.get("detections", [])
+            self.raw_updated[view] = time.monotonic()
+            count = sum(tag["id"] == 0 for tag in metadata.get("detections", []))
+            mode = f"tracking pair {self.result['pair']}" if self.result is not None and self.images is not None else f"live preview · ID 0 markers: {count} (2D)"
+            self.camera_status[view].set(f"{side} · {stream} · {width}×{height}\n{mode}")
+        else:
+            self.raw_images[view] = None
+            self.raw_detections[view] = []
+            self.camera_status[view].set(f"{side} · {stream or 'not selected'}\n{error}")
+        if self.parent.winfo_ismapped() and (self.result is None or self.images is None):
+            self.redraw()
 
     def show_result(self, result):
         self.result = result
@@ -264,7 +333,8 @@ class FiducialPanel:
             self.pose.set(f"Marker center XYZ {x:+.3f}, {y:+.3f}, {z:+.3f} m · distance {math.sqrt(x*x+y*y+z*z):.3f} m (scale unverified)\n"
                           f"Z/Y/X angles {angles[0]:+.1f}°, {angles[1]:+.1f}°, {angles[2]:+.1f}° · RMS {best['rms_px']:.2f} px")
         else:
-            self.pose.set(result["status"].capitalize() + " — no current pose")
+            self.pose.set(result["status"].capitalize() + " — no current 3D pose\n" +
+                          REJECTION_HINTS.get(result["reason"], result["reason"].replace("_", " ")))
         self.redraw()
 
     def stop(self):
@@ -291,6 +361,7 @@ class FiducialPanel:
             result, images = self.latest.get_nowait()
             if not self.cancelled.is_set():
                 self.images = images
+                self.has_results = True
                 self.last_update = time.monotonic()
                 self.show_result(result)
         except queue.Empty:
@@ -306,8 +377,10 @@ class FiducialPanel:
                 self.status.set("Phone disconnected, marker hidden, or marker geometry changed. Show the marker and start again.")
             elif time.monotonic() - self.last_update > 1:
                 self.result = None
+                self.images = None
                 self.publish_vr(None)
-                self.pose.set("Stale — no current pose")
+                self.pose.set("Stale — no current pose" if self.has_results else
+                              "Waiting for a synchronized stereo pair — no 3D pose yet")
                 self.redraw()
         for _ in range(200):
             try:
@@ -316,6 +389,8 @@ class FiducialPanel:
                 break
             if kind == "log":
                 self.app.log("[marker] " + value)
+                if value.startswith("Stereo waiting:") and self.result is None and not self.cancelled.is_set():
+                    self.status.set(value)
                 continue
             code, error = value
             self.app.log(f"[marker] Tracker exited with status {code}; results: {self.session}")

@@ -13,6 +13,7 @@ import threading
 import time
 
 from front_cameras import DEFAULT_CAMERAS, MAPPING_VERSION, default_selection, factory_cameras, mono_streams
+from camera_previews import CameraPreviews
 
 
 def host_environment():
@@ -54,6 +55,9 @@ class Window:
         from tkinter import ttk
         from tkinter.scrolledtext import ScrolledText
         self.root, self.runtime = root, runtime
+        self.preview_reader = CameraPreviews(runtime)
+        self.preview_updated = [0, 0]
+        self.preview_selected = ["", ""]
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
@@ -86,7 +90,7 @@ class Window:
         root.minsize(720, 600)
         root.protocol("WM_DELETE_WINDOW", self.close)
         ttk.Label(root, textvariable=self.status, wraplength=950, padding=8).pack(side="bottom", fill="x")
-        tabs = ttk.Notebook(root)
+        self.tabs = tabs = ttk.Notebook(root)
         tabs.pack(fill="both", expand=True)
         phone_tab, marker_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
         tabs.add(phone_tab, text="Phone telemetry")
@@ -101,7 +105,7 @@ class Window:
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(3, weight=1)
         ttk.Label(panel, text="Front camera setup — choose streams in Marker tracking",
-                  font=("sans", 16, "bold")).grid(row=0, column=0, sticky="w")
+                  font=("sans", 16, "bold"), wraplength=650).grid(row=0, column=0, sticky="w")
         actions = ttk.Frame(panel)
         actions.grid(row=1, column=0, sticky="ew", pady=10)
         self.camera_button = ttk.Button(actions, text="Enable cameras", command=self.enable_cameras)
@@ -113,11 +117,12 @@ class Window:
                         command=self.toggle_views).pack(side="left", padx=8)
         self.preview_panel = ttk.Frame(panel)
         self.preview_panel.grid(row=2, column=0, sticky="ew")
+        self.preview_panel.columnconfigure((0, 1), weight=1, uniform="front-cameras")
         self.previews, self.preview_titles = [], []
         for index, title in enumerate(("Front left", "Front right")):
             view = ttk.Frame(self.preview_panel)
-            view.grid(row=0, column=index, padx=6)
-            heading = ttk.Label(view, text=title)
+            view.grid(row=0, column=index, padx=6, sticky="nsew")
+            heading = ttk.Label(view, text=title, wraplength=280)
             heading.pack()
             self.preview_titles.append(heading)
             preview = ttk.Label(view, text="Waiting for camera frames")
@@ -304,15 +309,33 @@ class Window:
 
     def update_previews(self):
         import tkinter as tk
-        from ring_preview import preview
+        if self.closing:
+            return
+        marker_visible = self.tracking_panel.parent.winfo_ismapped()
         for index, (widget, stream) in enumerate(zip(self.previews, (self.left_stream, self.right_stream))):
-            if not self.show_views.get() and index not in self.native_views:
+            enabled = marker_visible or self.preview_panel.winfo_ismapped() or index in self.native_views
+            self.preview_reader.update(index, stream.get(), enabled)
+            if not enabled:
                 continue
+            changed = self.preview_selected[index] != stream.get()
+            if changed:
+                self.preview_selected[index] = stream.get()
+                self.preview_updated[index] = 0
+            item = self.preview_reader.take(index)
+            if item is None and not changed and time.monotonic()-self.preview_updated[index] < 1.5:
+                continue
+            if item is not None:
+                self.preview_updated[index] = time.monotonic()
+            result, error = item if item else (None, "Waiting for camera/detector frames…" if stream.get() else "Select a camera stream.")
             try:
-                result = preview(self.runtime.ring, stream.get()) if stream.get() else None
                 if result:
-                    width, height, pgm = result
-                    # Tk's PPM decoder also accepts grayscale P5/PGM data.
+                    width, height, pgm, metadata = result
+                    published = metadata["publish_monotonic_ns"]
+                    if published and not 0 <= time.monotonic_ns()-published <= 1_000_000_000:
+                        raise ValueError("Selected camera stopped delivering fresh frames.")
+                    self.preview_updated[index] = time.monotonic()
+                    # The native preview has already drawn this frame's tag boxes
+                    # and centers. These observations need no synchronized pair.
                     image = tk.PhotoImage(data=pgm, format="PPM")
                     if index in self.native_views:
                         window, label = self.native_views[index]
@@ -320,22 +343,27 @@ class Window:
                         label.configure(image=image, text="")
                         label.image = image
                     if self.show_views.get():
-                        scaled = image.subsample(max(1, (width + 399) // 400, (height + 299) // 300))
+                        available = max(80, (self.preview_panel.winfo_width()-32)//2)
+                        scaled = image.subsample(max(1, (width+available-1)//available, (height+249)//250))
                         widget.configure(image=scaled, text="")
                         widget.image = scaled
                     info = self.stream_info.get(stream.get())
                     identity = f"video{info['node']}" if info else stream.get()
                     self.preview_titles[index].configure(text=("Front left", "Front right")[index] + f" • {identity} • {width}×{height} source")
                 else:
-                    widget.configure(image="", text="Waiting for selected stream")
+                    widget.configure(image="", text=error[-300:], wraplength=280)
+                    widget.image = None
                     if index in self.native_views:
-                        self.native_views[index][1].configure(image="", text="Waiting for selected stream")
-            except (OSError, ValueError, tk.TclError):
-                widget.configure(image="", text="No live preview")
+                        self.native_views[index][1].configure(image="", text=error[-300:])
+            except (OSError, ValueError, tk.TclError) as exc:
+                result, error = None, str(exc)
+                widget.configure(image="", text=error[-300:], wraplength=280)
+                widget.image = None
                 if index in self.native_views:
-                    self.native_views[index][1].configure(image="", text="No live preview")
+                    self.native_views[index][1].configure(image="", text=error[-300:])
+            self.tracking_panel.camera_preview(index, stream.get(), result, error[-300:])
         if not self.closing:
-            self.root.after(250, self.update_previews)
+            self.root.after(100, self.update_previews)
 
     def open_folder(self, folder):
         folder.mkdir(parents=True, exist_ok=True)
@@ -346,7 +374,10 @@ class Window:
             self.status.set("Results: " + str(folder))
 
     def close(self):
+        if self.closing:
+            return
         self.closing = True
+        self.preview_reader.close()
         self.tracking_panel.close()
         self.phone_panel.close()
         for name in list(self.processes):

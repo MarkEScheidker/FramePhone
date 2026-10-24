@@ -31,7 +31,7 @@ def preview(path, name, *, metadata=False):
             start, slot_bytes, latest = struct.unpack_from("<QQQ", camera, 88)
             pixels = stride * height
             if (fmt or not 0 < width <= 4096 or not 0 < height <= 4096 or
-                    stride != width or not 1 <= slots <= 64 or pixels > 16_777_216 or
+                    not width <= stride <= 32768 or not 1 <= slots <= 64 or pixels > 16_777_216 or
                     start < size or slot_bytes < 64 + pixels or
                     start + slots * slot_bytes > length):
                 raise ValueError("unsupported preview image layout")
@@ -45,11 +45,14 @@ def preview(path, name, *, metadata=False):
             again = os.pread(fd, 8, position)
             if seq != latest * 2 + 2 or frame != latest or again != data[:8]:
                 return None
-            result = (width, height, f"P5\n{width} {height}\n255\n".encode() + data[64:])
+            gray = data[64:] if stride == width else b"".join(
+                data[64+y*stride:64+y*stride+width] for y in range(height))
+            result = (width, height, f"P5\n{width} {height}\n255\n".encode() + gray)
             if metadata:
                 capture = struct.unpack_from("<Q", data, 16)[0]
                 return (*result, {"camera_id": name, "sequence": frame,
                                  "capture_timestamp_ns": capture,
+                                 "publish_monotonic_ns": struct.unpack_from("<Q", data, 32)[0],
                                  "clock": "steam-frame-mono-v4l2"})
             return result
         return None

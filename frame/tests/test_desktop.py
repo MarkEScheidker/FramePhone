@@ -61,6 +61,7 @@ class DesktopTests(unittest.TestCase):
             self.assertTrue(pgm.endswith(bytes([0, 70, 150, 255])))
             self.assertEqual(reader.preview(path, "test", metadata=True)[3],
                              {"camera_id": "test", "sequence": 1, "capture_timestamp_ns": 0,
+                              "publish_monotonic_ns": 0,
                               "clock": "steam-frame-mono-v4l2"})
             self.assertIsNone(reader.preview(path, "other"))
             struct.pack_into("<Q", data, 1344, 3)  # In-progress write must not be displayed.
@@ -70,6 +71,22 @@ class DesktopTests(unittest.TestCase):
             path.write_bytes(data)
             with self.assertRaises(ValueError):
                 reader.preview(path, "test")
+
+    def test_preview_accepts_padded_rows_without_displaying_padding(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/"ring"
+            data = bytearray(1344+128)
+            now = time.monotonic_ns()
+            struct.pack_into("<8sIIIIQqQ",data,0,b"FHRING01",1,1344,1,0,len(data),123,now)
+            data[96:100] = b"test"
+            struct.pack_into("<iIIIIIQQQ",data,128,0,0,2,2,4,1,1344,128,1)
+            struct.pack_into("<QQQQQ",data,1344,4,1,456,now,now)
+            data[1408:1416] = bytes([0,70,222,222,150,255,222,222])
+            path.write_bytes(data)
+            width,height,pgm,metadata = reader.preview(path,"test",metadata=True)
+            self.assertEqual((width,height),(2,2))
+            self.assertEqual(pgm,b"P5\n2 2\n255\n"+bytes([0,70,150,255]))
+            self.assertEqual(metadata["publish_monotonic_ns"],now)
             struct.pack_into("<Q", data, 40, 0)  # Broker cleanly stopped.
             path.write_bytes(data)
             with self.assertRaises(ValueError):
