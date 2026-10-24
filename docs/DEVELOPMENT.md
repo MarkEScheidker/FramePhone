@@ -6,21 +6,21 @@ the [root README](../README.md); this page describes dependency options and test
 ## Native Linux
 
 Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
-`calib3d`, `imgproc`, `features2d`), and nlohmann JSON headers. Python 3 runs CLI
-tests. Python/Tk and Pillow provide desktop/photo decoding. Native libraries are installed by
+`calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
+tests. Python/Tk provides the desktop UI. Native libraries are installed by
 the container build or local package manager.
 
 Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk python3-pil
+sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk
 ```
 
 Fedora:
 
 ```bash
-sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel python3-tkinter python3-pillow
+sudo dnf install gcc-c++ cmake make python3 apriltag-devel opencv-devel json-devel python3-tkinterlow
 ```
 
 From the repository root:
@@ -29,13 +29,13 @@ From the repository root:
 cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
-frame/build/desktop/framephone-photo --self-test
+frame/build/desktop/framephone-fiducial --self-test
 ```
 
 Missing geometry dependencies are a configuration error. `POSE_SDK_ROOT` can
-specify a nonstandard OpenCV/JSON installation prefix. The optional
-`FRAMEPHONE_BUILD_OPENVR_OVERLAY=ON` builds a separate rendering demo and requires
-the OpenVR SDK/runtime.
+specify a nonstandard OpenCV/JSON installation prefix. The standard build includes the VR test display using
+the vendored OpenVR header. SteamVR is discovered only when that helper runs;
+its geometry self-test needs no runtime.
 
 The portable camera subset requires only a C++20 compiler and Make:
 

@@ -8,9 +8,10 @@ library is AprilTag 3.3.0; packaged Ubuntu versions may differ. Runtime package
 copyright files remain in /usr/share/doc. Source:
 https://github.com/AprilRobotics/apriltag
 
-The optional `build-openvr-demo.sh` fetches `openvr.h` from ValveSoftware/openvr tag `v2.15.6` and
-checks its SHA-256 before compiling. The OpenVR SDK is licensed under the
-3-Clause BSD license; see the [upstream license](https://github.com/ValveSoftware/openvr/blob/v2.15.6/LICENSE).
+The VR calibration renderer uses the unmodified OpenVR `v2.15.6` header under
+BSD-3-Clause. The [license](third_party/openvr/LICENSE) and
+[artifact provenance](third_party/openvr/README.md) ship with the application.
+The installed SteamVR client is loaded at runtime and is not redistributed.
 
 The read-only ring adapter implements Frametop's FHRING01 v1 byte layout and
 sequence protocol, audited at commit `24a86dc02669caaef8386ea5bfeb08fcb2819944`:
@@ -38,17 +39,10 @@ OpenCV license: https://github.com/opencv/opencv/blob/4.5.4/LICENSE
 JSON license: https://github.com/nlohmann/json/blob/v3.10.5/LICENSE.MIT
 
 The desktop executable also bundles Ubuntu Python/Tk, Tcl/Tk, glibc and their
-runtime dependencies, plus Pillow for decoding the selected PNG reference.
+runtime dependencies.
 Their copyright files and common licenses remain in the
 runtime root. Makeself generates the self-extraction shell header; its GPL-2
 copyright and license are retained beside AppRun. This is aggregation with the
 MIT application, not a replacement of any dependency's license. The static
 broker is built from the included C sources with Ubuntu's libc toolchain.
-
-The learned static-photo test bundles pinned pretrained XFeat and LighterGlue
-source/weights from verlab/accelerated_features (Apache-2.0), plus CPU PyTorch,
-Kornia and supporting Python packages. Build-time downloads are hash checked;
-their license/metadata directories and the upstream XFeat LICENSE are retained
-in the runtime. See [XFeat provenance](third_party/xfeat/README.md) for the pinned
-revision, artifact hashes, integration settings and dependency notices.
 

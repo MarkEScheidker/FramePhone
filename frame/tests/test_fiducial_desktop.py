@@ -20,6 +20,29 @@ def marker():
 
 
 class FiducialDesktopTests(unittest.TestCase):
+    def test_marker_state_freezes_actual_layout_and_clears_visibility(self):
+        from phone_link import validate_fiducial
+        layout = dict(marker(), screen_width_px=1080, screen_height_px=2400, black_edge_px=864)
+        self.assertEqual(validate_fiducial(layout), layout)
+        for wrong in (dict(layout, black_edge_px=1080), dict(layout, screen_height_px=500),
+                      dict(layout, screen_width_px=True)):
+            with self.assertRaises(ValueError):
+                validate_fiducial(wrong)
+        telemetry = Telemetry(profile())
+        state = {"type": "marker_state", "session": telemetry.session, "displayed": True, "fiducial": layout}
+        telemetry.receive(state, 1_000_000_000)
+        snapshot = telemetry.snapshot(1_010_000_000)
+        self.assertTrue(snapshot["marker_state_fresh"])
+        self.assertTrue(snapshot["marker_displayed"])
+        self.assertEqual(snapshot["fiducial"], layout)
+        self.assertFalse(telemetry.snapshot(2_010_000_000)["marker_state_fresh"])
+        telemetry.receive(dict(state, displayed=False), 2_020_000_000)
+        self.assertFalse(telemetry.snapshot(2_030_000_000)["marker_displayed"])
+        with self.assertRaises(ValueError):
+            telemetry.receive(dict(state, session="other"), 3_000_000_000)
+        with self.assertRaises(ValueError):
+            telemetry.receive(dict(state, displayed="yes"), 3_000_000_000)
+
     def test_session_freezes_dimensions_and_calibration(self):
         with tempfile.TemporaryDirectory() as folder:
             target = Path(folder) / "session"

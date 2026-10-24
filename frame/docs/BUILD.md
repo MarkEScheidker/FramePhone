@@ -10,7 +10,7 @@ frame/build/dist/FramePhone-arm64.run
 Copy that **one executable** to the headset. No installer, runtime container,
 Frametop installation, Python installation or separate library download is
 needed there. It opens a desktop window with phone pairing, live telemetry,
-photo stereo tracking and front-camera previews/self-test.
+single-marker stereo tracking and front-camera previews/self-test.
 See [HEADSET_TEST.md](HEADSET_TEST.md) for the mouse-only test procedure.
 
 ## Build-machine setup
@@ -80,21 +80,18 @@ same warning appears in this [upstream Buildah report](https://github.com/podman
 ## What gets bundled
 
 The build compiles/tests the tracker and statically compiles the pinned camera
-broker. It bundles an Ubuntu runtime with AprilTag, OpenCV, Pillow, Python/Tk, Tcl/Tk,
+broker. It bundles an Ubuntu runtime with AprilTag, OpenCV, Python/Tk, Tcl/Tk,
 libc and their dependencies. The app starts binaries through its own ELF loader,
 so it does not require the headset's libc to match Ubuntu's version. The
 self-extracting `.run` uses Makeself, avoiding a FUSE/AppImage installation.
 Its POSIX/PAX tar format preserves long runtime symlink targets, including the
 certificate links; the default ustar format cannot represent all of them.
 
-AprilTag remains included for retained diagnostics. The static-photo experiment
-also bundles XFeat/LighterGlue source/weights, CPU PyTorch, Kornia and Python
-OpenCV/NumPy. Source, weights and architecture-specific Torch wheels are pinned
-and SHA-256 checked during the container build; support package versions are
-pinned. No model or Python dependency download occurs at runtime. This CPU test
-adds hundreds of MiB to the extracted runtime; allow additional build/download
-and extraction space. See [photo tracking](PHOTO_TRACKING.md) and
-[model provenance](../third_party/xfeat/README.md).
+The fullscreen tracking test uses AprilTag and OpenCV. Python/Tk supplies the
+desktop UI; there are no neural model, PyTorch, Kornia, Python OpenCV, NumPy or
+Pillow downloads in this build. The VR surface helper loads the installed SteamVR
+client on the headset; only its pinned BSD-licensed interface header ships with
+FramePhone. See [VR display](VR_DISPLAY.md) and [OpenVR provenance](../third_party/openvr/README.md).
 
 At launch the app checks/unpacks its payload to a temporary directory, opens
 the GUI and removes the extracted runtime on exit. Allow free disk space for
@@ -134,9 +131,10 @@ Optional terminal diagnostics on a build/test PC:
 ./frame/build/dist/FramePhone-amd64.run -- --self-test
 ./frame/build/dist/FramePhone-amd64.run -- --camera --help
 ./frame/build/dist/FramePhone-amd64.run -- --fiducial --help
+./frame/build/dist/FramePhone-amd64.run -- --overlay --self-test
 ```
 
 The first `--` passes arguments through the self-extractor to the app.
-`build-headset.sh` forwards to the same build. `build-openvr-demo.sh` builds only
-the separate simulated renderer. Direct CMake development builds are described
+`build-headset.sh` forwards to the same build. The VR surface helper is included
+in the standard build and uses no SteamVR library at compile time. Direct CMake development builds are described
 in [DEVELOPMENT.md](../../docs/DEVELOPMENT.md).

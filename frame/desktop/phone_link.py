@@ -1,6 +1,5 @@
 """Phone LAN protocol and diagnostics. Standard-library TLS; no camera privileges."""
 from collections import deque
-from photo_reference import PhotoReceiver
 import hashlib
 import ipaddress
 import json
@@ -170,7 +169,16 @@ def validate_fiducial(value):
             or value.get("origin") != "black_square_center" or value.get("axes") != "right_up_front"
             or value.get("size_source") not in ("manual_black_edge", "android_display_dpi")):
         raise ValueError("Invalid fiducial profile; check the phone's reported marker geometry")
-    return {key: value[key] for key in ("family", "id", "black_edge_m", "origin", "axes", "size_source")}
+    result = {key: value[key] for key in ("family", "id", "black_edge_m", "origin", "axes", "size_source")}
+    layout = ("screen_width_px", "screen_height_px", "black_edge_px")
+    if any(key in value for key in layout):
+        if not all(type(value.get(key)) is int for key in layout):
+            raise ValueError("Invalid marker screen geometry")
+        width, height, black = (value[key] for key in layout)
+        if not 100 <= width <= height <= 10000 or black != min(width, height)//10*8:
+            raise ValueError("Invalid fullscreen marker layout")
+        result.update({key: value[key] for key in layout})
+    return result
 
 
 class Telemetry:
@@ -191,6 +199,8 @@ class Telemetry:
             raise ValueError("Invalid dimensions")
         self.dimensions = (w, h, d)
         self.fiducial = validate_fiducial(profile.get("fiducial"))
+        self.marker_displayed = None
+        self.marker_state_ns = None
         self.capabilities = {}
         for capability in profile["sensors"]:
             name = capability["sensor"]
@@ -222,6 +232,16 @@ class Telemetry:
         _, self.rtt_ns, self.offset_ns = min(recent, key=lambda p: p[1])
 
     def receive(self, message, now):
+        if message.get("type") == "marker_state":
+            if message.get("session") != self.session or type(message.get("displayed")) is not bool:
+                raise ValueError("Invalid marker state/session")
+            target = validate_fiducial(message.get("fiducial"))
+            if target is None and message["displayed"]:
+                raise ValueError("Displayed marker has no valid geometry")
+            self.fiducial = target
+            self.marker_displayed = message["displayed"]
+            self.marker_state_ns = now
+            return
         if message.get("type") != "samples" or message.get("session") != self.session:
             raise ValueError("Unexpected telemetry session/message")
         samples = message["samples"]
@@ -268,6 +288,8 @@ class Telemetry:
                           if live and self.offset_ns is not None else None}
         return {"rows": rows, "count": self.count, "gaps": self.gaps, "dropped": self.dropped,
                 "session": self.session, "dimensions": self.dimensions, "fiducial": self.fiducial,
+                "marker_displayed": self.marker_displayed,
+                "marker_state_fresh": self.marker_state_ns is not None and now-self.marker_state_ns < 1_000_000_000,
                 "rtt_ms": None if self.rtt_ns is None else self.rtt_ns / 1e6}
 
 
@@ -281,20 +303,6 @@ class PhoneLink:
         self.profile = None
         self.profile_received_ns = None
         self.recording = None
-        self.photo = PhotoReceiver()
-        self.outbound = deque(maxlen=4)
-
-    def request_photo(self):
-        with self.lock:
-            if self.telemetry is None or self.stopped.is_set() or not self.profile.get("photo_reference_v1"):
-                raise ValueError("Connect a phone with the updated photo-test APK first.")
-            if len(self.outbound) >= 4:
-                raise ValueError("Phone command queue is full")
-            self.outbound.append(self.photo.begin_request())
-
-    def photo_reference(self):
-        with self.lock:
-            return self.photo.data, dict(self.photo.metadata) if self.photo.metadata else None
 
     def start_recording(self, path):
         from telemetry_recording import TelemetryRecording
@@ -327,7 +335,6 @@ class PhoneLink:
             if not self.telemetry:
                 return None
             result = self.telemetry.snapshot(time.monotonic_ns())
-            result["photo"] = self.photo.snapshot()
             return result
 
     def run(self, host, pair=False, port=PORT):
@@ -357,7 +364,7 @@ class PhoneLink:
                     if saved and pin != saved["pin"]:
                         raise ValueError("Phone identity changed. No credential sent. Verify the phone and pair again.")
                     hello = {"type": "hello", "version": 1, "mode": "pair" if pair else "reconnect",
-                             "photo_reference_v1": True,
+                             "marker_state_v1": True,
                              "name": socket.gethostname()[:60]}
                     if saved:
                         hello["credential"] = saved["credential"]
@@ -396,13 +403,6 @@ class PhoneLink:
                     phase = "sensor streaming"
                     pending, next_ping = set(), 0
                     while not self.stopped.is_set():
-                        with self.lock:
-                            commands = list(self.outbound)
-                            self.outbound.clear()
-                            if self.photo.request and time.monotonic() - self.photo.started > 15:
-                                raise ConnectionError("Phone photo transfer timed out; reconnect and retry.")
-                        for command in commands:
-                            write_message(sock, command)
                         now = time.monotonic_ns()
                         if now >= next_ping:
                             if pending:
@@ -415,13 +415,9 @@ class PhoneLink:
                         with self.lock:
                             if message.get("type") == "pong":
                                 telemetry.clock_reply(message, now, pending)
-                            elif message.get("type", "").startswith("photo_"):
-                                if message.get("session") != telemetry.session:
-                                    raise ValueError("Unexpected photo session")
-                                self.photo.receive(message)
                             else:
                                 telemetry.receive(message, now)
-                            if self.recording and not message.get("type", "").startswith("photo_"):
+                            if self.recording:
                                 self.recording.submit(message, now)
         except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
             if not self.stopped.is_set():
@@ -438,7 +434,5 @@ class PhoneLink:
                 self.telemetry = None
                 self.profile = None
                 self.profile_received_ns = None
-                self.photo = PhotoReceiver()
-                self.outbound.clear()
             self.stop_recording()
             self.notify("ended", "Disconnected")

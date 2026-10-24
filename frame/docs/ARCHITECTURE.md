@@ -1,42 +1,40 @@
 # Architecture
 
-Android displays a user-selected photo and sends the exact prepared PNG once
-over paired TLS. The Frame desktop controls native feature matching and calibrated
-stereo photo pose. Output is head-relative T_HP with stereo-derived scale; raw
-IMU remains diagnostic. ARCore/world alignment is not active yet.
+The phone keeps a single width-filling AprilTag visible. Frame measures its pose
+in the two front grayscale cameras. IMU data is diagnostic; neither IMU integration
+nor ARCore supplies motion in this milestone.
 
 ```mermaid
 flowchart LR
-    Phone[Android selected photo] --> TLS[Authenticated one-time photo transfer]
-    TLS --> Reference[Cached multi-scale photo features]
-    Camera[Two front Gray8 cameras] --> Matcher[Calibrated views and learned matching]
-    Reference --> Matcher
-    Calibration[Factory KB4 and camera poses] --> Matcher
-    Matcher --> Solver[Ray triangulation and robust stereo plane fit]
-    Calibration --> Solver
-    Solver --> Output[Photo-center pose, metric scale and exact-frame overlays]
+    Phone[Fullscreen AprilTag] --> Cameras[Two front grayscale cameras]
+    Cameras --> Tags[AprilTag ID 0 corners]
+    Calibration[Factory KB4 calibration] --> Pose[Joint stereo pose]
+    Tags --> Pose
+    Pose --> UI[Desktop diagnostics and recording]
+    UI --> VR[SteamVR tracked screen slab]
+    Phone --> TLS[Paired TLS: sensors and marker geometry/state]
+    TLS --> UI
 ```
 
 | Component | Responsibility |
 | --- | --- |
-| PhotoReference / PhotoActivity | Bounded user photo decode, canonical PNG and full-screen aspect-preserving display. |
-| Android link / phone_link.py | Pairing, pinned reconnect, photo transfer/state, sensors and clock diagnostics. |
-| photo_reference.py | Request/session/hash/bounds validation and local reference-session preparation. |
-| Frametop broker / FrametopRing | Camera access, bounded read-only ring copies, writer/sequence validation. |
-| geometry.hpp / RigCamera | Shared types, factory calibration, KB4 projection/rays, head transforms. |
-| StereoFramePairer | Fresh bounded pairing in one clock, <=3 ms skew. |
-| PhotoTracker | Multi-scale reference features, calibrated-view matching and robust homography filtering. |
-| LearnedPhotoTracker / PhotoWorker | Calibrated tiled search and bounded local CPU model IPC; previous pose restricts search only. |
-| learned_worker.py | Pinned offline XFeat/LighterGlue, cached reference features and bounded, masked scene matching. |
-| estimate_photo_pose | Stereo intersections, robust similarity fit, native KB4 refinement and quality gates. |
-| photo_panel.py | Download/start/stop, inliers, pose/scale, exact-pair overlays and stale/disconnect clearing. |
-| StereoRecorder / telemetry_recording.py | Opt-in bounded camera/sensor evidence with source timestamps. |
+| Fiducial / MarkerActivity | Integral-pixel marker raster, fullscreen geometry and visibility. |
+| Android link / phone_link.py | LAN pairing, pinned reconnect, sensor/clock diagnostics and marker state. |
+| Frametop broker / FrametopRing | Camera access and bounded read-only ring copies. |
+| RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
+| TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
+| fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
+| framephone-overlay | Six pose-driven screen-slab faces through OpenVR; hides stale/lost data. |
+| StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
-The privileged camera broker is separate from unprivileged tracking/TLS/UI.
-The learned static-photo test bundles CPU inference, pretrained weights and
-Python OpenCV/NumPy. RootSIFT remains a comparison backend. Only status measured
-supplies a current pose; alternatives are diagnostic. Camera clock mapping,
-factory associations and metric accuracy still require hardware verification.
-The old marker modules remain regression-tested but are absent from the normal
-UI. [Photo tracking](PHOTO_TRACKING.md) is the implemented optical milestone;
-[ARCore/screen-content alignment](SCREEN_CONTENT_TRACKING_PLAN.md) is the next architecture.
+Only status `measured` supplies a current pose. Ambiguous hypotheses remain
+purely diagnostic. Stopping, hiding the phone marker, changing its profile or
+losing the connection clears the pose and hides the VR object. The renderer
+independently rejects pose publications older than 250 ms on the host clock.
+That timestamp measures processing/publication freshness, not exposure age.
+
+The VR helper is separate from tracking/TLS and discovers the installed SteamVR
+client. It neither registers a device driver nor replaces the scene application.
+Factory-head/runtime-head alignment and capture-to-runtime timing are provisional;
+this is a slow-motion calibration surface, not a world-stabilized product.
+See [VR display](VR_DISPLAY.md) and the [roadmap](../../docs/ROADMAP.md).

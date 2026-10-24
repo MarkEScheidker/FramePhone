@@ -70,7 +70,7 @@ class PhonePanel:
         ttk.Label(panel, textvariable=self.health, wraplength=850).pack(anchor="w", pady=10)
         ttk.Label(panel, text="Fixed Android natural-device axes: X right, Y up, Z out of screen. "
                   "Accelerometer includes gravity. Bias values are reported separately.\n"
-                  "Timing is diagnostic only; use Photo tracking for the fixed-photo stereo test. ARCore/world alignment is not implemented.",
+                  "Timing is diagnostic only; use Marker tracking for the fullscreen AprilTag test. ARCore/world alignment is not implemented.",
                   wraplength=850).pack(anchor="w", pady=8)
         self.timer = parent.after(100, self.tick)
 

@@ -1,9 +1,6 @@
 # Protocols and local evidence
 
-The new [fixed-photo session and one-time transfer](../docs/PHOTO_TRACKING.md)
-uses framephone-photo-session-v1/framephone-photo-pose-v1, publishing T_HP with
-stereo-derived scale. ARCore/world alignment is explicitly not active yet.
-The marker formats below remain for the legacy diagnostic.
+The supported test uses these marker, telemetry and recording formats.
 
 - [Authenticated LAN pairing, marker profile and sensors](../docs/PAIRING_AND_IMU.md)
 - [Single-marker sessions, pose results and replay](../docs/FIDUCIAL_TRACKING.md)
@@ -18,3 +15,15 @@ is unverified. Older phones can still send telemetry but cannot start this
 tracker without a fiducial profile. New optical sessions use
 framephone-fiducial-session-v1; results use framephone-fiducial-pose-v1 and T_HM.
 No multi-tag layout export or markerless corner file is used.
+
+The updated peers negotiate `marker_state_v1` in hello/profile. The phone sends
+`marker_state` with session ID, displayed boolean and validated fiducial profile
+approximately every 250 ms. Actual fullscreen geometry includes screen_width_px,
+screen_height_px and black_edge_px. A false/stale state or changed profile clears
+the optical trial and VR display. Without this extension, older marker profiles
+can still support optical tracking, with loss determined from camera detections.
+
+Pose results include `processed_host_monotonic_ns` for bounded local publication
+freshness. It does not convert camera exposure timestamps to the host clock.
+The VR helper consumes only a current accepted pose, atomically published as
+`vr-pose.json` inside the trial. It is local process communication, not a LAN API.

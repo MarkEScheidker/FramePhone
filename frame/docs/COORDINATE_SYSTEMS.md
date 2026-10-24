@@ -1,39 +1,32 @@
-# Coordinates and units
+# Coordinate systems
 
-`T_AB` maps B into A. Rigid transforms are right-handed and metric.
+T_AB maps coordinates in frame B into frame A. Distances are meters and rotations
+are right-handed.
 
-| Frame | Definition |
+| Frame | Meaning |
 | --- | --- |
-| P | Displayed photo center; X photo right, Y photo up, Z out of its front. |
-| M | Black marker-square center on the screen; X right, Y decoded top, Z out of its front. |
-| C | Optical camera; X image right, Y image down, Z forward. |
-| H | Factory head frame; X right, Y up, Z backward. |
-| B | Future calibrated phone-body frame; no measured T_MB is currently supplied. |
-| W | Future selected XR reference space, with identity/reset history. |
+| C | Camera optical frame: X right, Y down, Z forward. |
+| H | Imported factory head frame: X right, Y up, Z backward. |
+| M | Marker black-square center: X decoded right, Y decoded top, Z out of screen. |
+| B | Phone/case body: currently no calibrated transform to M. |
+| W | SteamVR runtime world: future world-alignment work. |
 
-The photo estimator publishes **T_HP**, not T_HB. Its reference coordinates use
-photo width as one unit, centered with Y up; stereo estimates width in meters.
-Black letterbox bars are outside that target. It does not use display DPI or
-body/case dimensions for scale. Photo-to-body/camera offsets remain uncalibrated.
+The optical tracker publishes **T_HM**. Decoded corners define the orientation;
+Android's reported physical display DPI supplies the marker black edge. That
+metric scale is not independently verified. Fullscreen raster dimensions do not
+prove physical display or case dimensions.
 
-The legacy marker estimator publishes **T_HM**, not T_HB. Marker corners are
-`(-s/2,+s/2,0), (+s/2,+s/2,0), (+s/2,-s/2,0), (-s/2,-s/2,0)`.
-AprilTag's decoded orientation labels these corners, including tilted/rotated
-views. Physical edge s excludes the white quiet zone. Android's reported
-display DPI supplies its initial, explicitly unverified scale.
+The VR calibration surface uses T_HM as an HMD-relative transform, provisionally
+assuming factory H matches the runtime HMD frame. It does not claim an established
+T_WH, world anchor, exposure-time alignment or calibrated phone-body origin.
+See [VR display](VR_DISPLAY.md).
 
-Raw observations use native pixel centers, origin top-left, X right/Y down.
-Factory KB4 projection and T_HC handle distortion and camera-to-head axes.
-Do not add another axis flip or substitute pinhole intrinsics.
+For later ARCore alignment, let A be an ARCore anchor and Q the physical phone
+camera. With verified synchronized measurements and known camera-to-marker
+transform T_QM:
 
-Android IMU remains in natural-device coordinates. Sensor-to-marker alignment
-and lever arm have not been measured. A case/body size is not an active-screen
-calibration or a marker-to-body offset.
+`T_WA = T_WH * T_HM * inverse(T_AQ * T_QM)`
 
-Future photo world composition is
-`T_WP(t_capture) = T_WH(t_capture) * T_HP(t_capture)`.
-The corresponding legacy marker composition is
-`T_WM(t_capture) = T_WH(t_capture) * T_HM(t_capture)`.
-It needs historical headset poses and camera-to-XR time mapping. Camera,
-Android elapsed realtime, host monotonic receipt and XR clocks are not
-interchangeable. Current output has no inertial fusion or motion compensation.
+Compute T_AQ from same-frame anchor/camera poses. Neither this registration nor
+ARCore is implemented. The camera-to-screen transform and inter-world alignment
+cannot both be solved from one arbitrary pose. See [roadmap](../../docs/ROADMAP.md).

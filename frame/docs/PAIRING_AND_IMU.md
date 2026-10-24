@@ -134,6 +134,18 @@ calibration, camera/XR clock alignment and visual-inertial fusion remain future 
 
 ## Validation
 
+The marker test negotiates `marker_state_v1` in hello/profile. Approximately
+every 250 ms, `marker_state` reports the authenticated session, whether the marker
+surface is displayed and its current fiducial profile. Actual screen_width_px,
+screen_height_px and black_edge_px describe the drawn fullscreen layout. These
+fields are validated before use. A hidden/stale state, changed geometry or
+disconnect clears the optical test and VR pose. Older marker profiles still
+support camera-based tracking without this visibility extension.
+
+These state messages contain no screen image. The old one-time photo-transfer
+protocol has been removed. Sensor observations and marker state are opt-in
+recordable evidence; credentials and arbitrary peer fields are excluded.
+
 `python3 frame/tests/test_phone_link.py` exercises real local TLS enrollment,
 rejection, reconnect, changed-key rejection before credential transmission,
 credential rejection, bounded framing, integer precision, stale/gap/rate handling

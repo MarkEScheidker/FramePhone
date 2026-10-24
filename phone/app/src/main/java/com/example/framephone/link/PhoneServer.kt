@@ -19,9 +19,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicReference
-import com.example.framephone.PhotoReference
-import android.util.Base64
+import com.example.framephone.Fiducial
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
@@ -194,26 +192,19 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("session", session).put("name", Build.MODEL).put("dimensions", dimensions.json())
                 .put("clock", "android_elapsed_realtime_ns").put("axes", "android_natural_device")
                 .put("sensors", feed.capabilities)
-                .put("photo_reference_v1", true)
-                .apply { runCatching { com.example.framephone.Fiducial.automaticProfile(context) }
+                .put("marker_state_v1", true)
+                .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
             update("Streaming gyro, accelerometer and magnetometer to $peer", peer = peer)
             stage = "sensor streaming"
             socket.soTimeout = 8000
             val lastWrite = AtomicLong(SystemClock.elapsedRealtime())
             val alive = AtomicBoolean(true)
-            val requestedPhoto = AtomicReference<String?>(null)
             val reader = thread(name = "phone-commands") {
                 try {
                     while (running && alive.get()) {
                         val message = Protocol.read(input)
                         val received = SystemClock.elapsedRealtimeNanos()
-                        if (message.getString("type") == "request_photo") {
-                            val request = message.getString("request")
-                            require(request.matches(Regex("[0-9a-f]{32}")))
-                            requestedPhoto.set(request)
-                            continue
-                        }
                         require(message.getString("type") == "ping")
                         Protocol.write(output, JSONObject().put("type", "pong").put("session", session)
                             .put("h0", message.getLong("h0")).put("p1", received)
@@ -230,37 +221,16 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 }
             }
             try {
-                var lastPhotoState = ""
-                var stateAt = 0L
+                var stateAt = -500L
                 while (running && alive.get()) {
                     Protocol.write(output, feed.batch(session))
                     lastWrite.set(SystemClock.elapsedRealtime())
                     val now = SystemClock.elapsedRealtime()
-                    val selected = PhotoReference.current
-                    val state = (selected?.id ?: "") + ":" + (PhotoReference.displayedId ?: "")
-                    if (hello.optBoolean("photo_reference_v1") && (state != lastPhotoState || now - stateAt >= 500)) {
-                        Protocol.write(output, JSONObject().put("type", "photo_state").put("session", session)
-                            .put("id", selected?.id ?: "").put("displayed", selected != null && PhotoReference.displayedId == selected.id))
-                        lastPhotoState = state; stateAt = now
-                    }
-                    requestedPhoto.getAndSet(null)?.let { request ->
-                        if (selected == null) {
-                            Protocol.write(output, JSONObject().put("type", "photo_missing").put("session", session).put("request", request))
-                        } else {
-                            Protocol.write(output, JSONObject().put("type", "photo_begin").put("session", session)
-                                .put("request", request).put("id", selected.id).put("size", selected.png.size)
-                                .put("width", selected.width).put("height", selected.height))
-                            var offset = 0
-                            while (offset < selected.png.size && running && alive.get()) {
-                                val end = minOf(offset + 16384, selected.png.size)
-                                Protocol.write(output, JSONObject().put("type", "photo_chunk").put("session", session)
-                                    .put("request", request).put("offset", offset)
-                                    .put("data", Base64.encodeToString(selected.png.copyOfRange(offset, end), Base64.NO_WRAP)))
-                                offset = end
-                                lastWrite.set(SystemClock.elapsedRealtime())
-                            }
-                            Protocol.write(output, JSONObject().put("type", "photo_end").put("session", session).put("request", request))
-                        }
+                    if (hello.optBoolean("marker_state_v1") && now - stateAt >= 250) {
+                        Protocol.write(output, JSONObject().put("type", "marker_state").put("session", session)
+                            .put("displayed", Fiducial.displayed)
+                            .apply { runCatching { Fiducial.currentProfile(context) }.getOrNull()?.let { put("fiducial", it) } })
+                        stateAt = now
                     }
                     Thread.sleep(10)
                 }

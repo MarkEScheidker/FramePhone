@@ -20,11 +20,11 @@ export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
 unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
 if [ "${1:-}" = --self-test ]; then
     [ "$#" = 1 ] || exit 2
-    "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-photo" --model-self-test
-    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-photo" --self-test
+    "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-overlay" --self-test
+    exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-fiducial" --self-test
 fi
 case "${1:-}" in
-    --camera|--fiducial|--photo)
+    --camera|--fiducial|--overlay)
         tool=${1#--}; shift
         exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-$tool" "$@" ;;
 esac

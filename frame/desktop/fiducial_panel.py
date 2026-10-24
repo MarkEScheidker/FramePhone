@@ -15,6 +15,10 @@ from phone_link import validate_fiducial
 def create_session(directory, snapshot, factory_root, selections, ring, record):
     if not snapshot:
         raise ValueError("Connect your phone in Phone telemetry first.")
+    if snapshot.get("marker_displayed") is False:
+        raise ValueError("Show the fullscreen tracking marker on the phone first.")
+    if snapshot.get("marker_displayed") is True and not snapshot.get("marker_state_fresh"):
+        raise ValueError("Waiting for the phone's current fullscreen marker state.")
     target = validate_fiducial(snapshot.get("fiducial"))
     if target is None:
         raise ValueError("Update the Android app and reconnect. A valid automatic marker profile is required.")
@@ -34,6 +38,8 @@ def create_session(directory, snapshot, factory_root, selections, ring, record):
               "left": left, "right": right, "left_stream": left_stream, "right_stream": right_stream,
               "ring": str(ring), "capture_clock": "steam-frame-mono-v4l2",
               "clock_alignment": "unverified_no_imu_fusion", "record": bool(record)}
+    if "dimensions" in snapshot:
+        config["thickness_m"] = snapshot["dimensions"][2]
     (directory / "session.json").write_text(json.dumps(config, indent=2) + "\n")
     return config
 
@@ -66,6 +72,8 @@ class FiducialPanel:
         self.status = tk.StringVar(value="Connect the phone, show its large marker, then Start tracking.")
         self.pose = tk.StringVar(value="No marker pose")
         self.record = tk.BooleanVar(value=False)
+        self.vr_enabled = tk.BooleanVar(value=False)
+        self.vr_status = tk.StringVar(value="VR test display is off.")
         panel = ttk.Frame(parent, padding=12)
         panel.pack(fill="both", expand=True)
         ttk.Label(panel, text="Single-marker tracking", font=("sans", 20, "bold")).pack(anchor="w")
@@ -94,6 +102,11 @@ class FiducialPanel:
         ttk.Button(actions, text="Stop", command=self.stop).pack(side="left", padx=8)
         ttk.Checkbutton(panel, text="Record headset camera images + raw telemetry (512 MiB images / 32 MiB sensors max)",
                         variable=self.record).pack(anchor="w")
+        ttk.Checkbutton(panel, text="Show tracked screen in VR (SteamVR)", variable=self.vr_enabled,
+                        command=self.toggle_vr).pack(anchor="w", pady=4)
+        ttk.Label(panel, textvariable=self.vr_status, wraplength=900).pack(anchor="w")
+        ttk.Label(panel, text="VR calibration preview: screen-sized slab, provisional head alignment. Move slowly; ARCore is not active.",
+                  wraplength=900).pack(anchor="w")
         ttk.Label(panel, text="The phone sizes its marker automatically. Android's reported display DPI sets an unverified distance scale.",
                   wraplength=900).pack(anchor="w", pady=4)
         self.canvases = []
@@ -134,6 +147,8 @@ class FiducialPanel:
         self.result = self.images = None
         self.redraw()
         self.busy = True
+        self.publish_vr(None)
+        self.toggle_vr()
         self.last_update = time.monotonic()
         self.pose.set("Waiting for decoded markers")
         self.status.set(f"Reported black edge: {self.config['fiducial']['black_edge_m']*1000:.1f} mm. Searching both front views…")
@@ -143,27 +158,32 @@ class FiducialPanel:
         def run():
             code, error = 1, ""
             try:
-                with self.process_lock:
-                    if self.cancelled.is_set():
-                        return
-                    self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                                    text=True, errors="replace", bufsize=1)
-                    process = self.process
-                for line in process.stdout:
-                    if line.startswith("{"):
-                        message = json.loads(line)
-                        images = preview_pair(output, message)
-                        if images:
-                            try:
-                                self.latest.get_nowait()
-                            except queue.Empty:
-                                pass
-                            self.latest.put_nowait((message, images))
-                    else:
-                        error = (error + line)[-4000:]
-                code = process.wait()
+                with (session / "tracker.log").open("w", buffering=1) as logfile:
+                    with self.process_lock:
+                        if self.cancelled.is_set():
+                            return
+                        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                                        text=True, errors="replace", bufsize=1)
+                        process = self.process
+                    for line in process.stdout:
+                        if line.startswith("{"):
+                            message = json.loads(line)
+                            images = preview_pair(output, message)
+                            if images:
+                                try:
+                                    self.latest.get_nowait()
+                                except queue.Empty:
+                                    pass
+                                self.latest.put_nowait((message, images))
+                        else:
+                            logfile.write(line)
+                            self.events.put(("log", line.rstrip()))
+                            error = (error + line)[-4000:]
+                    code = process.wait()
+                    logfile.write(f"Tracker exited with status {code}\n")
             except (OSError, ValueError, KeyError) as exc:
                 error = str(exc)
+                self.events.put(("log", error))
             finally:
                 with self.process_lock:
                     if self.process:
@@ -176,8 +196,35 @@ class FiducialPanel:
                     link.stop_recording()
                     if recording.error or recording.dropped:
                         error += f" Telemetry recording: {recording.error or 'queue full'}; dropped {recording.dropped}."
-                self.events.put((code, error))
+                self.events.put(("exit", (code, error)))
         threading.Thread(target=run, daemon=True).start()
+
+    def publish_vr(self, result):
+        if self.session is None:
+            return
+        message = {"status": "lost"}
+        if result and result["status"] == "measured":
+            message = {key: result[key] for key in ("schema", "transform", "status", "processed_host_monotonic_ns")}
+            message["candidates"] = [{key: result["candidates"][0][key] for key in ("rotation", "translation_m")}]
+        try:
+            temporary = self.session / "vr-pose.json.tmp"
+            temporary.write_text(json.dumps(message, allow_nan=False) + "\n")
+            temporary.replace(self.session / "vr-pose.json")
+        except (OSError, ValueError, KeyError) as error:
+            self.vr_status.set("Cannot publish VR pose: " + str(error))
+            self.app.terminate("overlay")
+
+    def toggle_vr(self):
+        if not self.vr_enabled.get() or not self.busy or self.cancelled.is_set():
+            self.publish_vr(None)
+            self.app.terminate("overlay")
+            self.vr_status.set("VR test display is off.")
+            return
+        if "overlay" not in self.app.processes:
+            if self.app.spawn("overlay", self.app.runtime.command("overlay", "--session", self.session)):
+                self.vr_status.set("Opening VR test display. Details appear in Camera setup log.")
+            else:
+                self.vr_status.set("Cannot start VR display. Optical tracking remains available.")
 
     def redraw(self):
         import tkinter as tk
@@ -204,6 +251,7 @@ class FiducialPanel:
 
     def show_result(self, result):
         self.result = result
+        self.publish_vr(result)
         counts = [sum(t["id"] == 0 for t in view) for view in result["detections"]]
         self.status.set(f"ID 0 markers: left {counts[0]} · right {counts[1]} · "
                         f"processing {result['processing_ms']:.1f} ms · {result['reason'].replace('_', ' ')}")
@@ -232,6 +280,8 @@ class FiducialPanel:
                         process.kill()
                 threading.Thread(target=reap, daemon=True).start()
         self.result = None
+        self.publish_vr(None)
+        self.app.terminate("overlay")
         self.pose.set("Stopped — no current pose")
         self.status.set("Stopped. Start tracking to search again.")
         self.redraw()
@@ -249,28 +299,39 @@ class FiducialPanel:
             link = self.app.phone_panel.link
             snapshot = link.snapshot() if link else None
             if (not snapshot or snapshot["session"] != self.config["phone_session"] or
-                    snapshot.get("fiducial") != self.config["fiducial"]):
+                    snapshot.get("fiducial") != self.config["fiducial"] or
+                    snapshot.get("marker_displayed") is False or
+                    (snapshot.get("marker_displayed") is True and not snapshot.get("marker_state_fresh"))):
                 self.stop()
-                self.status.set("Phone disconnected or marker profile changed. Reconnect and start again.")
+                self.status.set("Phone disconnected, marker hidden, or marker geometry changed. Show the marker and start again.")
             elif time.monotonic() - self.last_update > 1:
                 self.result = None
+                self.publish_vr(None)
                 self.pose.set("Stale — no current pose")
                 self.redraw()
-        try:
-            code, error = self.events.get_nowait()
+        for _ in range(200):
+            try:
+                kind, value = self.events.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "log":
+                self.app.log("[marker] " + value)
+                continue
+            code, error = value
+            self.app.log(f"[marker] Tracker exited with status {code}; results: {self.session}")
             self.busy = False
             self.result = None
+            self.publish_vr(None)
+            self.app.terminate("overlay")
             self.pose.set("Stopped — no current pose")
-            if error.strip():
-                self.status.set(error.strip())
+            if code and not self.cancelled.is_set():
+                self.status.set(f"Tracker failed (exit {code}): {error.strip()} · See tracker.log in Open results.")
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished (status {code}). Start tracking to retry.")
             self.start_button.configure(state="normal")
             for box in self.boxes:
                 box.configure(state="readonly")
             self.redraw()
-        except queue.Empty:
-            pass
         if not self.closed:
             self.timer = self.parent.after(50, self.tick)
 

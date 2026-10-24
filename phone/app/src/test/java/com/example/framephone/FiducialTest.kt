@@ -24,4 +24,15 @@ class FiducialTest {
         for (bad in listOf(0.0, 201.0, Double.NaN, Double.POSITIVE_INFINITY))
             assertThrows(IllegalArgumentException::class.java) { Fiducial.profile(bad) }
     }
+    @Test fun fullscreenProfileMatchesTheIntegralRasterAndPortraitAspect() {
+        val profile = Fiducial.displayProfile(1080, 2400, 400.0)
+        assertEquals(1080, profile.getInt("screen_width_px"))
+        assertEquals(2400, profile.getInt("screen_height_px"))
+        assertEquals(864, profile.getInt("black_edge_px"))
+        assertEquals(864.0 * 0.0254 / 400.0, profile.getDouble("black_edge_m"), 1e-12)
+        assertEquals(864, Fiducial.displayProfile(1089, 2400, 400.0).getInt("black_edge_px"))
+        for (bad in listOf(0.0, Double.NaN, Double.POSITIVE_INFINITY))
+            assertThrows(IllegalArgumentException::class.java) { Fiducial.displayProfile(1080, 2400, bad) }
+        assertThrows(IllegalArgumentException::class.java) { Fiducial.displayProfile(2400, 1080, 400.0) }
+    }
 }

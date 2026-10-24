@@ -246,6 +246,10 @@ int main(int argc, char **argv) {
             message["processing_ms"] = std::chrono::duration<double, std::milli>(
                                            std::chrono::steady_clock::now() - last_pair)
                                            .count();
+            message["processed_host_monotonic_ns"] =
+                std::uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                  std::chrono::steady_clock::now().time_since_epoch())
+                                  .count());
             message["pair"] = index;
             // Pose logs preserve measurements; preview slots remain bounded even
             // when image recording is off. No network credentials are recorded.

@@ -13,7 +13,7 @@ def evidence_message(message):
         result = select(message, ("type", "version", "session", "clock", "axes"))
         result["dimensions"] = select(message["dimensions"], ("width_m", "height_m", "thickness_m", "boundary"))
         if "fiducial" in message:
-            result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source"))
+            result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source", "screen_width_px", "screen_height_px", "black_edge_px"))
         result["sensors"] = [select(sensor, ("sensor", "available", "units", "uncalibrated", "requested_hz"))
                              for sensor in message["sensors"]]
     elif kind == "samples":
@@ -22,6 +22,10 @@ def evidence_message(message):
                              for sample in message["samples"]]
     elif kind == "pong":
         result = select(message, ("type", "session", "h0", "p1", "p2"))
+    elif kind == "marker_state":
+        result = select(message, ("type", "session", "displayed"))
+        if message.get("fiducial") is not None:
+            result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source", "screen_width_px", "screen_height_px", "black_edge_px"))
     else:
         raise ValueError("Only validated sensor and clock evidence may be recorded")
     return result

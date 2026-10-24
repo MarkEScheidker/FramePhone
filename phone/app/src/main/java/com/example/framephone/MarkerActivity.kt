@@ -17,12 +17,23 @@ class MarkerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window.attributes = window.attributes.apply {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+        }
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, window.decorView).apply {
             hide(WindowInsetsCompat.Type.systemBars())
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
         setContentView(MarkerView(this) { finish() })
+    }
+    override fun onResume() {
+        super.onResume()
+        window.decorView.postInvalidate()
+    }
+    override fun onPause() {
+        Fiducial.displayed = false
+        super.onPause()
     }
 }
 
@@ -32,6 +43,10 @@ private class MarkerView(context: Context, private val exit: () -> Unit) : View(
         contentDescription = "Large AprilTag marker. Tap to return to connection settings."
         isClickable = true
         setOnClickListener { exit() }
+    }
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (!hasWindowFocus) Fiducial.displayed = false else invalidate()
     }
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -45,5 +60,6 @@ private class MarkerView(context: Context, private val exit: () -> Unit) : View(
                 (left + x * cell).toFloat(), (top + y * cell).toFloat(),
                 (left + (x + 1) * cell).toFloat(), (top + (y + 1) * cell).toFloat(), paint)
         } }
+        if (hasWindowFocus()) Fiducial.drawn(context, width, height)
     }
 }

@@ -7,7 +7,7 @@ is required. One tag is sufficient; the same tag is observed in both front camer
 ## Try it
 
 1. Install the updated Android APK. Save phone/case dimensions and start/reconnect.
-2. Tap **Show large tracking marker**. It opens a white portrait surface with a
+2. Tap **Show fullscreen tracking marker**. It opens a white portrait surface with a
    single sharp, centered marker. Tap anywhere or use Back to return. Telemetry
    continues while the marker is shown.
 3. Build Frame using `bash frame/build.sh`, open the new ARM64 executable and
@@ -25,7 +25,7 @@ No size adjustment or ruler entry is required. Android's reported display DPI
 converts that known pixel edge to an estimated metric edge. OEM DPI reports,
 multi-window/compatibility scaling, foldables and resolution changes can bias
 scale. Use full-screen portrait on an ordinary phone and validate distance
-against an independent reference. A reconnect refreshes the automatic profile.
+against an independent reference. The negotiated marker-state messages refresh the profile from the actual drawn fullscreen surface. Leaving that surface stops the tracking trial.
 
 ## Pose and quality
 
@@ -62,7 +62,7 @@ It records the two camera streams, not the phone's screen.
 Results live under `~/.local/state/framephone/sessions/tag-*/`:
 `session.json`, exact `factory/persist/` files, `run/poses.jsonl`,
 three rotating preview slots, optional `run/paired-images/`, and optional
-`telemetry.jsonl`. Images stop at 512 MiB, pose logs at 128 MiB, telemetry at
+`telemetry.jsonl`. Startup/errors are saved to `tracker.log`; `vr-pose.json` is a transient pose publication for the VR helper. Images stop at 512 MiB, pose logs at 128 MiB, telemetry at
 32 MiB with a bounded queue. Preview tokens bind overlays to their exact pair.
 
 ```bash
@@ -78,5 +78,5 @@ Session schema: `framephone-fiducial-session-v1`. Result schema:
 profile and diagnostic pose candidates. Only status `measured` is a current pose.
 
 See [calibration](CALIBRATION.md), [validation](TRACKING_VALIDATION.md),
-[screen capture constraints](SCREEN_CAPTURE.md) and
+[VR calibration display](VR_DISPLAY.md) and
 [AprilTag license](../third_party/apriltag/LICENSE).

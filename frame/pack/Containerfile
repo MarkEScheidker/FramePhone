@@ -3,12 +3,8 @@ ARG BUILD_JOBS=2
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ cmake make python3 ca-certificates libapriltag-dev libopencv-calib3d-dev \
-    libopencv-imgproc-dev libopencv-features2d-dev nlohmann-json3-dev makeself \
+    libopencv-imgproc-dev nlohmann-json3-dev makeself \
     && rm -rf /var/lib/apt/lists/*
-COPY frame/third_party/xfeat/manifest.json /src/frame/third_party/xfeat/manifest.json
-COPY frame/pack/fetch-photo-models.py /src/frame/pack/fetch-photo-models.py
-RUN python3 /src/frame/pack/fetch-photo-models.py \
-    --output /opt/framephone/share/framephone/xfeat --torch-wheel /tmp/photo-wheels
 COPY LICENSE /src/LICENSE
 COPY frame /src/frame
 RUN FRAMEPHONE_BUILD_JOBS="$BUILD_JOBS" FRAMEPHONE_INSTALL_DIR=/opt/framephone \
@@ -25,24 +21,15 @@ RUN cp -a /src/frame/desktop /opt/framephone/desktop \
 FROM docker.io/library/ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libapriltag3t64 libopencv-calib3d406t64 python3-tk python3-pil \
-    python3-pip python3-opencv python3-numpy ca-certificates libgomp1 \
+    libapriltag3t64 libopencv-calib3d406t64 python3-tk ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /tmp/photo-wheels /tmp/photo-wheels
-COPY frame/pack/requirements-photo.txt /tmp/requirements-photo.txt
-RUN python3 -m pip install --disable-pip-version-check --only-binary=:all: --no-cache-dir --no-deps --target /opt/framephone/python \
-    /tmp/photo-wheels/*.whl -r /tmp/requirements-photo.txt \
-    && rm -rf /tmp/photo-wheels /tmp/requirements-photo.txt
 COPY --from=builder /opt/framephone /opt/framephone
-RUN FRAMEPHONE_PHOTO_MODELS=/opt/framephone/share/framephone/xfeat \
-    FRAMEPHONE_PHOTO_WORKER=/opt/framephone/desktop/learned_worker.py \
-    /opt/framephone/bin/framephone-photo --model-self-test
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \
     > /opt/framephone/share/framephone/runtime-packages.txt
 LABEL org.opencontainers.image.title="FramePhone" \
-      org.opencontainers.image.description="Phone telemetry and calibrated fixed-photo stereo tracking" \
+      org.opencontainers.image.description="Fullscreen AprilTag stereo tracking and VR test surface" \
       org.opencontainers.image.licenses="MIT"
-ENTRYPOINT ["/opt/framephone/bin/framephone-photo"]
+ENTRYPOINT ["/opt/framephone/bin/framephone-fiducial"]
 CMD ["--help"]
 
 FROM builder AS package

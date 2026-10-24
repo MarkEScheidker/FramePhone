@@ -28,24 +28,6 @@ import com.example.framephone.link.TelemetryState
 class MainActivity : ComponentActivity() {
     private lateinit var store: SettingsStore
     private var notice by mutableStateOf("")
-    private var photoReady by mutableStateOf(false)
-    private var photoLoading by mutableStateOf(false)
-    private val photoPicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            photoLoading = true
-            kotlin.concurrent.thread(name = "photo-decode") {
-                val selected = runCatching { PhotoReference.select(this, uri) }
-                runOnUiThread {
-                    photoLoading = false
-                    selected.onSuccess {
-                        photoReady = true
-                        notice = ""
-                        if (!isFinishing && !isDestroyed) startActivity(Intent(this, PhotoActivity::class.java))
-                    }.onFailure { notice = it.message ?: "Unable to open photo" }
-                }
-            }
-        }
-    }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         startLink()
     }
@@ -85,17 +67,14 @@ class MainActivity : ComponentActivity() {
         Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("FramePhone", style = MaterialTheme.typography.headlineLarge)
-            Text("Phone dimensions and live motion sensors")
+            Text("Fullscreen marker tracking and live motion sensors")
             Text("Measure the outside of the phone, including its case, in portrait. These are body dimensions, not the illuminated screen.")
             DimensionField("Width (mm)", width, !status.running) { width = it }
             DimensionField("Height (mm)", height, !status.running) { height = it }
             DimensionField("Thickness (mm)", thickness, !status.running) { thickness = it }
-            Button(onClick = { photoPicker.launch("image/*") }, enabled = !photoLoading,
-                modifier = Modifier.fillMaxWidth()) { Text(if (photoLoading) "Preparing photo…" else "Choose tracking photo") }
-            if (photoReady || PhotoReference.current != null) OutlinedButton(
-                onClick = { startActivity(Intent(this@MainActivity, PhotoActivity::class.java)) },
-                modifier = Modifier.fillMaxWidth()) { Text("Show tracking photo (tap photo to return)") }
-            Text("Choose a detailed photo. Frame downloads it once over the paired link and estimates its position and angle using the two front cameras. No screen recording or marker is needed.")
+            Button(onClick = { startActivity(Intent(this@MainActivity, MarkerActivity::class.java)) },
+                modifier = Modifier.fillMaxWidth()) { Text("Show fullscreen tracking marker") }
+            Text("One AprilTag fills the screen width with its required white border. Keep it displayed while tracking; tap it or use Back to return. Frame uses its two front cameras to measure position and rotation.")
             Button(onClick = {
                 runCatching {
                     store.save(PhoneDimensions(width.replace(',', '.').toDouble(),
@@ -132,7 +111,7 @@ class MainActivity : ComponentActivity() {
             if (remembered != null) OutlinedButton(onClick = {
                 command("forget"); remembered = null
             }) { Text("Forget headset and stop") }
-            Text("Gyroscope and accelerometer request 200 Hz; magnetometer requests 50 Hz where available. Photo pose uses stereo camera measurements; ARCore alignment is a later step.")
+            Text("Gyroscope and accelerometer request 200 Hz; magnetometer requests 50 Hz where available. The marker stays visible for this optical calibration test. ARCore anchoring comes later.")
             Text("Sensors use Android's fixed natural-device axes: X right, Y up, Z out of the screen. Rotating the UI does not rotate these axes. Stop the connection before editing dimensions.")
         }
     }

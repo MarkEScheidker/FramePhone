@@ -9,6 +9,8 @@ import org.json.JSONObject
  * AprilTag codeword data: BSD-2-Clause; see assets/APRILTAG_LICENSE.txt.
  */
 object Fiducial {
+    @Volatile var displayed = false
+    @Volatile private var drawnProfile: String? = null
     val rows = listOf(
         "0000000000", "0111111110", "0100101010", "0110001010", "0110011110",
         "0101011110", "0110100110", "0111101110", "0111111110", "0000000000",
@@ -21,11 +23,25 @@ object Fiducial {
             .put("origin", "black_square_center").put("axes", "right_up_front")
     }
     fun cellPixels(width: Int, height: Int): Int = (minOf(width, height) / 10).coerceAtLeast(1)
+    fun displayProfile(width: Int, height: Int, xdpi: Double): JSONObject {
+        require(width in 100..10000 && height in width..10000)
+        require(xdpi.isFinite() && xdpi in 50.0..2000.0) { "Invalid reported display DPI" }
+        val blackPixels = cellPixels(width, height) * 8
+        return profile(blackPixels * 25.4 / xdpi)
+            .put("screen_width_px", width).put("screen_height_px", height)
+            .put("black_edge_px", blackPixels)
+    }
+    fun drawn(context: Context, width: Int, height: Int) {
+        drawnProfile = runCatching {
+            displayProfile(width, height, context.resources.displayMetrics.xdpi.toDouble()).toString()
+        }.getOrNull()
+        displayed = drawnProfile != null
+    }
+    fun currentProfile(context: Context): JSONObject =
+        if (displayed && drawnProfile != null) JSONObject(drawnProfile!!) else automaticProfile(context)
     fun automaticProfile(context: Context): JSONObject {
         val bounds = context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
         val xdpi = context.resources.displayMetrics.xdpi.toDouble()
-        require(xdpi.isFinite() && xdpi in 50.0..2000.0) { "Invalid reported display DPI" }
-        val blackPixels = cellPixels(bounds.width(), bounds.height()) * 8
-        return profile(blackPixels * 25.4 / xdpi)
+        return displayProfile(bounds.width(), bounds.height(), xdpi)
     }
 }

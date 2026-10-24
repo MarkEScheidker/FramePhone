@@ -1,51 +1,37 @@
 # Test on Steam Frame
 
-The primary experiment is now **Photo tracking**. Install the updated Android
-APK, pair/connect, and choose a detailed photo on the phone. Keep it displayed.
-On Frame choose **Photo tracking → Use phone photo → Enable cameras → Refresh
-cameras → Start photo tracking**. Confirm inlier counts, outline, XYZ/distance,
-rotation and photo size. Cover/reveal the screen to test loss/reacquisition.
-Use **Learned (XFeat/LighterGlue)** for the new static-image experiment. It searches
-calibrated front-camera views and narrows the search around the last accepted
-photo. Hold still for a search cycle. **Camera setup → Model check** tests model
-loading separately from the geometry self-test. A working Android photo transfer
-needs no new APK for this change; rebuild the Frame `.run` with the normal command.
-See [the fixed-photo procedure](PHOTO_TRACKING.md) for details and limits.
+1. Build with **`bash frame/build.sh`** on the headset or a Linux PC. Open
+   `frame/build/dist/FramePhone-arm64.run` on Frame after allowing execution.
+2. Build/install the updated Android APK. Save phone/case dimensions, start its
+   connection, then pair/connect through Frame's **Phone telemetry** tab.
+3. On the phone tap **Show fullscreen tracking marker**. Keep it displayed.
+4. On Frame open **Marker tracking**, enable cameras and approve authorization.
+   Refresh cameras and verify the two physical front streams and factory mappings.
+5. Click **Start tracking**. Look for left/right ID 0 counts, marker outlines,
+   XYZ, distance, angles and reprojection RMS. Tilt and move the phone slowly.
+6. Enable **Show tracked screen in VR (SteamVR)**. With SteamVR active, a thin
+   screen-shaped object should follow the marker. This renderer needs hardware
+   validation; its head alignment and motion timing are provisional. Details
+   appear under **Camera setup** if loading fails.
+7. Cover the marker: pose and VR object must disappear. Reveal it: they should
+   return automatically. Leaving the marker Activity stops the test; show it and
+   Start tracking again. Stop/disconnect must clear the pose and VR display.
 
-The historical instructions below describe the retained marker source/tool;
-that workflow is no longer exposed in the normal app UI. Use the photo procedure
-above for current headset testing.
+Expected front defaults are video3/slam_left and video0/slam_right, but cover
+lenses to verify both physical identity and calibration mapping. Side cameras
+are not used. **Camera setup → Show front camera views** provides native/full-size
+previews. Geometry self-test exercises synthetic detection and pose, not hardware
+accuracy or successful SteamVR integration.
 
-Build with **`bash frame/build.sh`**, on the headset or a Linux PC, and open
-`frame/build/dist/FramePhone-arm64.run` on Frame after enabling execution in file
-Properties. Runtime libraries and the camera broker are bundled.
+For calibration, compare marker-center distance with independently measured
+positions at several distances and angles. Scale comes from Android's reported
+physical DPI; fullscreen sizing alone does not prove millimeter accuracy. The
+screen slab is centered at the marker, not a measured case/body origin.
 
-Install the updated Android APK, enter phone/case dimensions and start the
-connection. In **Phone telemetry**, find/pair the phone and approve matching
-fingerprints, or connect the saved phone. Tap **Show large tracking marker** on
-Android. It automatically fills the screen width with one centered tag plus
-the required white margin; there is no marker-size input.
+For debugging, enable **Record headset camera images + raw telemetry** before
+Start. Stop, then use **Open results** and copy the newest complete `tag-*` trial.
+Include `tracker.log`, `session.json`, factory data and `run/poses.jsonl`; enable
+recording for replayable images. No screen capture or ARCore is involved.
 
-In **Marker tracking**, enable cameras and approve desktop authorization.
-Refresh cameras, choose the two front streams and their matching factory
-calibrations, then **Start tracking**. No frozen capture or corner labelling.
-The expected front defaults are `og01a1b_4-0060_video3` with `slam_left` and
-`og01a1b_4-0036_video0` with `slam_right`. Cover each front lens to verify the
-stream. Factory-to-stream association remains provisional; sensor names alone
-do not prove identity. Side cameras are not used.
-
-**Camera setup → Show front camera views** provides previews and full-size
-native pixels. The geometry self-test exercises detection/pose plumbing using
-synthetic inputs, not headset accuracy.
-
-Start with the entire marker visible to both views, then tilt/move it slowly.
-You should see ID counts, marker outlines and marker-center XYZ/rotation.
-Hide it: current pose must disappear. Reveal it: tracking should reacquire.
-A single view's detection is shown but cannot produce this stereo pose.
-Use optional camera/telemetry recording for difficult trials.
-
-Distance scale comes from Android's unverified physical display DPI. Check it
-against known distances before interpreting accuracy. See
-[single-marker tracking](FIDUCIAL_TRACKING.md), [calibration](CALIBRATION.md)
-and [validation](TRACKING_VALIDATION.md). Whole-phone screen recording is
-separate and has [on-screen marker constraints](SCREEN_CAPTURE.md).
+See [single-marker tracking](FIDUCIAL_TRACKING.md), [VR display](VR_DISPLAY.md),
+[calibration](CALIBRATION.md), and [validation](TRACKING_VALIDATION.md).

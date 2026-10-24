@@ -80,7 +80,7 @@ class Window:
         for key in ("left", "right", "left_stream", "right_stream"):
             setattr(self, key, tk.StringVar(value=mapping.get(key, "")))
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_views", False)))
-        self.status = tk.StringVar(value="Pair the phone, choose a photo on it, then open Photo tracking.")
+        self.status = tk.StringVar(value="Pair the phone, show its fullscreen marker, then open Marker tracking.")
         root.title("FramePhone")
         root.geometry("1000x900")
         root.minsize(720, 600)
@@ -88,20 +88,19 @@ class Window:
         ttk.Label(root, textvariable=self.status, wraplength=950, padding=8).pack(side="bottom", fill="x")
         tabs = ttk.Notebook(root)
         tabs.pack(fill="both", expand=True)
-        phone_tab, photo_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
+        phone_tab, marker_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
         tabs.add(phone_tab, text="Phone telemetry")
-        tabs.add(photo_tab, text="Photo tracking")
+        tabs.add(marker_tab, text="Marker tracking")
         tabs.add(camera_tab, text="Camera setup")
         from phone_panel import PhonePanel
         self.phone_panel = PhonePanel(phone_tab, self.config.parent)
-        from photo_panel import PhotoPanel
-        self.photo_panel = PhotoPanel(photo_tab, self)
-        self.tracking_panel = self.photo_panel
+        from fiducial_panel import FiducialPanel
+        self.tracking_panel = FiducialPanel(marker_tab, self)
         panel = ttk.Frame(camera_tab, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(3, weight=1)
-        ttk.Label(panel, text="Front camera setup — choose streams in Photo tracking",
+        ttk.Label(panel, text="Front camera setup — choose streams in Marker tracking",
                   font=("sans", 16, "bold")).grid(row=0, column=0, sticky="w")
         actions = ttk.Frame(panel)
         actions.grid(row=1, column=0, sticky="ew", pady=10)
@@ -110,8 +109,6 @@ class Window:
         ttk.Button(actions, text="Refresh cameras", command=self.refresh).pack(side="left", padx=8)
         self.test_button = ttk.Button(actions, text="Geometry self-test", command=self.self_test)
         self.test_button.pack(side="left")
-        self.model_test_button = ttk.Button(actions, text="Model check", command=self.model_test)
-        self.model_test_button.pack(side="left", padx=5)
         ttk.Checkbutton(actions, text="Show front camera views", variable=self.show_views,
                         command=self.toggle_views).pack(side="left", padx=8)
         self.preview_panel = ttk.Frame(panel)
@@ -200,18 +197,11 @@ class Window:
     def self_test(self):
         if "self-test" not in self.processes:
             self.self_test_result = None
-            self.status.set("Running synthetic body-pose self-test…")
+            self.status.set("Running synthetic marker-pose self-test…")
             self.test_button.configure(state="disabled")
-            if not self.spawn("self-test", self.runtime.command("photo", "--self-test")):
+            if not self.spawn("self-test", self.runtime.command("fiducial", "--self-test")):
                 self.test_button.configure(state="normal")
                 self.self_test_result = False
-
-    def model_test(self):
-        if "model-test" not in self.processes:
-            self.status.set("Checking bundled learned models on a synthetic image…")
-            self.model_test_button.configure(state="disabled")
-            if not self.spawn("model-test", self.runtime.command("photo", "--model-self-test")):
-                self.model_test_button.configure(state="normal")
 
     def enable_cameras(self):
         try:
@@ -270,6 +260,8 @@ class Window:
                 break
             if kind == "line":
                 self.log(f"[{name}] {value}")
+                if name == "overlay":
+                    self.tracking_panel.vr_status.set(value)
                 if name == "camera" and "without privileges" in value:
                     self.refresh()
             elif kind == "exit":
@@ -281,11 +273,9 @@ class Window:
                     self.status.set("Camera broker stopped. Enable cameras to retry.")
                     if self.tracking_panel.busy:
                         self.tracking_panel.stop()
-                elif name == "model-test":
-                    self.model_test_button.configure(state="normal")
-                    self.status.set("Learned model check passed (synthetic; camera tracking unverified)."
-                                    if value == 0 else "Learned model check failed; see log.")
-                else:
+                elif name == "overlay":
+                    self.tracking_panel.vr_status.set("VR display stopped. See Camera setup log." if value else "VR display closed.")
+                elif name == "self-test":
                     self.self_test_result = value == 0
                     self.test_button.configure(state="normal")
                     self.status.set("Geometry self-test passed (synthetic; hardware accuracy is unverified)." if value == 0 else "Geometry self-test failed; see log.")

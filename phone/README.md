@@ -2,9 +2,10 @@
 
 FramePhone sends live gyroscope, accelerometer and magnetometer observations to
 the Frame desktop app over an authenticated TLS connection. Android 12+;
-application ID `com.example.framephone`. Choose a tracking photo on the phone;
-it displays full-screen and can be downloaded once by the paired Frame app for
-automatic stereo tracking. No screen capture permission is required for this test.
+application ID `com.example.framephone`. A single AprilTag fills the screen width
+with its required white border and remains visible throughout the optical test.
+The phone reports its marker layout and visibility over the authenticated link.
+No screen capture permission or ARCore installation is needed for this milestone.
 
 ## Build
 
@@ -52,14 +53,13 @@ The enabled connection uses a connected-device foreground service, not an overla
 
 ## Current limits
 
-After pairing, tap **Choose tracking photo**, select a detailed photo and keep
-it displayed. On Frame use **Photo tracking → Use phone photo**, then start the
-stereo test. Tap the photo or Back to return to settings; **Show tracking photo**
-reopens it. Selection remains in memory for the app process. Source files are
-bounded to 16 MiB and decoded/resized to at most 960 pixels on the long edge.
-Frame receives the exact prepared PNG once, rather than a changing screen stream.
-No manual corners or physical target-size entry is required. See
-[photo tracking](../frame/docs/PHOTO_TRACKING.md).
+After pairing, tap **Show fullscreen tracking marker** and keep it displayed.
+On Frame use **Marker tracking → Enable cameras → Refresh cameras → Start
+tracking**. Tap the marker or Back to return; doing so clears the tracking state.
+Fullscreen marker sizing is automatic, with whole-pixel cells and no size slider.
+Android's reported physical DPI supplies an unverified metric black-edge size.
+No forced brightness is applied. See [marker tracking](../frame/docs/FIDUCIAL_TRACKING.md)
+and [VR display](../frame/docs/VR_DISPLAY.md).
 
 Pairing uses manual fingerprint comparison, not QR scanning. Discovery is IPv4
 UDP broadcast; telemetry uses TLS 1.3/TCP on port 47643. Guest Wi-Fi/client
@@ -72,6 +72,6 @@ with vendor bias estimates separate; calibrated channels are explicit fallbacks.
 Original integer nanosecond timestamps and fixed natural-device axes are retained.
 Sampling during lock/sleep and power management still need device validation.
 
-The Frame estimates photo pose optically. ARCore/world alignment, robust paired-device
+The Frame estimates marker pose optically. ARCore/world alignment, robust paired-device
 visual identity, QR scanning, screen capture and remote input are not included.
 See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
