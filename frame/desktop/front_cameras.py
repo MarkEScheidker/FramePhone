@@ -1,18 +1,20 @@
-"""Camera discovery and explicit front-stream selection.
-
-Physical front/side identity must be checked on the headset. Sensor names and
-video numbers alone are not a verified factory-calibration mapping.
-"""
+"""The application's fixed front-camera pair and discovery validation."""
 import re
 
-MAPPING_VERSION = 2  # Discard the earlier hard-coded front/side assumptions.
-DEFAULT_CAMERAS = (("slam_left", "og01a1b_4-0060_video3"),
-                   ("slam_right", "og01a1b_4-0036_video0"))
+# Confirmed physical front pair for the supported headset configuration.
+FRONT_CAMERAS = (("slam_left", "og01a1b_4-0060_video3"),
+                 ("slam_right", "og01a1b_4-0036_video0"))
 
 
-def default_selection(saved, available, preferred):
-    """Preserve an available explicit choice; never substitute an unrelated stream."""
-    return saved if saved in available else preferred if preferred in available else ""
+def validate_front_cameras(factories, streams):
+    for side, (calibration, stream) in zip(("Front left", "Front right"), FRONT_CAMERAS):
+        if calibration not in factories:
+            raise ValueError(f"{side} factory calibration is unavailable")
+        if stream not in streams:
+            raise ValueError(f"{side} stream {stream} is unavailable")
+        source, factory = streams[stream], factories[calibration]
+        if (source["width"], source["height"]) != (factory["width"], factory["height"]):
+            raise ValueError(f"{side} stream dimensions do not match its factory calibration")
 
 
 def mono_streams(text):

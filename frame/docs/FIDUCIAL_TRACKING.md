@@ -11,14 +11,15 @@ is required. One tag is sufficient; the same tag is observed in both front camer
    single sharp, centered marker. Tap anywhere or use Back to return. Telemetry
    continues while the marker is shown.
 3. Build Frame using `bash frame/build.sh`, open the new ARM64 executable and
-   connect the phone in **Phone telemetry**.
-4. Open **Marker tracking**, enable/refresh cameras and verify the two physical
-   front streams and their factory associations. Cover lenses to check them.
+   let startup discover and reconnect the saved phone. Use **Connection** for
+   first-time pairing or a manual retry.
+4. Approve camera authorization if prompted. The confirmed front camera pair
+   starts automatically; selectors are not exposed.
 5. Click **Start tracking** and point the marker at the front cameras. The UI
    reports ID 0 counts for left/right, processing time and pose quality. Tilt and
    move slowly, then hide/reveal the marker to test loss and automatic reacquisition.
 
-**Show camera views** in Marker tracking displays the two front cameras with
+**Show camera views** on the dashboard displays the two front cameras with
 AprilTag outlines, center crosses and marker counts. Each native worker annotates
 its own frame without requiring phone pairing or a stereo pose. A 2D outline
 alone is not a 3D measurement. Waiting streams and errors have per-camera status.
@@ -35,7 +36,7 @@ its independently annotated camera preview.
 
 If no stereo pair arrives, the log reports per-camera frame counts and the latest
 capture-time difference against the 3 ms limit. After a timeout, both independent
-previews continue. Verify stream selection, freshness and camera timing rather
+previews continue. Check fixed-stream availability, freshness and camera timing rather
 than treating per-camera 2D recognition as an accepted stereo pose.
 
 The marker occupies the available screen width including one white quiet cell

@@ -58,3 +58,12 @@ Geometry and fiducial tracking remain separate native libraries in the main
 build. The desktop orchestrates those executables; the renderer consumes accepted
 pose messages. See the [reuse guide](../../docs/REUSING.md) before copying code or
 adding cross-layer dependencies.
+
+
+The desktop uses one dashboard. Its fixed front pair is declared in
+front_cameras.py; saved camera assignments are not loaded and no camera selectors
+are exposed. Startup launches camera authorization and phone discovery. Saved
+phone candidates are bounded and checked with the existing certificate pin;
+first-time pairing remains an explicit, fingerprint-approved action. Connection
+controls and the activity log expand inline. Raw sensor telemetry and recording
+remain independent from optical pose estimation.

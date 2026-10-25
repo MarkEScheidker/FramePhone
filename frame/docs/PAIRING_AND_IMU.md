@@ -6,17 +6,29 @@ the headset will own optical estimation and fusion in a later stage.
 
 ## Using the apps
 
-Enter measured phone-body/case width, height and thickness in millimeters on the
-phone, then start pairing. On Frame's **Phone telemetry** tab choose **Find
-phones**, select the phone, then **Pair new phone**. Compare all four fingerprint
-groups on the actual phone and Frame screens and approve both. Do not approve a
-mismatch. Sensor readings begin after approval.
+Enter measured phone-body/case dimensions on Android and start its connection.
+FramePhone presents one dashboard with a compact telemetry area. At startup it
+searches the LAN and reconnects to the saved phone. The last address is tried
+first, followed by at most seven additional distinct discovered addresses.
+Every candidate must match the saved TLS certificate before a credential is sent.
+A discovery reply does not establish identity; startup never enrolls a new phone.
 
-A pairing window lasts 90 seconds; confirmation waits are bounded. Use **Pair
-new headset** to reopen the window. The saved pair survives app restarts.
-Start the phone connection and choose **Connect saved phone** for another session.
-Select a newly discovered IP if it changed. No cloud account, camera, root
-authorization or clipboard is required. See the [phone guide](../../phone/README.md).
+For first pairing, expand **Connection**, use **Find phones**, select the phone
+and click **Pair new phone**. Compare all four fingerprint groups on the actual
+phone and headset screens, then approve both. A mismatch must be rejected.
+Pairing is open for 90 seconds; confirmation waits are bounded.
+
+After a failed automatic attempt, use **Connection → Reconnect**. A manual IP is
+available when broadcasts are blocked. **Disconnect** or **Forget phone** cancels
+pending automatic connection attempts. Established connection loss is reported;
+there is no perpetual reconnect loop. The phone must already be serving its
+connection; the headset does not wake or start the Android app.
+
+Gyro, accelerometer and magnetometer values, received rates, approximate ages,
+queue drops and RTT remain visible. Full sensor data, including accuracy and
+bias, remains available in opt-in recordings. Pairing still uses physical
+fingerprint approval and pinned reconnect. Camera authorization is separate from
+pairing and may appear at application startup.
 
 ## Discovery and authentication
 

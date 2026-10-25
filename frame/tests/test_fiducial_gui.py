@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
 from app import Runtime, Window
+from front_cameras import FRONT_CAMERAS
 
 binary = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
@@ -29,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
     starts = (1344,1344+4*slot_bytes[0])
     data = bytearray(1344+4*sum(slot_bytes))
     struct.pack_into("<8sIIIIQqQ", data, 0, b"FHRING01", 1, 1344, 2, 0, len(data), os.getpid(), time.monotonic_ns())
-    for v, name in enumerate((b"slam_left", b"slam_right")):
+    for v, name in enumerate(pair[1].encode() for pair in FRONT_CAMERAS):
         offset = 64 + v * 160
         data[offset:offset + 7] = b"og01a1b"
         data[offset + 32:offset + 32 + len(name)] = name
@@ -74,6 +75,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
             return [str(binary / f"framephone-{tool}"), *map(str, args)]
         def calibration_id(self):
             return "synthetic-factory-v1"
+        def camera_command(self):
+            return [sys.executable, "-c", "import time;print('running without privileges',flush=True);time.sleep(90)"]
     target = {"family": "tag36h11", "id": 0, "black_edge_m": .06,
               "origin": "black_square_center", "axes": "right_up_front", "size_source": "manual_black_edge",
               "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}
@@ -86,6 +89,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
             pass
     os.environ["XDG_CONFIG_HOME"] = str(temporary / "config")
     os.environ["XDG_STATE_HOME"] = str(temporary / "state")
+    settings = temporary / "config/framephone"
+    settings.mkdir(parents=True)
+    (settings/"settings.json").write_text(json.dumps({"left": "wrong", "left_stream": "side-camera"}))
     root = tk.Tk()
     errors = []
     root.report_callback_exception = lambda *error: errors.append(error)
@@ -96,10 +102,13 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
     window.phone_panel.parent.after_cancel(window.phone_panel.timer)
     phone = Phone()
     window.phone_panel.link = phone
-    window.left.set("slam_left")
-    window.right.set("slam_right")
-    window.left_stream.set("slam_left")
-    window.right_stream.set("slam_right")
+    # The synthetic connection replaces the real connected event and readouts.
+    window.phone_panel.settings.pack_forget()
+    for row in window.phone_panel.rows.values():
+        row.set("X +0.000 Y +0.000 Z +0.000\n120.0 Hz · age ≈ 12.3 ms")
+    phone_startups = []
+    window.phone_panel.startup = lambda: phone_startups.append(True)
+    assert window.camera_selection == tuple(item[0] for item in FRONT_CAMERAS)+tuple(item[1] for item in FRONT_CAMERAS)
     writer = threading.Thread(target=publish)
     writer.start()
     panel = window.tracking_panel
@@ -126,10 +135,13 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
             time.sleep(.01)
         raise AssertionError((panel.status.get(), panel.pose.get()))
     try:
-        window.refresh()
-        until(lambda: "scan" not in window.jobs)
-        assert set(window.available_streams) == {"slam_left", "slam_right"}
-        window.tabs.select(1)
+        until(lambda: window.status.get().startswith("Front cameras ready"))
+        assert "camera" in window.processes, "startup did not enable cameras"
+        assert phone_startups == [True], "startup did not initiate phone discovery"
+        def widgets(parent):
+            return [child for direct in parent.winfo_children() for child in [direct, *widgets(direct)]]
+        assert not any(w.winfo_class() == "TCombobox" for w in widgets(panel.parent)), "camera selection remains editable"
+        assert not any(w.winfo_class() == "TNotebook" for w in widgets(root)), "dashboard still uses tabs"
         until(lambda: bool(panel.preview_detections[0]) and "Waiting for camera frames" in panel.camera_status[1].get())
         assert not panel.busy and panel.result is None
         assert panel.preview_detections[0] and panel.preview_detections[0][0]["id"] == 0
@@ -141,7 +153,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: all(panel.preview_detections))
         original_command = runtime.command
         def failed_right(tool, *args):
-            if args and args[0] == "--preview-ring" and args[-1] == "slam_right":
+            if args and args[0] == "--preview-ring" and args[-1] == FRONT_CAMERAS[1][1]:
                 return [sys.executable, "-c", "import sys;sys.stderr.write('Camera preview failed');sys.exit(4)"]
             return original_command(tool, *args)
         runtime.command = failed_right
@@ -171,9 +183,12 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         window.show_views.set(True)
         window.toggle_views()
         until(lambda: all(panel.preview_detections))
-        window.tabs.select(2)
-        until(lambda: not window.preview_reader.workers)
-        window.tabs.select(1)
+        window.toggle_log()
+        root.update()
+        assert window.log_panel.winfo_ismapped()
+        window.toggle_log()
+        root.update()
+        assert not window.log_panel.winfo_ismapped()
         until(lambda: all(panel.preview_detections))
         panel.start()
         until(lambda: panel.result is not None and panel.result["status"] == "measured")

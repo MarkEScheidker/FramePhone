@@ -26,7 +26,7 @@ SDK paths belong in ignored `local.properties`. See [development notes](../docs/
    case, in portrait. Enter millimeters; these are not active-display dimensions.
 3. Tap **Save dimensions and start pairing**. Allow notifications so the Stop
    control is visible while using other apps. Keep this screen open for pairing.
-4. On Frame, open **Phone telemetry → Find phones**, select this phone and click
+4. On Frame, open **Connection → Find phones**, select this phone and click
    **Pair new phone**. If discovery fails, type the IP shown on the phone.
 5. Compare **all four fingerprint groups** on the two physical screens. Only
    choose **Fingerprints match** on both if they agree. Pairing closes after
@@ -35,8 +35,9 @@ SDK paths belong in ignored `local.properties`. See [development notes](../docs/
    received rates, gaps and approximate sample age. Missing sensors are shown
    explicitly; a missing magnetometer does not block the connection.
 
-For subsequent sessions, start the phone connection and choose **Connect saved
-phone** on Frame. Find/select it again if its IP changed. Reconnect checks the
+For subsequent sessions, start the phone connection and launch FramePhone.
+It discovers and reconnects to the saved phone automatically, including after an
+IP change. Use **Connection → Reconnect** for a manual retry. Reconnect checks the
 full saved certificate fingerprint before transmitting the reconnect credential.
 This version remembers one headset; a newly approved pairing replaces it.
 
@@ -54,8 +55,8 @@ The enabled connection uses a connected-device foreground service, not an overla
 ## Current limits
 
 After pairing, tap **Show fullscreen tracking marker** and keep it displayed.
-On Frame use **Marker tracking → Enable cameras → Refresh cameras → Start
-tracking**. Tap the marker or Back to return; doing so clears the tracking state.
+FramePhone enables its fixed front camera pair on startup. Approve authorization
+if prompted, then click **Start tracking** on its dashboard. Tap the marker or Back to return; doing so clears the tracking state.
 Fullscreen marker sizing is automatic, with whole-pixel cells and no size slider.
 Android's reported physical DPI supplies an unverified metric black-edge size.
 No forced brightness is applied. See [marker tracking](../frame/docs/FIDUCIAL_TRACKING.md)

@@ -25,13 +25,14 @@ in file Properties. Runtime libraries, desktop controls and the camera broker ar
 bundled. Docker/Podman is required only for building; Frametop is not required.
 The app uses the headset's installed SteamVR for the optional VR display.
 
-1. Build/install the Android APK from `phone/`. Save phone/case dimensions and
-   start the connection. Pair/connect in Frame's **Phone telemetry** tab.
-2. On Android tap **Show fullscreen tracking marker**. Keep it visible throughout
-   this test; tap or use Back to return. Brightness remains under your control.
-3. On Frame open **Marker tracking → Enable cameras → Refresh cameras → Start
-   tracking**. Verify the two front camera/calibration assignments. Enable
-   **Show rectangle in VR (SteamVR)** to test the VR object.
+1. Start the phone connection in Android. Launch FramePhone on the headset:
+   cameras start automatically (approve desktop authorization if prompted), and
+   the app discovers and reconnects to the saved phone.
+2. For first-time pairing, expand **Connection**, select the phone and choose
+   **Pair new phone**. Compare and approve matching fingerprints on both devices.
+3. Show the fullscreen phone marker, then click **Start tracking** on the
+   dashboard. Enable **Show rectangle in VR (SteamVR)** for the screen rectangle.
+   The confirmed front pair is fixed; camera selectors are not exposed.
 
 No photo selection, manual corners or marker-size adjustment is required. The
 white quiet border is part of the width-filling marker; the black square itself

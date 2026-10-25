@@ -399,6 +399,7 @@ class PhoneLink:
                     if saved.get("host") != host:
                         saved["host"] = host
                         self.store.save(saved)
+                    self.notify("connected", host)
                     self.notify("status", "Connected — receiving phone sensors")
                     phase = "sensor streaming"
                     pending, next_ping = set(), 0

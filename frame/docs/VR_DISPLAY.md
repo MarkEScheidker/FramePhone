@@ -1,6 +1,6 @@
 # Tracked VR rectangle
 
-In **Marker tracking**, start tracking and enable **Show rectangle in VR
+On the dashboard, start tracking and enable **Show rectangle in VR
 (SteamVR)**. A translucent blue rectangle with a bright green outline follows
 the latest accepted fiducial position and orientation. It is centered on the
 marker at the phone's screen plane. Keep the marker visible.
@@ -19,7 +19,7 @@ or stopping tracking destroys the overlay.
 The helper loads the installed SteamVR client through the user's OpenVR registry,
 with `/opt/steamvr` as a Frame fallback. No additional driver or Frametop installation
 is required. FramePhone bundles only Valve's pinned interface header. Startup and
-runtime errors appear in **Diagnostics** and `desktop.log`.
+runtime errors appear in **Activity log** and `desktop.log`.
 
 This stage uses **headset-relative placement** directly from the latest optical
 pose. The factory head frame is provisionally treated as the runtime HMD frame.

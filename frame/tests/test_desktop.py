@@ -27,18 +27,18 @@ app, reader = load("app"), load("ring_preview")
 
 class DesktopTests(unittest.TestCase):
 
-    def test_requested_defaults_preserve_explicit_selection(self):
-        left, right = front.DEFAULT_CAMERAS
-        self.assertEqual(left, ("slam_left", "og01a1b_4-0060_video3"))
-        self.assertEqual(right, ("slam_right", "og01a1b_4-0036_video0"))
-        available = [left[1], right[1], "custom"]
-        self.assertEqual(front.default_selection("", available, left[1]), left[1])
-        self.assertEqual(front.default_selection("custom", available, left[1]), "custom")
-        self.assertEqual(front.default_selection("old", ["unrelated_video3"], left[1]), "")
-
-
-
-
+    def test_fixed_front_pair_requires_matching_cameras(self):
+        self.assertEqual(front.FRONT_CAMERAS,
+                         (("slam_left", "og01a1b_4-0060_video3"),
+                          ("slam_right", "og01a1b_4-0036_video0")))
+        factories = {name: {"width": 1056, "height": 1024} for name, _ in front.FRONT_CAMERAS}
+        streams = {name: {"width": 1056, "height": 1024} for _, name in front.FRONT_CAMERAS}
+        front.validate_front_cameras(factories, streams)
+        with self.assertRaisesRegex(ValueError, "Front right stream"):
+            front.validate_front_cameras(factories, {front.FRONT_CAMERAS[0][1]: streams[front.FRONT_CAMERAS[0][1]]})
+        streams[front.FRONT_CAMERAS[1][1]] = {"width": 640, "height": 640}
+        with self.assertRaisesRegex(ValueError, "dimensions"):
+            front.validate_front_cameras(factories, streams)
 
     def test_host_tools_do_not_inherit_bundled_libraries(self):
         with patch.dict(os.environ, {"LD_LIBRARY_PATH": "/bundled", "LD_PRELOAD": "bad.so", "PYTHONHOME": "/bundled", "TK_LIBRARY": "/bundled", "DISPLAY": ":99", "FRAMEPHONE_LOADER": "/bundled"}):

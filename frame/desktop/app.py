@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 
-from front_cameras import DEFAULT_CAMERAS, MAPPING_VERSION, default_selection, factory_cameras, mono_streams
+from front_cameras import FRONT_CAMERAS, factory_cameras, mono_streams, validate_front_cameras
 from camera_previews import CameraPreviews
 
 
@@ -50,19 +50,17 @@ class Runtime:
 
 
 class Window:
-    def __init__(self, root, runtime):
+    def __init__(self, root, runtime, autostart=True):
         import tkinter as tk
         from tkinter import ttk
         from tkinter.scrolledtext import ScrolledText
         self.root, self.runtime = root, runtime
         self.preview_reader = CameraPreviews(runtime)
         self.preview_updated = [0, 0]
-        self.preview_selected = ["", ""]
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
-        self.factories, self.available_streams = {}, []
-        self.factory_boxes, self.stream_boxes = [], []
+        self.factories = {}
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
         state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "framephone"
@@ -80,38 +78,37 @@ class Window:
                 saved = {}
         except (OSError, ValueError):
             saved = {}
-        mapping = saved if saved.get("mapping_version") == MAPPING_VERSION else {}
-        for key in ("left", "right", "left_stream", "right_stream"):
-            setattr(self, key, tk.StringVar(value=mapping.get(key, "")))
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_camera_views", True)))
-        self.status = tk.StringVar(value="Pair the phone, show its fullscreen marker, then open Marker tracking.")
+        self.status = tk.StringVar(value="Starting cameras and phone discovery…")
         root.title("FramePhone")
         root.geometry("1000x900")
         root.minsize(720, 600)
         root.protocol("WM_DELETE_WINDOW", self.close)
-        ttk.Label(root, textvariable=self.status, wraplength=950, padding=8).pack(side="bottom", fill="x")
-        self.tabs = tabs = ttk.Notebook(root)
-        tabs.pack(fill="both", expand=True)
-        phone_tab, marker_tab, diagnostics_tab = (ttk.Frame(tabs) for _ in range(3))
-        tabs.add(phone_tab, text="Phone telemetry")
-        tabs.add(marker_tab, text="Marker tracking")
-        tabs.add(diagnostics_tab, text="Diagnostics")
+        ttk.Label(root, textvariable=self.status, wraplength=680, padding=8).pack(side="bottom", fill="x")
+        dashboard = ttk.Frame(root, padding=8)
+        dashboard.pack(fill="both", expand=True)
+        dashboard.columnconfigure(0, weight=1)
+        dashboard.rowconfigure(1, weight=1)
+        phone_area = ttk.Frame(dashboard)
+        phone_area.grid(row=0, column=0, sticky="ew")
+        tracking_area = ttk.Frame(dashboard)
+        tracking_area.grid(row=1, column=0, sticky="nsew")
         from phone_panel import PhonePanel
-        self.phone_panel = PhonePanel(phone_tab, self.config.parent)
+        self.phone_panel = PhonePanel(phone_area, self.config.parent)
         from fiducial_panel import FiducialPanel
-        self.tracking_panel = FiducialPanel(marker_tab, self)
-        panel = ttk.Frame(diagnostics_tab, padding=16)
-        panel.pack(fill="both", expand=True)
-        panel.columnconfigure(0, weight=1)
-        panel.rowconfigure(2, weight=1)
-        ttk.Label(panel, text="Diagnostics", font=("sans", 16, "bold")).grid(row=0, column=0, sticky="w")
-        actions = ttk.Frame(panel)
-        actions.grid(row=1, column=0, sticky="ew", pady=10)
+        self.tracking_panel = FiducialPanel(tracking_area, self)
+        self.log_panel = ttk.LabelFrame(dashboard, text="Activity log", padding=6)
+        self.log_panel.grid(row=2, column=0, sticky="ew")
+        self.log_panel.columnconfigure(0, weight=1)
+        actions = ttk.Frame(self.log_panel)
+        actions.grid(row=0, column=0, sticky="ew")
         self.test_button = ttk.Button(actions, text="Geometry self-test", command=self.self_test)
         self.test_button.pack(side="left")
-        ttk.Button(actions, text="Open results", command=lambda: self.open_folder(self.sessions)).pack(side="left", padx=8)
-        self.output = ScrolledText(panel, height=10, state="disabled", font=("monospace", 9))
-        self.output.grid(row=2, column=0, sticky="nsew", pady=8)
+        self.output = ScrolledText(self.log_panel, height=5, state="disabled", font=("monospace", 9))
+        self.output.grid(row=1, column=0, sticky="ew", pady=4)
+        self.log_panel.grid_remove()
+        if autostart:
+            root.after(200, self.startup)
         root.after(100, self.drain)
         root.after(250, self.update_previews)
 
@@ -127,12 +124,24 @@ class Window:
     def save(self):
         self.config.parent.mkdir(parents=True, exist_ok=True)
         temp = self.config.with_suffix(".tmp")
-        settings = {key: getattr(self, key).get() for key in
-                    ("left", "right", "left_stream", "right_stream")}
-        settings["show_camera_views"] = self.show_views.get()
-        settings["mapping_version"] = MAPPING_VERSION
+        settings = {"show_camera_views": self.show_views.get()}
         temp.write_text(json.dumps(settings, indent=2) + "\n")
         temp.replace(self.config)
+
+    @property
+    def camera_selection(self):
+        return tuple(item[0] for item in FRONT_CAMERAS) + tuple(item[1] for item in FRONT_CAMERAS)
+
+    def startup(self):
+        if not self.closing:
+            self.enable_cameras()
+            self.phone_panel.startup()
+
+    def toggle_log(self):
+        if self.log_panel.winfo_manager():
+            self.log_panel.grid_remove()
+        else:
+            self.log_panel.grid()
 
     def toggle_views(self):
         self.tracking_panel.set_camera_views(self.show_views.get())
@@ -170,6 +179,9 @@ class Window:
                 self.self_test_result = False
 
     def enable_cameras(self):
+        if "camera" in self.processes:
+            self.refresh()
+            return
         try:
             command = self.runtime.camera_command()
             self.runtime.calibration_id()  # Fail clearly on a PC before prompting for root.
@@ -184,7 +196,6 @@ class Window:
 
     def refresh(self):
         if self.tracking_panel.busy:
-            self.status.set("Stop tracking before refreshing the camera mapping.")
             return
         if "scan" in self.jobs:
             return
@@ -236,11 +247,11 @@ class Window:
                 self.log(f"[{name}] exited with status {value}")
                 if name == "camera":
                     self.camera_button.configure(state="normal")
-                    self.status.set("Camera broker stopped. Enable cameras to retry.")
+                    self.status.set("Camera broker stopped. Use Retry cameras.")
                     if self.tracking_panel.busy:
                         self.tracking_panel.stop()
                 elif name == "overlay":
-                    self.tracking_panel.vr_status.set("VR display stopped. See Diagnostics log." if value else "VR display closed.")
+                    self.tracking_panel.vr_status.set("VR display stopped. See the activity log." if value else "VR display closed.")
                 elif name == "self-test":
                     self.self_test_result = value == 0
                     self.test_button.configure(state="normal")
@@ -248,22 +259,19 @@ class Window:
             elif kind == "scan":
                 self.jobs.discard("scan")
                 self.factories = factory_cameras(name)
-                self.available_streams = list(mono_streams(value))
-                for box in self.stream_boxes:
-                    box.configure(values=self.available_streams)
-                for box in self.factory_boxes:
-                    box.configure(values=list(self.factories))
-                for calibration, stream, (default_calibration, default_stream) in zip(
-                        (self.left, self.right), (self.left_stream, self.right_stream), DEFAULT_CAMERAS):
-                    calibration.set(default_selection(calibration.get(), self.factories, default_calibration))
-                    stream.set(default_selection(stream.get(), self.available_streams, default_stream))
-                self.save()
+                streams = mono_streams(value)
+                self.camera_button.configure(state="normal")
+                try:
+                    validate_front_cameras(self.factories, streams)
+                    self.status.set("Front cameras ready · left video3 · right video0")
+                except ValueError as error:
+                    self.status.set(str(error))
                 self.log("Factory cameras:\n" + name + "Live streams:\n" + value)
-                self.status.set("Front defaults use video3/slam_left and video0/slam_right when available. Verify lenses and calibration mapping.")
             else:
                 self.jobs.discard("scan")
                 self.log("Camera discovery: " + str(value))
-                self.status.set("Cameras are not ready. Retry Enable/Refresh cameras; see Diagnostics log.")
+                self.camera_button.configure(state="normal")
+                self.status.set("Cameras are not ready. Retry cameras; see the activity log.")
         if not self.closing:
             self.root.after(100, self.drain)
 
@@ -272,17 +280,13 @@ class Window:
         if self.closing:
             return
         visible = self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
-        for index, stream in enumerate((self.left_stream.get(), self.right_stream.get())):
+        for index, (_, stream) in enumerate(FRONT_CAMERAS):
             self.preview_reader.update(index, stream, visible)
             if not visible:
                 self.preview_updated[index] = 0
                 continue
-            changed = self.preview_selected[index] != stream
-            if changed:
-                self.preview_selected[index] = stream
-                self.preview_updated[index] = 0
             item = self.preview_reader.take(index)
-            if item is None and not changed and time.monotonic()-self.preview_updated[index] < 1.5:
+            if item is None and time.monotonic()-self.preview_updated[index] < 1.5:
                 continue
             result, error = item if item else (None, "Waiting for camera frames…" if stream else "Select a camera stream.")
             if item is not None:
@@ -328,14 +332,14 @@ class Window:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FramePhone desktop tracking test")
+    parser = argparse.ArgumentParser(description="FramePhone tracking dashboard")
     parser.add_argument("--gui-smoke", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk()
     try:
-        window = Window(root, Runtime())
+        window = Window(root, Runtime(), autostart=not args.gui_smoke)
     except (OSError, ValueError) as error:
         root.withdraw()
         messagebox.showerror("FramePhone", str(error))

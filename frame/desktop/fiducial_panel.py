@@ -24,7 +24,7 @@ REJECTION_HINTS = {
 
 def create_session(directory, snapshot, factory_root, selections, ring, record):
     if not snapshot:
-        raise ValueError("Connect your phone in Phone telemetry first.")
+        raise ValueError("Connect your phone first.")
     if snapshot.get("marker_displayed") is False:
         raise ValueError("Show the fullscreen tracking marker on the phone first.")
     if snapshot.get("marker_displayed") is True and not snapshot.get("marker_state_fresh"):
@@ -79,39 +79,22 @@ class FiducialPanel:
         self.preview_images = [None, None]
         self.preview_detections = [[], []]
         self.preview_updated = [0, 0]
-        self.camera_status = [tk.StringVar(value=name + " — select/enable camera") for name in ("Front left", "Front right")]
+        self.camera_status = [tk.StringVar(value=name + " — starting camera") for name in ("Front left", "Front right")]
         self.last_update = 0
         self.has_results = False
-        self.status = tk.StringVar(value="Connect the phone, show its large marker, then Start tracking.")
+        self.status = tk.StringVar(value="Show the fullscreen phone marker, then start tracking.")
         self.pose = tk.StringVar(value="No marker pose")
         self.record = tk.BooleanVar(value=False)
         self.vr_enabled = tk.BooleanVar(value=False)
         self.vr_status = tk.StringVar(value="VR display is off.")
-        panel = ttk.Frame(parent, padding=12)
+        panel = ttk.Frame(parent, padding=(0, 6))
         panel.pack(fill="both", expand=True)
-        ttk.Label(panel, text="Phone tracking", font=("sans", 20, "bold")).pack(anchor="w")
-        ttk.Label(panel, text="One large tag36h11 marker, ID 0. Keep its whole black square and white margin visible.",
-                  wraplength=900).pack(anchor="w", pady=6)
         setup = ttk.Frame(panel)
-        setup.pack(fill="x")
-        app.camera_button = ttk.Button(setup, text="Enable cameras", command=app.enable_cameras)
+        setup.pack(fill="x", pady=4)
+        app.camera_button = ttk.Button(setup, text="Retry cameras", command=app.enable_cameras)
         app.camera_button.pack(side="left")
-        ttk.Button(setup, text="Refresh cameras", command=app.refresh).pack(side="left", padx=6)
-        ttk.Button(setup, text="Open results", command=lambda: app.open_folder(app.sessions)).pack(side="right")
-        self.boxes = []
-        mapping = ttk.Frame(panel)
-        mapping.pack(fill="x", pady=4)
-        mapping.columnconfigure((1, 2), weight=1, uniform="camera-selection")
-        ttk.Label(mapping, text="Factory calibration").grid(row=0, column=1, sticky="w")
-        ttk.Label(mapping, text="Camera stream").grid(row=0, column=2, sticky="w")
-        for v, (name, factory, stream) in enumerate((("Front left", app.left, app.left_stream),
-                                                   ("Front right", app.right, app.right_stream))):
-            ttk.Label(mapping, text=name).grid(row=v+1, column=0, sticky="w")
-            for col, variable, collection in ((1, factory, app.factory_boxes), (2, stream, app.stream_boxes)):
-                box = ttk.Combobox(mapping, textvariable=variable, state="readonly", width=1)
-                box.grid(row=v+1, column=col, padx=4, sticky="ew")
-                self.boxes.append(box)
-                collection.append(box)
+        ttk.Button(setup, text="Activity log", command=app.toggle_log).pack(side="right")
+        ttk.Button(setup, text="Open results", command=lambda: app.open_folder(app.sessions)).pack(side="right", padx=6)
         actions = setup
         self.start_button = ttk.Button(actions, text="Start tracking", command=self.start)
         self.start_button.pack(side="left")
@@ -150,16 +133,14 @@ class FiducialPanel:
         try:
             snapshot = link.snapshot() if link else None
             if not snapshot:
-                raise ValueError("Connect your phone in Phone telemetry first.")
-            selections = [var.get() for var in (self.app.left, self.app.right, self.app.left_stream, self.app.right_stream)]
-            if not all(selections) or selections[2] == selections[3]:
-                raise ValueError("Choose two distinct front camera streams and matching calibrations.")
+                raise ValueError("Connect your phone first.")
+            selections = self.app.camera_selection
             for v, (stream, calibration) in enumerate(zip(selections[2:], selections[:2])):
                 side = ("Front left", "Front right")[v]
                 try:
                     current = preview(self.app.runtime.ring, stream, metadata=True)
                     if current is None:
-                        raise ValueError("no frame received; wait for the broker or choose the correct stream")
+                        raise ValueError("no frame received; wait for camera startup or retry cameras")
                     width, height, _, metadata = current
                     published = metadata["publish_monotonic_ns"]
                     if published and not 0 <= time.monotonic_ns()-published <= 1_000_000_000:
@@ -194,8 +175,6 @@ class FiducialPanel:
         self.pose.set("Waiting for decoded markers")
         self.status.set(f"Reported black edge: {self.config['fiducial']['black_edge_m']*1000:.1f} mm. Searching both front views…")
         self.start_button.configure(state="disabled")
-        for box in self.boxes:
-            box.configure(state="disabled")
         def run():
             code, error = 1, ""
             try:
@@ -263,7 +242,7 @@ class FiducialPanel:
             return
         if "overlay" not in self.app.processes:
             if self.app.spawn("overlay", self.app.runtime.command("overlay", "--session", self.session)):
-                self.vr_status.set("Opening VR display. Details appear in Diagnostics log.")
+                self.vr_status.set("Opening VR display. Details appear in the activity log.")
             else:
                 self.vr_status.set("Cannot start VR display. Optical tracking remains available.")
 
@@ -409,8 +388,6 @@ class FiducialPanel:
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished (status {code}). Start tracking to retry.")
             self.start_button.configure(state="normal")
-            for box in self.boxes:
-                box.configure(state="readonly")
             self.redraw()
         if not self.closed:
             self.timer = self.parent.after(50, self.tick)

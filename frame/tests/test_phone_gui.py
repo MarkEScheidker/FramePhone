@@ -8,6 +8,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
 from phone_link import PORT, read_message, write_message
@@ -72,7 +73,7 @@ def main():
                 assert panel.confirmation.winfo_y() < root.winfo_height() - 100
                 assert len(panel.comparison.get().split()) == 4
                 panel.answer(True)
-                until(lambda: "rad/s" in panel.rows["gyro"].get())
+                until(lambda: "Hz" in panel.rows["gyro"].get())
                 assert "75.0" in panel.geometry.get()
                 assert "Unavailable" in panel.rows["mag"].get()
                 assert panel.store.load()["pin"] == TLSTests.pin
@@ -94,5 +95,77 @@ def main():
         TLSTests.tearDownClass()
 
 
+def automatic_reconnect():
+    """Discovery tries the saved endpoint first and never enrolls a new phone."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = tk.Tk()
+        panel = PhonePanel(root, Path(directory))
+        panel.store.save({"pin": "a"*64, "credential": "b"*64, "host": "127.0.0.10"})
+        panel.host.set("127.0.0.10")
+        attempts = []
+        class Link:
+            def __init__(self, store, notify, confirm):
+                self.notify = notify
+                self.stopped = threading.Event()
+            def snapshot(self):
+                return None
+            def stop(self):
+                self.stopped.set()
+            def run(self, host, pair):
+                attempts.append((host, pair))
+                assert not pair, "startup tried to enroll an untrusted phone"
+                if host != "127.0.0.30":
+                    self.notify("error", "Saved identity did not match")
+                else:
+                    self.notify("connected", host)
+                    self.notify("status", "Connected")
+                    self.stopped.wait(5)
+                self.notify("ended", "Disconnected")
+        def until(predicate):
+            deadline = time.monotonic()+5
+            while time.monotonic() < deadline:
+                root.update()
+                if predicate(): return
+                time.sleep(.01)
+            raise AssertionError(panel.status.get())
+        phones = [{"host": host, "name": "Phone", "pairing": True}
+                  for host in ("127.0.0.20", "127.0.0.30", "127.0.0.30")]
+        try:
+            with patch("phone_panel.PhoneLink", Link), patch("phone_panel.discover", return_value=phones):
+                panel.startup()
+                until(lambda: panel.status.get() == "Connected")
+                assert attempts == [("127.0.0.10", False), ("127.0.0.20", False), ("127.0.0.30", False)]
+                assert not panel.auto_hosts and not panel.approval
+                panel.disconnect()
+                until(lambda: not panel.worker.is_alive())
+                for _ in range(20):
+                    root.update()
+                    time.sleep(.01)
+                assert len(attempts) == 3, "manual disconnect restarted automatic connection"
+                # Cancelling discovery also cancels its pending auto-connect.
+                release = threading.Event()
+                def delayed_discovery():
+                    release.wait(2)
+                    return phones
+                with patch("phone_panel.discover", delayed_discovery):
+                    panel.startup()
+                    panel.disconnect()
+                    release.set()
+                    until(lambda: not panel.searching)
+                assert len(attempts) == 3
+                panel.host.set("")
+                panel.store.save({"pin": "a"*64, "credential": "b"*64})
+                with patch("phone_panel.discover", return_value=[]):
+                    panel.startup()
+                    until(lambda: "Saved phone unavailable" in panel.status.get())
+                assert not panel.auto_connecting and len(attempts) == 3
+            print("Automatic saved-phone discovery, endpoint fallback, no enrollment and cancellation passed")
+        finally:
+            panel.close()
+            if panel.worker: panel.worker.join(1)
+            root.destroy()
+
+
 if __name__ == "__main__":
     main()
+    automatic_reconnect()
