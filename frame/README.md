@@ -9,7 +9,7 @@ on a Linux desktop; `--arch native` produces a package for that build machine.
 | --- | --- |
 | framephone-camera | Factory camera and ring discovery. |
 | framephone-fiducial | Single-tag stereo detection, pose estimation and replay. |
-| framephone-overlay | Head-relative tracked screen slab in SteamVR; standalone geometry self-test. |
+| framephone-overlay | Head-relative screen rectangle in SteamVR; standalone geometry self-test. |
 | framephone-camd | Privileged setup, then unprivileged camera-ring publishing. |
 | desktop/app.py | Pairing, telemetry, camera controls, marker diagnostics and optional VR display. |
 

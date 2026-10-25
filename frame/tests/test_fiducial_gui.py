@@ -75,7 +75,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         def calibration_id(self):
             return "synthetic-factory-v1"
     target = {"family": "tag36h11", "id": 0, "black_edge_m": .06,
-              "origin": "black_square_center", "axes": "right_up_front", "size_source": "manual_black_edge"}
+              "origin": "black_square_center", "axes": "right_up_front", "size_source": "manual_black_edge",
+              "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}
     class Phone:
         displayed = True
         def snapshot(self):

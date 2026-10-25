@@ -36,7 +36,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-tag-cli-") as folder:
     # A missing installed SteamVR client is a visible helper failure, not a
     # dependency of optical tracking or a silent renderer fallback.
     overlay = Path(binary).with_name("framephone-overlay")
-    config["fiducial"]["black_edge_m"] = .06
+    config["fiducial"].update(black_edge_m=.06, screen_width_px=1080,
+                              screen_height_px=2400, black_edge_px=864)
     (session / "session.json").write_text(json.dumps(config))
     failed = subprocess.run([str(overlay), "--session", str(session)], capture_output=True, text=True,
                             env=dict(os.environ, FRAMEPHONE_OPENVR_LIBRARY=str(root / "missing-client.so")), timeout=10)

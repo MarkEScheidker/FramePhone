@@ -44,7 +44,7 @@ target_link_libraries(framephone-camera PRIVATE framephone_geometry)
 target_compile_options(framephone-camera PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(framephone-overlay src/overlay_main.cpp)
-target_link_libraries(framephone-overlay PRIVATE framephone_fiducial ${CMAKE_DL_LIBS})
+target_link_libraries(framephone-overlay PRIVATE ${CMAKE_DL_LIBS})
 target_include_directories(framephone-overlay SYSTEM PRIVATE "${POSE_JSON_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/third_party/openvr")
 target_compile_options(framephone-overlay PRIVATE -Wall -Wextra -Wpedantic)
 

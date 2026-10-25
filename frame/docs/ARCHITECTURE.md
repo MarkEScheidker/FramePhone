@@ -11,7 +11,7 @@ flowchart LR
     Calibration[Factory KB4 calibration] --> Pose[Joint stereo pose]
     Tags --> Pose
     Pose --> UI[Desktop diagnostics and recording]
-    UI --> VR[SteamVR tracked screen slab]
+    UI --> VR[SteamVR screen rectangle]
     Phone --> TLS[Paired TLS: sensors and marker geometry/state]
     TLS --> UI
 ```
@@ -25,7 +25,7 @@ flowchart LR
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
 | camera_previews.py / fiducial --preview-ring | Per-camera detection and annotated Gray8 previews with one-frame queues. |
-| framephone-overlay | Six pose-driven screen-slab faces through OpenVR; hides stale/lost data. |
+| framephone-overlay | One screen-sized OpenVR quad driven by the latest fiducial pose; hides stale/lost data. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
 Only status `measured` supplies a current pose. Ambiguous hypotheses remain

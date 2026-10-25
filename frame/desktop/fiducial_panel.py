@@ -48,8 +48,6 @@ def create_session(directory, snapshot, factory_root, selections, ring, record):
               "left": left, "right": right, "left_stream": left_stream, "right_stream": right_stream,
               "ring": str(ring), "capture_clock": "steam-frame-mono-v4l2",
               "clock_alignment": "unverified_no_imu_fusion", "record": bool(record)}
-    if "dimensions" in snapshot:
-        config["thickness_m"] = snapshot["dimensions"][2]
     (directory / "session.json").write_text(json.dumps(config, indent=2) + "\n")
     return config
 
@@ -121,7 +119,7 @@ class FiducialPanel:
         options = ttk.Frame(panel)
         options.pack(fill="x", pady=4)
         ttk.Checkbutton(options, text="Record cameras + telemetry", variable=self.record).pack(side="left")
-        ttk.Checkbutton(options, text="Show tracked screen in VR (SteamVR)", variable=self.vr_enabled,
+        ttk.Checkbutton(options, text="Show rectangle in VR (SteamVR)", variable=self.vr_enabled,
                         command=self.toggle_vr).pack(side="left", padx=8)
         ttk.Label(panel, textvariable=self.vr_status, wraplength=650).pack(anchor="w")
         self.pose_label = ttk.Label(panel, textvariable=self.pose, font=("monospace", 11), wraplength=650)

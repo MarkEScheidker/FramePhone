@@ -4,7 +4,7 @@ An experimental Android companion for Valve Steam Frame. The phone shows one
 fullscreen AprilTag and sends motion telemetry over a paired LAN connection.
 Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An optional SteamVR display follows the tracked
-screen as a thin rectangular object.
+screen as a flat rectangle.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
 devices, with stable distance and orientation readings. The current VR renderer needs headset validation.
@@ -30,7 +30,7 @@ The app uses the headset's installed SteamVR for the optional VR display.
    this test; tap or use Back to return. Brightness remains under your control.
 3. On Frame open **Marker tracking → Enable cameras → Refresh cameras → Start
    tracking**. Verify the two front camera/calibration assignments. Enable
-   **Show tracked screen in VR (SteamVR)** to test the VR object.
+   **Show rectangle in VR (SteamVR)** to test the VR object.
 
 No photo selection, manual corners or marker-size adjustment is required. The
 white quiet border is part of the width-filling marker; the black square itself

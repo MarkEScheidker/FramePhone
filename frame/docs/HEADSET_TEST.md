@@ -13,8 +13,8 @@
    XYZ, distance, angles and reprojection RMS. Tilt and move the phone slowly.
    Red/green/blue axes on the matched camera frames show the accepted 3D pose.
    Amber tag outlines can remain when a stereo pose is rejected.
-6. Enable **Show tracked screen in VR (SteamVR)**. With SteamVR active, a thin
-   screen-shaped object should follow the marker. This renderer needs hardware
+6. Enable **Show rectangle in VR (SteamVR)**. With SteamVR active, a translucent
+   screen-sized rectangle with a green outline should follow the marker. This renderer needs hardware
    validation; its head alignment and motion timing are provisional. Details
    appear under **Diagnostics** if loading fails.
 7. Cover the marker: pose and VR object must disappear. Reveal it: they should
@@ -30,7 +30,7 @@ synthetic detection and pose, not hardware accuracy or SteamVR integration.
 For calibration, compare marker-center distance with independently measured
 positions at several distances and angles. Scale comes from Android's reported
 physical DPI; fullscreen sizing alone does not prove millimeter accuracy. The
-screen slab is centered at the marker, not a measured case/body origin.
+rectangle is centered at the marker, not a measured case/body origin.
 
 For debugging, enable **Record cameras + telemetry** before
 Start. Stop, then use **Open results** and copy the newest complete `tag-*` trial.

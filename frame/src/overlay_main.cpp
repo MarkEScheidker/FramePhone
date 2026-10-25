@@ -1,4 +1,3 @@
-#include "framephone/fiducial.hpp"
 #include "vr_surface.hpp"
 #include <chrono>
 #include <csignal>
@@ -103,78 +102,38 @@ struct Client {
 };
 struct Display {
     Client &client;
-    std::array<Face, 6> geometry;
     Geometry screen;
-    std::vector<vr::VROverlayHandle_t> handles;
-    explicit Display(Client &c, Geometry g) : client(c), geometry(faces(g)), screen(g) {}
+    vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
+    explicit Display(Client &c, Geometry g) : client(c), screen(g) {}
     void check(vr::EVROverlayError result) {
         if (result != vr::VROverlayError_None)
-            throw std::runtime_error(std::string("VR surface: ") +
+            throw std::runtime_error(std::string("VR screen: ") +
                                      client.overlay->GetOverlayErrorNameFromEnum(result));
     }
     void create() {
-        auto tag = framephone::render_tag(0, 1);
-        for (std::size_t i = 0; i < geometry.size(); ++i) {
-            auto key = "framephone.marker." + std::to_string(getpid()) + "." + std::to_string(i);
-            vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
-            check(client.overlay->CreateOverlay(key.c_str(), "FramePhone tracked screen", &handle));
-            handles.push_back(handle);
-            check(client.overlay->SetOverlayFlag(handle, vr::VROverlayFlags_VisibleInDashboard,
-                                                 true));
-            check(client.overlay->SetOverlayWidthInMeters(handle, float(geometry[i].width)));
-            const unsigned width = i == 0 ? 240 : 4;
-            const unsigned height =
-                i == 0 ? unsigned(std::lround(width * geometry[i].height / geometry[i].width)) : 4;
-            std::vector<std::uint8_t> texture(std::size_t(width) * height * 4, 255);
-            for (unsigned y = 0; y < height; ++y)
-                for (unsigned x = 0; x < width; ++x) {
-                    auto pixel = &texture[(std::size_t(y) * width + x) * 4];
-                    if (i == 0) {
-                        // Project the metric black edge, including leftover white
-                        // pixels when the actual screen width is not divisible by ten.
-                        const auto cell = screen.black_edge / 8;
-                        int tx = int(std::floor(((x + .5) / width - .5) * screen.width / cell + 5));
-                        int ty =
-                            int(std::floor(((y + .5) / height - .5) * screen.height / cell + 5));
-                        if (tx >= 0 && ty >= 0 && tx < 10 && ty < 10) {
-                            auto value = tag.pixels[std::size_t(ty) * 10 + unsigned(tx)];
-                            pixel[0] = pixel[1] = pixel[2] = value;
-                        }
-                        if (x < 3 || y < 3 || x + 3 >= width || y + 3 >= height) {
-                            pixel[0] = 40;
-                            pixel[1] = 230;
-                            pixel[2] = 150;
-                        }
-                    } else {
-                        pixel[0] = 35;
-                        pixel[1] = 65;
-                        pixel[2] = 100;
-                    }
-                }
-            // Keep side quads' aspect ratios independent from the tiny solid texture.
-            check(client.overlay->SetOverlayTexelAspect(
-                handle, float(geometry[i].width / geometry[i].height * height / width)));
-            check(client.overlay->SetOverlayRaw(handle, texture.data(), width, height, 4));
-        }
+        auto key = "framephone.screen." + std::to_string(getpid());
+        check(client.overlay->CreateOverlay(key.c_str(), "FramePhone screen", &handle));
+        check(client.overlay->SetOverlayFlag(handle, vr::VROverlayFlags_VisibleInDashboard, true));
+        check(client.overlay->SetOverlayWidthInMeters(handle, float(screen.width)));
+        check(client.overlay->SetOverlayTexelAspect(handle, float(screen.texel_aspect())));
+        auto pixels = texture();
+        check(client.overlay->SetOverlayRaw(handle, pixels.data(), texture_size, texture_size, 4));
     }
     void update(const std::optional<Matrix> &pose) {
-        for (std::size_t i = 0; i < handles.size(); ++i) {
-            if (!pose) {
-                check(client.overlay->HideOverlay(handles[i]));
-                continue;
-            }
-            auto transformed = compose(*pose, geometry[i].transform);
-            vr::HmdMatrix34_t matrix{};
-            for (int row = 0; row < 3; ++row)
-                for (int col = 0; col < 4; ++col)
-                    matrix.m[row][col] = float(transformed[row * 4 + col]);
-            check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
-                handles[i], vr::k_unTrackedDeviceIndex_Hmd, &matrix));
-            check(client.overlay->ShowOverlay(handles[i]));
+        if (!pose) {
+            check(client.overlay->HideOverlay(handle));
+            return;
         }
+        vr::HmdMatrix34_t matrix{};
+        for (int row = 0; row < 3; ++row)
+            for (int col = 0; col < 4; ++col)
+                matrix.m[row][col] = float((*pose)[row * 4 + col]);
+        check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
+            handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
+        check(client.overlay->ShowOverlay(handle));
     }
     ~Display() {
-        for (auto handle : handles) {
+        if (handle != vr::k_ulOverlayHandleInvalid) {
             client.overlay->HideOverlay(handle);
             client.overlay->DestroyOverlay(handle);
         }
@@ -205,12 +164,39 @@ void self_test() {
         rejected = true;
     }
     check(rejected);
-    auto box = faces({.08, .16, .008});
-    check(box.size() == 6 && box[1].transform[11] == -.008);
-    auto moved = compose(*transform, box[3].transform);
-    check(std::abs(moved[3] - .14) < 1e-12 && std::abs(moved[11] + .604) < 1e-12);
-    std::cout << "VR surface pose validation, stale/lost rejection and box transforms passed (no "
-                 "SteamVR required).\n";
+    Json session{{"schema", "framephone-fiducial-session-v1"},
+                 {"fiducial",
+                  {{"black_edge_m", .064},
+                   {"screen_width_px", 1080},
+                   {"screen_height_px", 2400},
+                   {"black_edge_px", 864}}}};
+    auto screen = Geometry::from_session(session);
+    check(std::abs(screen.width - .08) < 1e-12 && std::abs(screen.height - 8. / 45) < 1e-12);
+    check(std::abs(screen.width / screen.texel_aspect() - screen.height) < 1e-12);
+    auto invalid = session;
+    invalid["fiducial"].erase("screen_width_px");
+    rejected = false;
+    try {
+        Geometry::from_session(invalid);
+    } catch (const std::exception &) {
+        rejected = true;
+    }
+    check(rejected);
+    invalid = session;
+    invalid["fiducial"]["black_edge_px"] = 0;
+    rejected = false;
+    try {
+        Geometry::from_session(invalid);
+    } catch (const std::exception &) {
+        rejected = true;
+    }
+    check(rejected);
+    const auto pixels = texture();
+    check(pixels[3] == 255 &&
+          pixels[(texture_size / 2 * texture_size + texture_size / 2) * 4 + 3] == 100);
+    std::cout << "VR screen pose validation, stale/lost rejection, physical dimensions and "
+                 "rectangle texture passed "
+                 "(no SteamVR required).\n";
 }
 } // namespace
 int main(int argc, char **argv) {
@@ -221,7 +207,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--help") {
-            std::cout << "FramePhone head-relative VR calibration surface\n  --session DIRECTORY\n "
+            std::cout << "FramePhone head-relative VR screen rectangle\n  --session DIRECTORY\n "
                          " --self-test\n";
             return 0;
         }
@@ -239,7 +225,7 @@ int main(int argc, char **argv) {
         client.open();
         Display display(client, geometry);
         display.create();
-        std::cout << "VR screen ready: head-relative calibration surface; headset alignment and "
+        std::cout << "VR screen ready: fiducial-driven rectangle; headset alignment and "
                      "motion timing are provisional.\n";
         std::string previous_state;
         while (!stopped) {

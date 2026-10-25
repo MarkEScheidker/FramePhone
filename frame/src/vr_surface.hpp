@@ -1,27 +1,13 @@
 #pragma once
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <nlohmann/json.hpp>
 #include <optional>
 #include <stdexcept>
 
 namespace framephone::surface {
 using Matrix = std::array<double, 12>;
-inline Matrix identity() {
-    return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
-}
-inline Matrix compose(const Matrix &a, const Matrix &b) {
-    Matrix out{};
-    for (int row = 0; row < 3; ++row) {
-        for (int col = 0; col < 3; ++col)
-            for (int k = 0; k < 3; ++k)
-                out[row * 4 + col] += a[row * 4 + k] * b[k * 4 + col];
-        out[row * 4 + 3] = a[row * 4 + 3];
-        for (int k = 0; k < 3; ++k)
-            out[row * 4 + 3] += a[row * 4 + k] * b[k * 4 + 3];
-    }
-    return out;
-}
 inline std::optional<Matrix> pose(const nlohmann::json &message, std::uint64_t now) {
     if (message.value("status", "") != "measured")
         return {};
@@ -62,35 +48,47 @@ inline std::optional<Matrix> pose(const nlohmann::json &message, std::uint64_t n
     return out;
 }
 struct Geometry {
-    double width{}, height{}, depth{}, black_edge{};
+    double width{}, height{};
     static Geometry from_session(const nlohmann::json &config) {
         if (config.at("schema") != "framephone-fiducial-session-v1")
             throw std::runtime_error("unsupported VR session");
         const auto &target = config.at("fiducial");
+        for (const auto *key : {"screen_width_px", "screen_height_px", "black_edge_px"})
+            if (!target.contains(key))
+                throw std::runtime_error(
+                    "Phone screen dimensions unavailable; update the Android app and reconnect");
         double edge = target.at("black_edge_m");
-        double width = target.value("screen_width_px", 10);
-        double height = target.value("screen_height_px", 10);
-        double black = target.value("black_edge_px", 8);
-        Geometry result{edge * width / black, edge * height / black,
-                        config.value("thickness_m", .008), edge};
-        if (!std::isfinite(edge) || edge < .01 || edge > .2 || black <= 0 || width <= 0 ||
-            height < width || !std::isfinite(result.width) || !std::isfinite(result.height) ||
-            !std::isfinite(result.depth) || result.width < .01 || result.width > .3 ||
-            result.height > .8 || result.depth < .001 || result.depth > .1)
-            throw std::runtime_error("invalid VR surface dimensions");
+        double width = target.at("screen_width_px");
+        double height = target.at("screen_height_px");
+        double black = target.at("black_edge_px");
+        if (!std::isfinite(edge) || edge < .01 || edge > .2 || !std::isfinite(width) ||
+            !std::isfinite(height) || !std::isfinite(black) || black <= 0 || black > width ||
+            width <= 0 || height < width)
+            throw std::runtime_error("invalid VR screen dimensions");
+        Geometry result{edge * width / black, edge * height / black};
+        if (!std::isfinite(result.width) || !std::isfinite(result.height) || result.width < .01 ||
+            result.width > .3 || result.height > .8)
+            throw std::runtime_error("invalid VR screen dimensions");
         return result;
     }
+    // A square texture is stretched to this physical aspect ratio by OpenVR.
+    double texel_aspect() const {
+        return width / height;
+    }
 };
-struct Face {
-    Matrix transform;
-    double width, height;
-};
-inline std::array<Face, 6> faces(Geometry g) {
-    return {{{identity(), g.width, g.height},
-             {{-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, -g.depth}, g.width, g.height},
-             {{0, 0, -1, -g.width / 2, 0, 1, 0, 0, 1, 0, 0, -g.depth / 2}, g.depth, g.height},
-             {{0, 0, 1, g.width / 2, 0, 1, 0, 0, -1, 0, 0, -g.depth / 2}, g.depth, g.height},
-             {{1, 0, 0, 0, 0, 0, 1, g.height / 2, 0, -1, 0, -g.depth / 2}, g.width, g.depth},
-             {{1, 0, 0, 0, 0, 0, -1, -g.height / 2, 0, 1, 0, -g.depth / 2}, g.width, g.depth}}};
+
+inline constexpr unsigned texture_size = 64;
+inline std::array<std::uint8_t, texture_size * texture_size * 4> texture() {
+    std::array<std::uint8_t, texture_size * texture_size * 4> pixels{};
+    for (unsigned y = 0; y < texture_size; ++y)
+        for (unsigned x = 0; x < texture_size; ++x) {
+            const bool border = x < 2 || y < 2 || x + 2 >= texture_size || y + 2 >= texture_size;
+            auto *pixel = &pixels[(y * texture_size + x) * 4];
+            pixel[0] = 40;
+            pixel[1] = border ? 230 : 150;
+            pixel[2] = border ? 150 : 220;
+            pixel[3] = border ? 255 : 100;
+        }
+    return pixels;
 }
 } // namespace framephone::surface
