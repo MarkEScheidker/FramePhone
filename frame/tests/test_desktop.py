@@ -91,6 +91,12 @@ class DesktopTests(unittest.TestCase):
             path.write_bytes(data)
             status = reader.diagnostics(path, "test")
             self.assertEqual((status["latest_sequence"],status["published_frames"],status["dropped_frames"]),(1,7,3))
+            self.assertNotIn("capture_events", status)  # Older version-1 broker.
+            struct.pack_into("<QIIII", data, 64+136, 42, 8, 0, 24, 1)
+            path.write_bytes(data)
+            status = reader.diagnostics(path, "test")
+            self.assertEqual((status["capture_events"],status["candidate_buffers"],
+                              status["mapping_ready"],status["learning_events"]),(42,8,False,24))
             with self.assertRaises(ValueError):
                 reader.diagnostics(path, "absent")
             struct.pack_into("<Q", data, 40, 0)  # Broker cleanly stopped.

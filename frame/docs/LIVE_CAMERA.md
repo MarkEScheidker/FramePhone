@@ -11,6 +11,14 @@ Incomplete or overwritten copies are discarded. Replaced/resized rings and
 changed descriptors require a new reader. Capture time is not replaced by host
 dequeue/publication time.
 
+The broker first uses discovered `VIDIOC_QUERYBUF` buffer identities when they
+fully and uniquely match the attached buffers. Otherwise it learns by observing
+DMA-synchronized pixel changes. The optional diagnostic tail of each 160-byte
+camera descriptor uses offsets 136 (u64 capture events), 144 (u32 candidates),
+148 (u32 mapping ready), 152 (u32 current learning events) and 156 (u32 diagnostic
+version, currently 1). Older writers leave this region zero; readers ignore
+unknown diagnostic versions. Image/sequence offsets and ring version are unchanged.
+
 `framephone-camera --list-ring FILE` lists available stream names, sensor names,
 video nodes and actual dimensions.
 `framephone-camera --list-cameras --calibration-id ID [--factory-root ROOT]`

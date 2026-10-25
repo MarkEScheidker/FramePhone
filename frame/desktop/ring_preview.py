@@ -77,8 +77,13 @@ def diagnostics(path, name):
             label = camera[32:64].split(b"\0", 1)[0].decode(errors="replace")
             if label == name:
                 latest, published, dropped = struct.unpack_from("<QQQ", camera, 104)
-                return {"camera_id": name, "latest_sequence": latest, "published_frames": published,
-                        "dropped_frames": dropped, "broker_age_ms": (now-heartbeat)/1e6 if heartbeat else None}
+                result = {"camera_id": name, "latest_sequence": latest, "published_frames": published,
+                          "dropped_frames": dropped, "broker_age_ms": (now-heartbeat)/1e6 if heartbeat else None}
+                events, buffers, ready, learning, revision = struct.unpack_from("<QIIII", camera, 136)
+                if revision == 1:
+                    result.update(capture_events=events, candidate_buffers=buffers,
+                                  mapping_ready=bool(ready), learning_events=learning)
+                return result
         raise ValueError("Selected camera is not in the broker ring")
     finally:
         os.close(fd)

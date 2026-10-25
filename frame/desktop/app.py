@@ -331,7 +331,7 @@ class Window:
             if item is not None:
                 self.preview_updated[index] = time.monotonic()
             result, error = item if item else (None, "Waiting for camera/detector frames…" if stream.get() else "Select a camera stream.")
-            if stream.get() and (result is None or result[3].get("frame_status") == "paused"):
+            if stream.get() and (result is None or result[3].get("frame_status") in ("paused", "raw")):
                 # Preserve the direct ring-reader route when detection/timing is
                 # unavailable. Never attach another frame's detections to it.
                 try:
@@ -343,6 +343,9 @@ class Window:
                     snapshot = diagnostics(self.runtime.ring, stream.get())
                     self.camera_diagnostics[("left", "right")[index]] = dict(snapshot, preview_error=error)
                     counters = f"sequence {snapshot['latest_sequence']} · published {snapshot['published_frames']} · dropped {snapshot['dropped_frames']}"
+                    if "capture_events" in snapshot:
+                        counters += (f"\nevents {snapshot['capture_events']} · buffers {snapshot['candidate_buffers']} · "
+                                     + ("mapped" if snapshot['mapping_ready'] else "learning"))
                     if result:
                         width, height, pgm, metadata = result
                         result = (width, height, pgm, dict(metadata, counters=counters))

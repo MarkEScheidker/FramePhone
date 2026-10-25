@@ -20,7 +20,9 @@ is required. One tag is sufficient; the same tag is observed in both front camer
 
 Both camera tabs show live per-camera AprilTag outlines and center crosses as
 soon as cameras are available, even before Start and without a synchronized
-stereo pair. Native preview workers detect on their own frames; they do not need
+stereo pair. Direct ring readers poll each camera independently; native preview workers add
+annotations from their own exact frames. Images continue if a detector stalls
+or fails. Workers do not need
 phone pairing or a calibration/pose solve. A 2D marker outline alone is not a 3D
 pose. Missing streams show per-camera publisher counters. A paused detector
 retains its last annotated image with a Paused label; if newer raw pixels are

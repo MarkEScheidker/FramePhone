@@ -245,6 +245,40 @@ static bool group_fits(const xr_group_t *g, const xr_camera_t *cam, size_t need)
     return g->planesize[1] == cam->planesize[1] && g->planesize[0] >= need;
 }
 
+/* Discovery already queried the queue's DMA-BUF descriptors. Prefer those
+ * exact identities to image-change voting, which can fail to converge when
+ * cameras complete together or CPU caches hide DMA updates. Use this only when
+ * every index maps uniquely; otherwise keep the original learning path. */
+static bool map_query_buffers(cam_t *c)
+{
+    int count = c->cam->nqbuf;
+    int slots[MAX_INDEX];
+    bool used[MAX_SLOTS] = { false };
+    if (count <= 0 || count > MAX_INDEX)
+        return false;
+    for (int i = 0; i < count; i++) {
+        int found = -1;
+        for (int s = 0; s < c->nslots; s++) {
+            const xr_bufref_t *b = &xr.groups[c->slot_group[s]].buf[c->slot_pos[s]];
+            if (b->xfd == c->cam->qbuf_xfd[i]) {
+                if (found >= 0)
+                    return false;
+                found = s;
+            }
+        }
+        if (found < 0 || used[found])
+            return false;
+        used[found] = true;
+        slots[i] = found;
+    }
+    memcpy(c->slot_of, slots, (size_t)count * sizeof(slots[0]));
+    c->maxindex = count - 1;
+    c->shared = c->nslots > count;
+    c->mapped = true;
+    printf("%s: queue depth %d, exact VIDIOC_QUERYBUF index mapping\n", c->slug, count);
+    return true;
+}
+
 /*
  * Candidate buffers for a camera: the queue bound to it. The two upper cameras
  * share one 32-buffer run, bound to only one of them, so a camera without its
@@ -323,6 +357,7 @@ static void setup_camera(cam_t *c, xr_camera_t *cam, int pidfd)
     printf("  %-24s %-12s %ux%u pitch %u, %d candidate buffers%s\n", c->slug, cam->path,
            c->lay.width, c->lay.height, c->lay.pitch, c->nslots,
            !own ? " (shared run)" : exact ? ", bound by VIDIOC_QUERYBUF" : ", bound by open order");
+    map_query_buffers(c);
 }
 
 /* ------------------------------------------------------ index -> buffer */
@@ -464,7 +499,9 @@ static void learn(cam_t *c, int index)
 
     for (int s = 0; s < c->nslots; s++) {
 
+        buf_sync(c->fd[s], DMA_BUF_SYNC_START);
         sample_words(c->map[s], c->need, cur);
+        buf_sync(c->fd[s], DMA_BUF_SYNC_END);
 
         changed[s] = 0;
 
@@ -1011,6 +1048,9 @@ static uint8_t *ring_create(size_t *len_out)
         rc->nslots      = FH_RING_SLOTS;
         rc->slot_offset = off;
         rc->slot_bytes  = (sizeof(fh_ring_slot_t) + (size_t)rc->stride * rc->height + 63) & ~(size_t)63;
+        rc->candidate_buffers = (uint32_t)c->nslots;
+        rc->mapping_ready = c->mapped;
+        rc->diagnostics_version = 1;
         off += rc->nslots * rc->slot_bytes;
 
         if (dark) {
@@ -1296,6 +1336,12 @@ int main(int argc, char **argv)
         }
 
         uint64_t now = mono_ns();
+        for (int i = 0; i < ncams; i++) {
+            cams[i].rc->capture_events = cams[i].events;
+            cams[i].rc->candidate_buffers = (uint32_t)cams[i].nslots;
+            cams[i].rc->mapping_ready = cams[i].mapped;
+            cams[i].rc->learning_events = (uint32_t)cams[i].learn_events;
+        }
         __atomic_store_n(&ring->heartbeat_ns, now, __ATOMIC_RELEASE);
 
         if (opt_with_color && now - last_want >= 500000000ull) {

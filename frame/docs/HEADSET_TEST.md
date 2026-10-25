@@ -49,6 +49,14 @@ the failure; they do not prove its hardware cause. Allow camera startup to settl
 Use **Open results** to find `camera-status.json` alongside the trial folders and
 include it with the Camera setup log. It is saved when previews are unavailable
 or paused and contains camera identifiers/counters, not images or pairing secrets.
+The updated broker also reports capture events, candidate buffer count and whether
+the queue is mapped or still learning. Zero published/dropped counts can occur
+during learning; they alone do not prove the sensor is inactive. Events increasing
+while learning identifies a queue-mapping problem. No candidate buffers means
+discovery could not attach the DMA buffers; no events with candidates/mapping
+requires checking the capture event route or XRService's stream activity.
+Close the previous FramePhone window fully before launching a rebuilt executable,
+then enable cameras again so the new broker owns a fresh discovery session.
 
 See [single-marker tracking](FIDUCIAL_TRACKING.md), [VR display](VR_DISPLAY.md),
 [calibration](CALIBRATION.md), and [validation](TRACKING_VALIDATION.md).

@@ -59,7 +59,13 @@ typedef struct {
                                     /* frame (a short fixed exposure, so it follows */
                                     /* the room's IR light, sunlight above all);    */
                                     /* 0 before the first                           */
-    uint8_t           reserved[24];
+    /* FramePhone diagnostics in formerly reserved bytes. Readers check version;
+     * ring geometry/sequence ABI is unchanged and older writers report none. */
+    uint64_t          capture_events;
+    uint32_t          candidate_buffers;
+    uint32_t          mapping_ready;
+    uint32_t          learning_events;
+    uint32_t          diagnostics_version;
 } fh_ring_cam_t;                    /* 160 bytes */
 
 typedef struct {

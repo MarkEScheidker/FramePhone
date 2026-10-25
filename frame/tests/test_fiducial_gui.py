@@ -4,6 +4,7 @@ Run under Xvfb with the CMake build directory. No headset/phone/root required.
 """
 import json
 import os
+import re
 from pathlib import Path
 import struct
 import subprocess
@@ -35,6 +36,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         data[offset + 32:offset + 32 + len(name)] = name
         struct.pack_into("<IIIIIIQQ", data, offset + 64, v, 0, width, height, strides[v], 4,
                          starts[v], slot_bytes[v])
+        struct.pack_into("<QIIII", data, offset+136, 0, 4, 1, 0, 1)
     images[1] = b"".join(images[1][y*width:(y+1)*width]+bytes([222])*32 for y in range(height))
     ring = temporary / "ring"
     ring.write_bytes(data)
@@ -63,7 +65,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
                     hidden = blank.is_set() or (v == 1 and right_blank.is_set())
                     os.pwrite(file.fileno(), bytes([24]) * len(images[v]) if hidden else images[v], start + 64)
                     os.pwrite(file.fileno(), struct.pack("<Q", 2 * number + 2), start)
-                    os.pwrite(file.fileno(), struct.pack("<Q", number), 64 + v * 160 + 104)
+                    os.pwrite(file.fileno(), struct.pack("<QQ", number, number), 64 + v * 160 + 104)
+                    os.pwrite(file.fileno(), struct.pack("<Q", number), 64 + v * 160 + 136)
                 stop.wait(.04)
     class TestRuntime(Runtime):
         overlay_command = None
@@ -161,6 +164,28 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         assert json.loads((window.sessions/"camera-status.json").read_text())["left"]["latest_sequence"] > 0
         runtime.command = original_command
         window.preview_reader.close()
+        until(lambda: all(panel.raw_detections))
+        # A right detector that remains alive but never emits stdout must not
+        # stop right pixels. Earlier fallback-only reads updated at ~1.5 s.
+        def stalled_right(tool, *args):
+            if args and args[0] == "--preview-ring" and args[-1] == "slam_right":
+                return [sys.executable, "-c", "import time;time.sleep(90)"]
+            return original_command(tool, *args)
+        runtime.command = stalled_right
+        window.preview_reader.stop(1)
+        until(lambda: "Raw available" in panel.camera_status[1].get())
+        sequences = set()
+        deadline = time.monotonic()+.8
+        while time.monotonic() < deadline:
+            root.update()
+            match = re.search(r"Raw available frame (\d+)", panel.camera_status[1].get())
+            if match:
+                sequences.add(int(match[1]))
+            time.sleep(.01)
+        assert len(sequences) >= 3, ("right preview stalled with detector", sequences)
+        assert panel.raw_detections[0], "right detector stalled the left view"
+        runtime.command = original_command
+        window.preview_reader.stop(1)
         until(lambda: all(panel.raw_detections))
         assert all(getattr(canvas,"image",None) for canvas in panel.canvases)
         for canvas in panel.canvases:

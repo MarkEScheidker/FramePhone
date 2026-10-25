@@ -51,6 +51,14 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   `--sensor` remains available for manual diagnostics. XRService's camera modes
   and buffers are not modified.
 
+- Initialize index-to-buffer mapping directly from discovered `VIDIOC_QUERYBUF`
+  descriptors when every index matches a unique attached DMA buffer; retain
+  vote-based learning/relearning for incomplete/changing mappings. Synchronize
+  DMA caches while sampling in the learning fallback as well as normal capture.
+- Report capture-event, buffer and mapping diagnostics in the ring's formerly
+  reserved 24-byte camera tail, gated by a diagnostics version. Version-1 header,
+  camera sizes, image offsets and sequence protocol remain unchanged.
+
 Retain both MIT notices in source and binary distributions. The Python preview
 reader also implements this ABI and sequence protocol using bounded read-only
 copies. No hand models or upstream desktop/SteamVR integration are bundled.
