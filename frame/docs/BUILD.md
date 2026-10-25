@@ -135,6 +135,6 @@ Optional terminal diagnostics on a build/test PC:
 ```
 
 The first `--` passes arguments through the self-extractor to the app.
-`build-headset.sh` forwards to the same build. The VR surface helper is included
-in the standard build and uses no SteamVR library at compile time. Direct CMake development builds are described
+The VR rectangle helper is included in the standard build and uses no SteamVR
+library at compile time. Direct CMake development builds are described
 in [DEVELOPMENT.md](../../docs/DEVELOPMENT.md).

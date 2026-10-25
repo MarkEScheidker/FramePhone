@@ -22,3 +22,8 @@ screen streaming are not implemented.
 See [build](docs/BUILD.md), [headset testing](docs/HEADSET_TEST.md),
 [VR display](docs/VR_DISPLAY.md), [architecture](docs/ARCHITECTURE.md),
 [pairing protocol](docs/PAIRING_AND_IMU.md), and [notices](THIRD_PARTY_NOTICES.md).
+
+
+For source reuse, start with the [camera module](modules/camera/) and
+[component guide](../docs/REUSING.md). Application builds still use the same
+build script; module-only builds do not require tracking or rendering dependencies.

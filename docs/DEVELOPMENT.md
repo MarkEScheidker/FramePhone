@@ -3,6 +3,20 @@
 The repository contains independent Android and native Linux builds. Start with
 the [root README](../README.md); this page describes dependency options and tests.
 
+## Camera module only
+
+The [camera module](../frame/modules/camera/) builds independently on Linux,
+without OpenCV or AprilTag:
+
+    cmake -S frame/modules/camera -B frame/build/camera
+    cmake --build frame/build/camera --parallel 2
+    ctest --test-dir frame/build/camera --output-on-failure
+
+Run its copied-tree integration check with
+python3 frame/modules/camera/tests/test_standalone.py. This additionally builds
+the static broker and needs a C compiler with static libc. CI uses this check
+to exercise the camera module independently of the full application.
+
 ## Native Linux
 
 Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
@@ -37,13 +51,8 @@ specify a nonstandard OpenCV/JSON installation prefix. The standard build includ
 the vendored OpenVR header. SteamVR is discovered only when that helper runs;
 its geometry self-test needs no runtime.
 
-The portable camera subset requires only a C++20 compiler and Make:
-
-```bash
-make -C frame test
-```
-
-It tests frame sources and ring input. Use the full CMake build for calibrated
+The [camera-only build](#camera-module-only) tests frame sources and ring input
+without the geometry dependencies. Use the full CMake build for calibrated
 geometry and single-tag tracking tests.
 
 ### Steam Frame
@@ -97,6 +106,6 @@ An additional package job exercises ARM64 emulation on an AMD64 Linux runner.
 credentials and captures. It works before Git is initialized. Inspect the archive
 before using it to start a new repository; it is not a dependency bundle.
 
-`bash frame/package-headset.sh` creates a headset source handoff under
-`frame/build/dist/`. Both include license notices. Publish source from a reviewed
-Git checkout; do not commit generated archives, APKs or local SDKs.
+The source archive includes license notices and can also be copied to a headset.
+Publish source from a reviewed Git checkout; do not commit generated archives,
+APKs or local SDKs.

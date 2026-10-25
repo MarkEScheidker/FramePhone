@@ -268,7 +268,6 @@ class FiducialPanel:
                 self.vr_status.set("Cannot start VR display. Optical tracking remains available.")
 
     def redraw(self):
-        import tkinter as tk
         for v, canvas in enumerate(self.canvases):
             canvas.delete("all")
             paired = self.result is not None and self.images is not None
@@ -309,7 +308,7 @@ class FiducialPanel:
         else:
             self.image_panel.pack_forget()
 
-    def camera_preview(self, view, stream, current, error):
+    def camera_preview(self, view, current, error):
         side = ("Front left", "Front right")[view]
         if current:
             width, height, data, metadata = current

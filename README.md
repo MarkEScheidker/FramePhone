@@ -7,8 +7,9 @@ factory fisheye calibration. An optional SteamVR display follows the tracked
 screen as a flat rectangle.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
-devices, with stable distance and orientation readings. The current VR renderer needs headset validation.
-Distance scale uses Android's reported display DPI and remains unverified.
+devices, with stable distance and orientation readings. The VR rectangle has
+also been demonstrated on the headset. Distance scale uses Android's reported
+display DPI; metric accuracy and motion timing still need independent validation.
 ARCore anchoring and screen streaming are future work.
 
 ## Build and run
@@ -75,3 +76,14 @@ have been removed. The supported build and UI use the same single-marker path.
 
 Original code is [MIT licensed](LICENSE). Third-party code retains its notices;
 see [third-party notices](THIRD_PARTY_NOTICES.md). FramePhone is independent of Valve.
+
+
+## Reuse and contribute
+
+The [component guide](docs/REUSING.md) maps the repository and its dependency
+boundaries. The [camera module](frame/modules/camera/) can be copied into another
+Linux CMake project without the rest of FramePhone, including its tests,
+example, broker and license notices. Tracking, pairing and rendering are separate
+layers; only the camera component is packaged independently today.
+
+See [contributing](CONTRIBUTING.md) for local tests and review expectations.

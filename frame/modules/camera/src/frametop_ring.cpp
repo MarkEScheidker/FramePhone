@@ -11,8 +11,8 @@
 
 namespace framephone {
 namespace {
-// Fixed little-endian offsets from the pinned Frametop ABI. See LIVE_CAMERA.md
-// and THIRD_PARTY_NOTICES.md; no compiler-dependent struct casts or atomics.
+// Fixed little-endian offsets from the pinned Frametop ABI. See README.md
+// and broker/fhring.h; no compiler-dependent struct casts or atomics.
 constexpr std::size_t header_size = 1344, camera_size = 160, slot_header = 64;
 using Header = std::array<std::uint8_t, header_size>;
 std::uint64_t le(const std::uint8_t *p, std::size_t size) {

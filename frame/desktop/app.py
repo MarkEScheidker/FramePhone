@@ -61,7 +61,7 @@ class Window:
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
-        self.factories, self.available_streams, self.stream_info = {}, [], {}
+        self.factories, self.available_streams = {}, []
         self.factory_boxes, self.stream_boxes = [], []
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
@@ -92,15 +92,15 @@ class Window:
         ttk.Label(root, textvariable=self.status, wraplength=950, padding=8).pack(side="bottom", fill="x")
         self.tabs = tabs = ttk.Notebook(root)
         tabs.pack(fill="both", expand=True)
-        phone_tab, marker_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
+        phone_tab, marker_tab, diagnostics_tab = (ttk.Frame(tabs) for _ in range(3))
         tabs.add(phone_tab, text="Phone telemetry")
         tabs.add(marker_tab, text="Marker tracking")
-        tabs.add(camera_tab, text="Diagnostics")
+        tabs.add(diagnostics_tab, text="Diagnostics")
         from phone_panel import PhonePanel
         self.phone_panel = PhonePanel(phone_tab, self.config.parent)
         from fiducial_panel import FiducialPanel
         self.tracking_panel = FiducialPanel(marker_tab, self)
-        panel = ttk.Frame(camera_tab, padding=16)
+        panel = ttk.Frame(diagnostics_tab, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
         panel.rowconfigure(2, weight=1)
@@ -248,8 +248,7 @@ class Window:
             elif kind == "scan":
                 self.jobs.discard("scan")
                 self.factories = factory_cameras(name)
-                self.stream_info = mono_streams(value)
-                self.available_streams = list(self.stream_info)
+                self.available_streams = list(mono_streams(value))
                 for box in self.stream_boxes:
                     box.configure(values=self.available_streams)
                 for box in self.factory_boxes:
@@ -289,9 +288,9 @@ class Window:
             if item is not None:
                 self.preview_updated[index] = time.monotonic()
             try:
-                self.tracking_panel.camera_preview(index, stream, result, error)
+                self.tracking_panel.camera_preview(index, result, error)
             except (ValueError, tk.TclError) as exc:
-                self.tracking_panel.camera_preview(index, stream, None, str(exc))
+                self.tracking_panel.camera_preview(index, None, str(exc))
         if not self.closing:
             self.root.after(100, self.update_previews)
 

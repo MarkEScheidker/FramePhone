@@ -14,7 +14,7 @@ Retain [LICENSE](LICENSE) with redistributed source and binaries.
   spread policy in `hands/track/main.cpp`, for two explicitly named cameras.
   Bounded per-camera queues replace its four-camera latest-set scheduler;
   clocks must match and no clock-domain inference is copied.
-- `src/frametop_ring.cpp` implements the ABI/sequence protocol from
+- `modules/camera/src/frametop_ring.cpp` implements the ABI/sequence protocol from
   `hands/camd/fhring.h` with bounded read-only `pread` copies.
 - `desktop/front_cameras.py` parses reported ring and factory camera identities.
   The initial front/side naming inference from `hands/README.md` contradicted the
@@ -33,8 +33,8 @@ models, articulated priors and gesture code are not included.
 
 ## Bundled camera broker
 
-`camd/` vendors `hands/camd/{camd.c,tp.c,tp.h,xrcams.c,xrcams.h,fhring.h}`
-from the same pinned commit, plus its [FrameEyeCameraFeed MIT notice](camd/LICENSE.FrameEyeCameraFeed).
+[modules/camera/broker](../../modules/camera/broker/) vendors `hands/camd/{camd.c,tp.c,tp.h,xrcams.c,xrcams.h,fhring.h}`
+from the same pinned commit, plus its [FrameEyeCameraFeed MIT notice](../../modules/camera/broker/LICENSE.FrameEyeCameraFeed).
 The buffer-completion fix in `xrcams.c` is backported from experimental commit
 [`723ad4a6b9ac2ecd245a4a392893bceb5174efd4`](https://github.com/Frametop/frametop/commit/723ad4a6b9ac2ecd245a4a392893bceb5174efd4)
 (2026-10-10). It rebuilds a QUERYBUF-owned run when an unrelated allocation

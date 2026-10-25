@@ -1,6 +1,9 @@
 #pragma once
+#include "framephone/camera_source.hpp"
 #include "framephone/geometry.hpp"
+#include <array>
 #include <deque>
+#include <map>
 
 namespace framephone {
 struct RigCamera {

@@ -16,7 +16,7 @@ distributed under [Apache 2.0, with upstream notices](phone/gradle/wrapper/LICEN
 Retain the applicable upstream notices when distributing dependencies or binaries.
 
 The bundled Frametop-derived camera broker retains both its project MIT license
-and the [FrameEyeCameraFeed MIT notice](frame/third_party/frametop/camd/LICENSE.FrameEyeCameraFeed).
+and the [FrameEyeCameraFeed MIT notice](frame/modules/camera/broker/LICENSE.FrameEyeCameraFeed).
 The self-extracting executable also bundles Python/Tk, libc and runtime dependencies;
 Ubuntu copyright files and common licenses remain in its payload. Makeself's
 GPL-2 notice is retained beside AppRun. See [native notices](frame/THIRD_PARTY_NOTICES.md).

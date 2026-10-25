@@ -20,7 +20,7 @@ flowchart LR
 | --- | --- |
 | Fiducial / MarkerActivity | Integral-pixel marker raster, fullscreen geometry and visibility. |
 | Android link / phone_link.py | LAN pairing, pinned reconnect, sensor/clock diagnostics and marker state. |
-| Frametop broker / FrametopRing | Camera access and bounded read-only ring copies. |
+| [Camera module](../modules/camera/) broker / FrametopRing | Camera access and bounded read-only ring copies. |
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
@@ -46,3 +46,15 @@ client. It neither registers a device driver nor replaces the scene application.
 Factory-head/runtime-head alignment and capture-to-runtime timing are provisional;
 this is a slow-motion calibration surface, not a world-stabilized product.
 See [VR display](VR_DISPLAY.md) and the [roadmap](../../docs/ROADMAP.md).
+
+
+## Source boundaries
+
+The camera module owns its reader headers/sources, broker, licenses, examples
+and hardware-free tests. The application links it through FramePhone::Camera.
+It has no dependency on tracking, Android pairing, UI or SteamVR.
+
+Geometry and fiducial tracking remain separate native libraries in the main
+build. The desktop orchestrates those executables; the renderer consumes accepted
+pose messages. See the [reuse guide](../../docs/REUSING.md) before copying code or
+adding cross-layer dependencies.

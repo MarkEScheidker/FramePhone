@@ -7,12 +7,13 @@ There is no stable API or release schedule yet.
 
 ## Getting started
 
-Follow [DEVELOPMENT.md](docs/DEVELOPMENT.md). The Android and native projects
+Start with the [component guide](docs/REUSING.md) to find the layer you want to
+change. Follow [DEVELOPMENT.md](docs/DEVELOPMENT.md). The Android and native projects
 build independently; a headset is not needed for the software tests.
 
-For native changes, run the full CMake/CTest build when the optional libraries
-are available. `make -C frame test all` checks the portable subset only. For
-Android changes, run `assembleDebug`, `testDebugUnitTest` and `lintDebug` from
+For native changes, run the full CMake/CTest build when the dependencies are
+available. Camera-only changes can use the standalone CMake checks in
+[Development](docs/DEVELOPMENT.md#camera-module-only). For Android changes, run `assembleDebug`, `testDebugUnitTest` and `lintDebug` from
 `phone/`. State which checks you ran and whether hardware was involved.
 
 ## Changes and review
@@ -25,6 +26,9 @@ Android changes, run `assembleDebug`, `testDebugUnitTest` and `lintDebug` from
   image fixtures over tests that repeat the implementation's calculation.
 - Use the repository's formatting settings. C++ uses four-space indentation;
   Kotlin follows its existing style. Avoid unrelated dependency upgrades.
+- Keep reusable modules independent of application configuration, UI and protocol
+  code. Camera changes must pass the copied-module build and standalone tests;
+  update the module example and API documentation when its contract changes.
 - Keep copied code attribution and licenses. Contributions to original code are
   provided under this repository's MIT license; no CLA is required.
 

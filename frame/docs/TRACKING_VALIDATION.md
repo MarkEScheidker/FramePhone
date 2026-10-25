@@ -1,8 +1,9 @@
 # Tracking validation
 
 Software checks do not establish real camera accuracy or headset performance.
-Basic pairing and sensor delivery have been observed on the owner's hardware;
-single-tag tracking still needs independent physical trials.
+Pairing, stereo fiducial pose tracking and the VR rectangle have been
+demonstrated on the owner's headset. Reported stability and apparent accuracy
+are informal observations; metric errors still need independent physical trials.
 
 ## Automated checks
 

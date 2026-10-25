@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-source = ROOT / "third_party/frametop/camd"
+source = ROOT / "broker"
 with tempfile.TemporaryDirectory(prefix="framephone-broker-") as directory:
     temp = Path(directory)
     wrapper = temp / "identity.c"

@@ -18,12 +18,11 @@ foreach(component CORE CALIB IMGPROC)
     find_library(POSE_OPENCV_${component} "${library}" HINTS "${POSE_SDK_ROOT}"
         PATH_SUFFIXES lib "lib/${CMAKE_LIBRARY_ARCHITECTURE}" REQUIRED)
 endforeach()
-add_library(framephone_camera STATIC src/camera_source.cpp src/frametop_ring.cpp)
-target_include_directories(framephone_camera PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
-target_compile_options(framephone_camera PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wsign-conversion)
+add_subdirectory(modules/camera)
 
 add_library(framephone_geometry STATIC src/frametop_calibration.cpp src/stereo.cpp src/stereo_recording.cpp)
-target_link_libraries(framephone_geometry PUBLIC framephone_camera PRIVATE "${POSE_OPENCV_CORE}")
+target_include_directories(framephone_geometry PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(framephone_geometry PUBLIC FramePhone::Camera PRIVATE "${POSE_OPENCV_CORE}")
 target_include_directories(framephone_geometry SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")
 target_compile_options(framephone_geometry PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -57,12 +56,6 @@ install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN
 
 if(BUILD_TESTING)
     add_test(NAME framephone-overlay-self-test COMMAND framephone-overlay --self-test)
-    foreach(test camera_source frametop_ring)
-        add_executable(framephone-${test}-tests tests/test_${test}.cpp)
-        target_link_libraries(framephone-${test}-tests PRIVATE framephone_camera)
-        target_compile_options(framephone-${test}-tests PRIVATE -Wall -Wextra -Wpedantic)
-        add_test(NAME framephone-${test} COMMAND framephone-${test}-tests)
-    endforeach()
     add_executable(framephone-fiducial-tests tests/test_fiducial.cpp)
     target_link_libraries(framephone-fiducial-tests PRIVATE framephone_fiducial "${POSE_OPENCV_CORE}" "${POSE_OPENCV_CALIB}")
     target_include_directories(framephone-fiducial-tests SYSTEM PRIVATE "${POSE_OPENCV_INCLUDE}" "${POSE_JSON_INCLUDE}")

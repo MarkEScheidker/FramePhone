@@ -10,10 +10,12 @@ The single executable contains its runtime and privileged camera broker. The
 desktop, TLS link and fiducial estimator run as the user; only camera setup
 uses graphical authorization.
 
-The owner has confirmed camera views and paired live telemetry on Frame.
-Single-tag accuracy, front-camera factory mapping and timing still need hardware
-validation. The tracker needs the same complete marker in
-both selected cameras; it produces a head-relative marker pose, not a VR overlay.
+Camera views, paired telemetry, live stereo pose tracking and the VR rectangle
+have been demonstrated on the owner's headset. The tracker needs the same
+complete marker in both selected cameras and publishes a head-relative pose.
+A separate [OpenVR renderer](VR_DISPLAY.md) displays the screen-sized rectangle.
+Metric accuracy, factory-head/runtime-HMD alignment and capture timing still need
+independent measurement.
 
 See [build](BUILD.md), [headset setup](HEADSET_TEST.md),
 [marker tracking](FIDUCIAL_TRACKING.md), [coordinates](COORDINATE_SYSTEMS.md)

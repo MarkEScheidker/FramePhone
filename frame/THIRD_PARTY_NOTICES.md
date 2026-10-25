@@ -19,7 +19,7 @@ https://github.com/Frametop/frametop/blob/24a86dc02669caaef8386ea5bfeb08fcb28199
 The original MIT notice is retained in `third_party/frametop/LICENSE`.
 The privileged broker is now vendored and bundled, with local desktop-lifecycle
 adaptations. Its additional MIT attribution is retained in
-[LICENSE.FrameEyeCameraFeed](third_party/frametop/camd/LICENSE.FrameEyeCameraFeed).
+[LICENSE.FrameEyeCameraFeed](modules/camera/broker/LICENSE.FrameEyeCameraFeed).
 
 Factory KB4 import/projection, head transforms and ray intersection now adapt
 `hands/track/calib.cpp` at that same commit. Stereo pairing adapts the fresh-set

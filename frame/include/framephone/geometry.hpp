@@ -1,8 +1,8 @@
 #pragma once
 
-#include "framephone/camera_source.hpp"
-#include <array>
-#include <map>
+#include <cstdint>
+#include <string>
+#include <vector>
 
 namespace framephone {
 struct ImagePoint {

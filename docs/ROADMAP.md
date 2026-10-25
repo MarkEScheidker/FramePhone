@@ -10,7 +10,7 @@ This establishes an optical baseline for testing geometry, scale and timing.
 - Native AprilTag detection, factory KB4 calibration, stereo pose and replay.
 - Camera previews, marker counts, pose diagnostics and opt-in trial recording.
 - A single executable with desktop controls and the bundled camera broker.
-- An optional head-relative SteamVR screen rectangle awaiting hardware validation.
+- An optional head-relative SteamVR screen rectangle demonstrated on the headset; metric alignment and timing still need validation.
 
 ## Next milestones
 

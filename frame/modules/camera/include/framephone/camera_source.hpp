@@ -42,7 +42,7 @@ class CameraSource {
     virtual std::optional<CameraFrame> next() = 0;
 };
 
-// Directory format is documented in frame/docs/RECORDINGS.md. PGM P5 raster
+// Directory format is documented in RECORDINGS.md. PGM P5 raster
 // files are paired with a manifest; no video decoding or timestamp invention.
 class RecordedFrameSource final : public CameraSource {
   public:
