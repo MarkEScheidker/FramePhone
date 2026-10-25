@@ -5,7 +5,7 @@ replace notices for third-party code or linked libraries.
 
 | Component | Use | Notice |
 | --- | --- | --- |
-| Frametop, commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` | Bundled camera broker; adapted calibration/ray math and pairing policy; camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
+| Frametop, base commit `24a86dc02669caaef8386ea5bfeb08fcb2819944` with buffer-discovery backport `723ad4a6b9ac2ecd245a4a392893bceb5174efd4` | Bundled camera broker; adapted calibration/ray math and pairing policy; camera-ring ABI | [MIT license](frame/third_party/frametop/LICENSE), [adaptation provenance](frame/third_party/frametop/README.md) |
 | OpenCV and nlohmann JSON | Native pose estimation and JSON parsing | [Native dependency notices](frame/THIRD_PARTY_NOTICES.md) |
 | AprilTag 3 / tag36h11 codeword | Native single-marker detection and Android raster | [BSD-2-Clause license](frame/third_party/apriltag/LICENSE), [Android notice](phone/app/src/main/assets/APRILTAG_LICENSE.txt) |
 | Valve OpenVR SDK | Interface for the tracked VR calibration surface | [BSD-3-Clause license](frame/third_party/openvr/LICENSE), [provenance](frame/third_party/openvr/README.md) |

@@ -222,6 +222,37 @@ int main(void) {
     build_groups(&state);
     assert(state.ngroups == 0); /* unrelated one-buffer noise remains excluded */
     puts("QUERYBUF-owned short buffer fragments preserved.");
+
+    /* An unrelated allocation between plane 0 and plane 1 used to leave
+     * 15/16 buffers in separate fragments. Reconstruct all 16 from QUERYBUF. */
+    memset(&state, 0, sizeof(state));
+    state.ncameras = 1;
+    xr_camera_t *camera = &state.cameras[0];
+    camera->nplanes = 2;
+    camera->planesize[0] = 4096;
+    camera->planesize[1] = 128;
+    camera->nqbuf = 16;
+    nfdents = 0;
+    for (int i = 0; i < 16; i++) {
+        camera->qbuf_xfd[i] = 300+4*((i*5)%16);
+        fdents[nfdents++] = (fdent_t){ .kind=FD_DMABUF, .xfd=300+4*i, .size=4096 };
+        if (i == 5)
+            fdents[nfdents++] = (fdent_t){ .kind=FD_DMABUF, .xfd=301+4*i, .size=16*1024*1024 };
+        fdents[nfdents++] = (fdent_t){ .kind=FD_DMABUF, .xfd=302+4*i, .size=128 };
+    }
+    build_groups(&state);
+    assert(state.ngroups == 1 && state.groups[0].nbufs == 16 && state.groups[0].exact);
+    for (int i = 0; i < 16; i++) {
+        assert(state.groups[0].buf[i].xfd == 300+4*i);
+        assert(state.groups[0].buf[i].size == 4096);
+    }
+    assert(state.groups[0].buf[5].xfd1 == -1); /* restored plane 0, not the unrelated buffer */
+    camera->qbuf_xfd[16] = 321; /* wrong-sized allocation */
+    camera->qbuf_xfd[17] = 999; /* nonexistent descriptor */
+    camera->nqbuf = 18;
+    complete_exact_groups(&state);
+    assert(state.ngroups == 1 && state.groups[0].nbufs == 16); /* idempotent and bounded */
+    puts("Interrupted plane pairing restored all 16 queried camera buffers.");
     return 0;
 }
 ''')

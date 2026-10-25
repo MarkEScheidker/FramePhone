@@ -18,6 +18,10 @@ the broker expands to already attached, compatible same-model runs; buffers
 positively identified as belonging to another camera are excluded. A fragmented
 or shuffled queue can resolve per index only with strong, unique votes. Ties
 remain rejected. Small fragments with known QUERYBUF ownership are retained.
+The broker also completes verified runs from the camera's queried descriptors:
+an unrelated allocation between image planes can otherwise hide one buffer and
+leave a 16-buffer queue stuck with 15 candidates. This fix is backported from
+[Frametop experimental](https://github.com/Frametop/frametop/commit/723ad4a6b9ac2ecd245a4a392893bceb5174efd4).
 The Camera setup log reports candidate expansion; a healthy queue keeps its
 original candidate set.
 

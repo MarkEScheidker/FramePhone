@@ -35,6 +35,13 @@ models, articulated priors and gesture code are not included.
 
 `camd/` vendors `hands/camd/{camd.c,tp.c,tp.h,xrcams.c,xrcams.h,fhring.h}`
 from the same pinned commit, plus its [FrameEyeCameraFeed MIT notice](camd/LICENSE.FrameEyeCameraFeed).
+The buffer-completion fix in `xrcams.c` is backported from experimental commit
+[`723ad4a6b9ac2ecd245a4a392893bceb5174efd4`](https://github.com/Frametop/frametop/commit/723ad4a6b9ac2ecd245a4a392893bceb5174efd4)
+(2026-10-10). It rebuilds a QUERYBUF-owned run when an unrelated allocation
+interrupts plane pairing, restores missing plane-0 buffers in descriptor order,
+and removes duplicate fragments. The backport preserves FramePhone's existing
+retention of QUERYBUF-owned short fragments. The base archive hash below does
+not describe this separately identified backport.
 Upstream archive SHA-256:
 `7b366ba7d022a79ca98a12839098808fc5d8b82bec270e3e6b0d36937d89c522`.
 The broker is compiled statically and runs on the headset host. Local adaptations:
