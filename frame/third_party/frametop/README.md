@@ -55,6 +55,13 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   descriptors when every index matches a unique attached DMA buffer; retain
   vote-based learning/relearning for incomplete/changing mappings. Synchronize
   DMA caches while sampling in the learning fallback as well as normal capture.
+- Attach compatible fallback runs before dropping privileges. Start with the
+  original candidate set; expand after failed learning instead of staying locked
+  to an open-order guess. Per-buffer QUERYBUF identities exclude known foreign
+  buffers. Preserve QUERYBUF-owned short fragments when grouping discovery data.
+- Permit per-index resolution across multiple/shuffled runs when votes identify
+  unique winners; retain the existing observation, dominance and ambiguity
+  thresholds. Reject allocation-order blocks with holes from failed attachments.
 - Report capture-event, buffer and mapping diagnostics in the ring's formerly
   reserved 24-byte camera tail, gated by a diagnostics version. Version-1 header,
   camera sizes, image offsets and sequence protocol remain unchanged.

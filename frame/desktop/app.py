@@ -345,7 +345,7 @@ class Window:
                     counters = f"sequence {snapshot['latest_sequence']} · published {snapshot['published_frames']} · dropped {snapshot['dropped_frames']}"
                     if "capture_events" in snapshot:
                         counters += (f"\nevents {snapshot['capture_events']} · buffers {snapshot['candidate_buffers']} · "
-                                     + ("mapped" if snapshot['mapping_ready'] else "learning"))
+                                     + ("mapped" if snapshot['mapping_ready'] else f"learning {snapshot['learning_events']} events"))
                     if result:
                         width, height, pgm, metadata = result
                         result = (width, height, pgm, dict(metadata, counters=counters))

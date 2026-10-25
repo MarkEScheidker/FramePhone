@@ -784,9 +784,15 @@ static void build_groups(xr_state_t *st)
 
     int keep = 0;
 
-    for (int i = 0; i < st->ngroups; i++)
-        if (st->groups[i].nbufs >= 4)
+    for (int i = 0; i < st->ngroups; i++) {
+        bool queried = false;
+        for (int b = 0; b < st->groups[i].nbufs && !queried; b++)
+            queried = qbuf_owner(st, st->groups[i].buf[b].xfd) != NULL;
+        /* A split can leave a valid one-buffer fragment. Dropping it can
+         * turn a complete QUERYBUF mapping into an unresolvable partial run. */
+        if (st->groups[i].nbufs >= 4 || queried)
             st->groups[keep++] = st->groups[i];
+    }
 
     st->ngroups = keep;
 

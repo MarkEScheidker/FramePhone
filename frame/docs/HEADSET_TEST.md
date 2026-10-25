@@ -52,7 +52,10 @@ or paused and contains camera identifiers/counters, not images or pairing secret
 The updated broker also reports capture events, candidate buffer count and whether
 the queue is mapped or still learning. Zero published/dropped counts can occur
 during learning; they alone do not prove the sensor is inactive. Events increasing
-while learning identifies a queue-mapping problem. No candidate buffers means
+while learning identifies a queue-mapping problem. The learning-event count may
+reset when a failed attempt expands the buffer candidates; the Camera setup log
+reports that expansion. A rising capture-event count with zero published frames
+does not require changing tag size, lighting or pose settings. No candidate buffers means
 discovery could not attach the DMA buffers; no events with candidates/mapping
 requires checking the capture event route or XRService's stream activity.
 Close the previous FramePhone window fully before launching a rebuilt executable,
