@@ -56,7 +56,7 @@ inline Matrix phone_pose(const nlohmann::json &sample) {
             2 * (x * z - y * w),     2 * (y * z + x * w),     1 - 2 * (x * x + y * y), p[2]};
 }
 
-/** Stationary acquisition prototype. Factory/runtime head and sensor/screen
+/** Relative-stability acquisition prototype. Factory/runtime head and sensor/screen
  * origins are provisional; update timestamps do not claim calibrated exposure
  * clocks. Never preserve an alignment through unknown tracking resets. */
 class ArcoreHandoff {
@@ -66,6 +66,7 @@ class ArcoreHandoff {
     void reset(const std::string &reason) {
         world_anchor_.reset();
         count_ = 0;
+        relative_positions_.clear();
         state["state"] = "acquiring";
         state["reason"] = reason;
     }
@@ -113,7 +114,10 @@ class ArcoreHandoff {
             state["reason"] = "alignment invalid; show marker again";
             return {};
         }
-        const auto measured = pose(optical, now);
+        // Acquisition can span slower detector updates. Rendering still requires
+        // a fresh phone pose; an optical timeout between observations must not
+        // repeatedly erase an otherwise stationary acquisition batch.
+        const auto measured = pose(optical, now, 1'500'000'000);
         if (!measured) {
             reset("waiting for an accepted stereo marker pose");
             return {};
@@ -144,29 +148,40 @@ class ArcoreHandoff {
         }
         const auto device = phone_pose(*matched);
         const auto candidate = compose(compose(h->second, *measured), inverse(device));
-        // Compare to a fixed baseline, not just adjacent frames: slow drift/motion
-        // must not pass as a stationary acquisition. Also check motion during solve.
-        if (!count_ || !near(base_device_, device) || !near(base_device_, current) ||
-            !near(base_head_, h->second, .008) || !near(base_head_, heads_.back().second, .008) ||
-            !near(base_optical_, *measured) || !near(base_alignment_, candidate, .015, .035)) {
+        // Stability is relative to the headset. Walking together must not be
+        // rejected just because either device moved in its own world frame.
+        const auto relative_now =
+            compose(inverse(heads_.back().second), compose(candidate, current));
+        const std::array<double, 3> position{(*measured)[3], (*measured)[7], (*measured)[11]};
+        const auto moved = [](const auto &a, const auto &b) {
+            return std::hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > .02;
+        };
+        const std::array<double, 3> current_position{relative_now[3], relative_now[7],
+                                                     relative_now[11]};
+        bool unstable = moved(current_position, position);
+        for (const auto &previous : relative_positions_)
+            unstable = unstable || moved(previous, position) || moved(previous, current_position);
+        if (!count_ || unstable || !near(base_alignment_, candidate, .04, .08)) {
             count_ = 1;
             first_ = observed;
             last_ = observed;
-            base_device_ = device;
-            base_head_ = h->second;
-            base_optical_ = *measured;
+            relative_positions_.clear();
+            relative_positions_.push_back(position);
             base_alignment_ = candidate;
         } else if (observed > last_) {
-            if (observed - last_ > 500'000'000) {
+            if (observed - last_ > 1'000'000'000) {
                 reset("acquisition frames interrupted; hold still");
                 return {};
             }
             ++count_;
             last_ = observed;
+            relative_positions_.push_back(position);
+            if (relative_positions_.size() > 90)
+                relative_positions_.pop_front();
         }
         state["reason"] =
-            "hold phone and headset still: " + std::to_string(count_) + " good frames";
-        if (count_ >= 4 && observed - first_ >= 600'000'000) {
+            "keep phone within 2 cm for 500 ms: " + std::to_string(count_) + " good frames";
+        if (!unstable && count_ >= 4 && observed - first_ >= 500'000'000) {
             world_anchor_ = candidate;
             state["state"] = "tracking";
             state["reason"] = "ARCore pose; optical detection paused";
@@ -184,6 +199,7 @@ class ArcoreHandoff {
     std::string key_;
     unsigned count_ = 0;
     std::uint64_t first_ = 0, last_ = 0;
-    Matrix base_device_{}, base_head_{}, base_optical_{}, base_alignment_{};
+    Matrix base_alignment_{};
+    std::deque<std::array<double, 3>> relative_positions_;
 };
 } // namespace framephone::surface

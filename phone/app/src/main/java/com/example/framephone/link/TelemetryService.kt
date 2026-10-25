@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import com.example.framephone.MainActivity
 import com.example.framephone.SettingsStore
 import com.example.framephone.tracking.ArPoseService
+import com.example.framephone.tracking.ArPoseState
 
 object TelemetryState {
     var status by mutableStateOf(LinkStatus())
@@ -29,6 +30,7 @@ class TelemetryService : Service() {
         val store = SettingsStore(this)
         when (intent?.action) {
             "stop", "forget" -> {
+                ArPoseState.setConnected(false)
                 stopService(Intent(this, ArPoseService::class.java))
                 server?.close()
                 server = null
@@ -54,8 +56,8 @@ class TelemetryService : Service() {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 1, Intent(this, TelemetryService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)
         startForeground(1, Notification.Builder(this, "telemetry")
-            .setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("FramePhone connection enabled")
-            .setContentText("Open to pair or inspect the connection. Stop to disable LAN access.")
+            .setSmallIcon(android.R.drawable.stat_notify_sync).setContentTitle("FramePhone")
+            .setContentText("Connection enabled")
             .setContentIntent(open).setOngoing(true).addAction(Notification.Action.Builder(null, "Stop", stop).build()).build())
         TelemetryState.status = LinkStatus(running = true, message = "Starting secure listener…", paired = store.pairedName())
         lateinit var instance: PhoneServer
@@ -63,7 +65,9 @@ class TelemetryService : Service() {
             main.post {
                 if (server === instance) {
                     TelemetryState.status = status
+                    ArPoseState.setConnected(status.connected)
                     if (!status.running) {
+                        stopService(Intent(this, ArPoseService::class.java))
                         server = null
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelf()
@@ -76,6 +80,8 @@ class TelemetryService : Service() {
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        ArPoseState.setConnected(false)
+        stopService(Intent(this, ArPoseService::class.java))
         server?.close()
         server = null
         if (TelemetryState.status.running) TelemetryState.status = LinkStatus(paired = SettingsStore(this).pairedName())

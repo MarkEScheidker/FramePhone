@@ -18,7 +18,7 @@ flowchart LR
 
 | Component | Responsibility |
 | --- | --- |
-| Fiducial / MarkerActivity | Integral-pixel marker raster, fullscreen geometry and visibility. |
+| Fiducial / MarkerOverlay | Automatic application-overlay raster, geometry and visibility. |
 | Android link / phone_link.py | LAN pairing, pinned reconnect, sensor/clock diagnostics and marker state. |
 | [Camera module](../modules/camera/) broker / FrametopRing | Camera access and bounded read-only ring copies. |
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
@@ -48,9 +48,9 @@ Factory-head/runtime-head alignment and capture-to-runtime timing are provisiona
 this is a slow-motion calibration surface, not a world-stabilized product.
 See [VR display](VR_DISPLAY.md) and the [roadmap](../../docs/ROADMAP.md).
 
-The optional [ARCore handoff](ARCORE_HANDOFF.md) adds a phone camera service,
+The automatic [ARCore handoff](ARCORE_HANDOFF.md) adds a phone camera service,
 negotiated poses/acknowledgments on the existing TLS link, and a native
-stationary registration step. After acceptance, the renderer uses SteamVR
+headset-relative stability registration step. After acceptance, the renderer uses SteamVR
 standing space and anchored phone motion; optical detection sleeps until another
 visible marker acquisition. Camera access remains in the independent module.
 Sensor/screen origins and observation timing are provisional in this prototype.

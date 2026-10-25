@@ -12,114 +12,182 @@ import android.opengl.EGLDisplay
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.SystemClock
-import com.example.framephone.MarkerActivity
+import android.provider.Settings
+import com.example.framephone.MainActivity
+import com.example.framephone.link.TelemetryService
 import com.google.ar.core.Anchor
 import com.google.ar.core.Config
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
+import com.google.ar.core.exceptions.CameraNotAvailableException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/** Owns ARCore and its small offscreen GL context independently of activity visibility. */
+/** Armed while the activity is visible; camera work starts only for an authenticated peer. */
 class ArPoseService : Service() {
     private val stopped = AtomicBoolean(false)
+    private val main = Handler(Looper.getMainLooper())
     private var worker: Thread? = null
+    private var overlay: MarkerOverlay? = null
+    private var previousNotice = ""
+    private val refresh = object : Runnable {
+        override fun run() {
+            if (stopped.get()) return
+            try {
+                overlay?.update()
+                val text = when {
+                    !Settings.canDrawOverlays(this@ArPoseService) -> "Overlay access required"
+                    ArPoseState.overlayTimedOut -> "Alignment timed out — tap Retry"
+                    else -> ArPoseState.status
+                }
+                if (text != previousNotice) {
+                    getSystemService(NotificationManager::class.java).notify(2, notification(text))
+                    previousNotice = text
+                }
+                main.postDelayed(this, 100)
+            } catch (error: Exception) {
+                stopped.set(true)
+                ArPoseState.publish("error", reason = "Overlay: ${error.javaClass.simpleName}")
+                stopSelf()
+            }
+        }
+    }
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "stop") {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        if (intent?.action == "realign") ArPoseState.requestMarker()
         if (worker != null) return START_NOT_STICKY
         getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel("tracking", "Phone pose tracking", NotificationManager.IMPORTANCE_LOW))
-        startForeground(2, notification("Initializing ARCore"))
+            NotificationChannel("tracking", "Phone tracking", NotificationManager.IMPORTANCE_LOW))
+        startForeground(2, notification("Waiting for headset"))
+        ArPoseState.running = true
         ArPoseState.beginSession()
+        overlay = MarkerOverlay(this)
+        main.post(refresh)
         worker = thread(name = "phone-arcore") { track() }
         return START_NOT_STICKY
     }
 
     private fun notification(text: String): Notification {
-        val open = PendingIntent.getActivity(this, 2,
-            Intent(this, MarkerActivity::class.java).putExtra("arcore", true),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val stop = PendingIntent.getService(this, 3,
-            Intent(this, ArPoseService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(this, 2, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val retry = PendingIntent.getForegroundService(this, 3,
+            Intent(this, ArPoseService::class.java).setAction("realign"), PendingIntent.FLAG_IMMUTABLE)
+        val stop = PendingIntent.getService(this, 4,
+            Intent(this, TelemetryService::class.java).setAction("stop"), PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this, "tracking").setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setContentTitle("FramePhone tracking").setContentText(text).setContentIntent(open)
-            .setOngoing(true).addAction(Notification.Action.Builder(null, "Show marker", open).build())
-            .addAction(Notification.Action.Builder(null, "Stop tracking", stop).build()).build()
+            .setContentTitle("FramePhone").setContentText(text).setContentIntent(open).setOngoing(true)
+            .addAction(Notification.Action.Builder(null, "Retry", retry).build())
+            .addAction(Notification.Action.Builder(null, "Disconnect", stop).build()).build()
     }
 
     private fun track() {
         var session: Session? = null
         var anchor: Anchor? = null
         var gl: OffscreenGl? = null
+        var resumed = false
+        var newGeneration = true
+        var previousTimestamp = 0L
+        var lastFresh = SystemClock.elapsedRealtime()
         try {
             gl = OffscreenGl()
-            session = Session(this)
-            session.configure(Config(session).apply {
-                planeFindingMode = Config.PlaneFindingMode.DISABLED
-                lightEstimationMode = Config.LightEstimationMode.DISABLED
-                depthMode = Config.DepthMode.DISABLED
-                focusMode = Config.FocusMode.AUTO
-                updateMode = Config.UpdateMode.BLOCKING
-            })
-            session.setDisplayGeometry(0, 1, 1)
-            session.setCameraTextureNames(intArrayOf(gl.texture))
-            session.resume()
-            var previousTimestamp = 0L
-            var lastFresh = SystemClock.elapsedRealtime()
-            var previousNotice = ""
             while (!stopped.get()) {
-                val frame = session.update()
-                if (frame.timestamp == 0L || frame.timestamp == previousTimestamp) {
-                    if (SystemClock.elapsedRealtime() - lastFresh > 250) {
-                        ArPoseState.publish("paused", reason = "no_new_camera_frames")
-                        lastFresh = SystemClock.elapsedRealtime()
+                if (!ArPoseState.connected || !ArPoseState.unlocked) {
+                    if (resumed) {
+                        session?.pause()
+                        resumed = false
+                        ArPoseState.publish("paused", reason = if (ArPoseState.connected) "screen_locked" else "disconnected")
                     }
-                    Thread.sleep(10)
+                    if (!ArPoseState.connected && session != null) {
+                        anchor?.detach()
+                        anchor = null
+                        session?.close()
+                        session = null
+                        newGeneration = true
+                    }
+                    Thread.sleep(100)
                     continue
                 }
-                previousTimestamp = frame.timestamp
-                lastFresh = SystemClock.elapsedRealtime()
-                val camera = frame.camera
-                if (camera.trackingState == TrackingState.TRACKING) {
-                    if (anchor == null || anchor.trackingState == TrackingState.STOPPED) {
-                        anchor?.detach()
-                        anchor = session.createAnchor(frame.androidSensorPose)
-                        ArPoseState.beginSession()
+                try {
+                    val current = session ?: Session(this).also {
+                        session = it
+                        it.configure(Config(it).apply {
+                            planeFindingMode = Config.PlaneFindingMode.DISABLED
+                            lightEstimationMode = Config.LightEstimationMode.DISABLED
+                            depthMode = Config.DepthMode.DISABLED
+                            focusMode = Config.FocusMode.AUTO
+                            updateMode = Config.UpdateMode.BLOCKING
+                        })
+                        it.setDisplayGeometry(0, 1, 1)
+                        it.setCameraTextureNames(intArrayOf(gl.texture))
                     }
-                    if (anchor.trackingState == TrackingState.TRACKING) {
-                        val relative = anchor.pose.inverse().compose(frame.androidSensorPose)
-                        ArPoseState.publish("tracking", relative.translation, relative.rotationQuaternion, frame.timestamp)
-                    } else ArPoseState.publish("paused", reason = "anchor_not_tracking")
-                } else ArPoseState.publish("paused", reason = camera.trackingFailureReason.name)
-                val notice = if (ArPoseState.markerRequired()) "Tap Show marker to align; keep the rear camera clear"
-                    else "Tracking in other apps; tap Show marker to realign"
-                if (notice != previousNotice) {
-                    getSystemService(NotificationManager::class.java).notify(2, notification(notice))
-                    previousNotice = notice
+                    if (!resumed) {
+                        current.resume()
+                        resumed = true
+                        if (stopped.get()) break
+                        previousTimestamp = 0L
+                        lastFresh = SystemClock.elapsedRealtime()
+                        if (newGeneration) { ArPoseState.beginSession(); newGeneration = false }
+                    }
+                    val frame = current.update()
+                    if (stopped.get() || !ArPoseState.connected || !ArPoseState.unlocked) continue
+                    if (frame.timestamp == 0L || frame.timestamp == previousTimestamp) {
+                        if (SystemClock.elapsedRealtime() - lastFresh > 250) {
+                            ArPoseState.publish("paused", reason = "no_new_camera_frames")
+                            lastFresh = SystemClock.elapsedRealtime()
+                        }
+                        Thread.sleep(10)
+                        continue
+                    }
+                    previousTimestamp = frame.timestamp
+                    lastFresh = SystemClock.elapsedRealtime()
+                    val camera = frame.camera
+                    if (camera.trackingState == TrackingState.TRACKING) {
+                        if (anchor?.trackingState == TrackingState.STOPPED) {
+                            anchor?.detach()
+                            anchor = null
+                            ArPoseState.beginSession()
+                        }
+                        val reference = anchor ?: current.createAnchor(frame.androidSensorPose).also { anchor = it }
+                        if (reference.trackingState == TrackingState.TRACKING) {
+                            val relative = reference.pose.inverse().compose(frame.androidSensorPose)
+                            ArPoseState.publish("tracking", relative.translation, relative.rotationQuaternion, frame.timestamp)
+                        } else ArPoseState.publish("paused", reason = "anchor_not_tracking")
+                    } else ArPoseState.publish("paused", reason = camera.trackingFailureReason.name)
+                } catch (_: CameraNotAvailableException) {
+                    ArPoseState.publish("paused", reason = "camera_in_use")
+                    runCatching { session?.pause() }
+                    runCatching { anchor?.detach() }
+                    runCatching { session?.close() }
+                    anchor = null
+                    session = null
+                    resumed = false
+                    newGeneration = true
+                    Thread.sleep(1000)
                 }
             }
         } catch (error: Exception) {
-            ArPoseState.publish("error", reason = "${error.javaClass.simpleName}: ${error.message.orEmpty()}")
+            if (!stopped.get()) ArPoseState.publish("error", reason = "${error.javaClass.simpleName}: ${error.message.orEmpty()}")
         } finally {
             runCatching { anchor?.detach() }
             runCatching { session?.pause() }
             runCatching { session?.close() }
             gl?.close()
-            if (stopped.get()) ArPoseState.publish("stopped")
-            stopSelf()
+            if (!stopped.get()) stopSelf()
         }
     }
 
     override fun onDestroy() {
         stopped.set(true)
-        // Session.update is bounded; its owning thread releases camera/GL resources.
+        main.removeCallbacks(refresh)
+        overlay?.close()
+        overlay = null
+        ArPoseState.running = false
+        if (!ArPoseState.failed) ArPoseState.publish("stopped")
+        worker?.interrupt()
         super.onDestroy()
     }
 }

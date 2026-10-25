@@ -82,7 +82,9 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
               "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}
     class Phone:
         displayed = True
+        session_id = "synthetic-phone"
         arcore = False
+        automatic = False
         required = True
         ar_state = "tracking"
         acquisition = "scan-1"
@@ -97,12 +99,12 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
             return True
         def snapshot(self):
             now = time.monotonic_ns()
-            packet = {"schema": "framephone-arcore-v1", "session": "synthetic-phone", "clock_valid": True,
+            packet = {"schema": "framephone-arcore-v1", "session": self.session_id, "clock_valid": True,
                       "received_host_monotonic_ns": now, "poses": [{"generation": "anchor-1",
                       "acquisition": self.acquisition, "state": self.ar_state, "marker_required": self.required,
                       "host_t_ns": now, "translation_m": [0, 0, 0], "quaternion_xyzw": [0, 0, 0, 1]}]}
-            return {"session": "synthetic-phone", "dimensions": (.07, .15, .009), "fiducial": target,
-                    "marker_displayed": self.displayed, "marker_state_fresh": True, "arcore": packet if self.arcore else None}
+            return {"session": self.session_id, "dimensions": (.07, .15, .009), "fiducial": target,
+                    "marker_displayed": self.displayed, "marker_state_fresh": True, "arcore": packet if self.arcore else None, "automatic_marker": self.automatic}
         def stop(self):
             pass
     os.environ["XDG_CONFIG_HOME"] = str(temporary / "config")
@@ -287,18 +289,23 @@ while True:
         if p['state']!='tracking': accepted=False
         elif o.get('status')=='measured' and o.get('processed_host_monotonic_ns',0)>=changed: accepted=True
         state={'generation':key[0],'acquisition':key[1],'state':'tracking' if accepted else 'acquiring',
-               'reason':'synthetic handoff process','updated_host_monotonic_ns':time.monotonic_ns()}
+               'visible':accepted and (s/'allow-visible').exists(),'reason':'synthetic handoff process','updated_host_monotonic_ns':time.monotonic_ns()}
         t=s/'arcore-state.json.tmp'; t.write_text(json.dumps(state)); t.replace(s/'arcore-state.json')
     except (OSError,ValueError,KeyError,IndexError): pass
     time.sleep(.03)
 """)
         window.phone_panel.link = phone
         phone.arcore = True
+        phone.automatic = True
+        phone.session_id = "automatic-session"
         phone.displayed = True
-        panel.arcore_enabled.set(True)
-        panel.start()
+        until(lambda: panel.busy and (panel.session/'arcore-state.json').exists() and
+              json.loads((panel.session/'arcore-state.json').read_text()).get('state')=='tracking')
+        assert phone.displayed and not panel.handoff_active, 'marker hidden before VR visibility confirmation'
+        (panel.session/'allow-visible').touch()
         until(lambda: panel.handoff_active and not phone.displayed)
-        assert panel.busy and 'overlay' in window.processes
+        assert panel.busy and panel.config['arcore_handoff'] and 'overlay' in window.processes
+        assert not panel.arcore_toggle.winfo_ismapped()
         assert 'alignment_accepted' in phone.commands
         until(lambda: not window.preview_reader.workers)
         assert (panel.session/'optical-paused').exists()
@@ -311,7 +318,7 @@ while True:
         phone.ar_state='paused'
         phone.acquisition='scan-2'
         phone.required=True
-        until(lambda: not panel.handoff_active and 'notification' in panel.status.get())
+        until(lambda: not panel.handoff_active and 'automatic marker' in panel.status.get())
         assert panel.busy and (panel.session/'optical-paused').exists()
         phone.ar_state='tracking'
         phone.displayed=True

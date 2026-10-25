@@ -1,6 +1,6 @@
 # Brief-marker ARCore handoff
 
-An opt-in tracking prototype: acquire a marker while both devices are steady,
+An automatic tracking prototype: acquire a marker while their relative position is stable,
 establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
 mode remains available. Bluetooth and screen streaming are separate future work;
@@ -8,27 +8,28 @@ this test uses the existing authenticated LAN connection.
 
 ## Run the test
 
-1. Rebuild/install the Android APK and rebuild the Frame executable. Connect the
-   apps as usual and leave SteamVR running on the headset.
-2. On the phone, tap **Start ARCore + brief marker**. Approve camera access and
-   installation/update of Google Play Services for AR if requested. Keep the
-   phone's rear camera uncovered with a view of a lit, textured room.
-3. On Frame, select **Use ARCore after brief marker alignment (experimental)**,
-   then **Start tracking**. This mode enables the VR display automatically.
-4. Hold both the phone and your head still, with the complete tag visible to
-   both front cameras. Acquisition requires at least four distinct accepted
-   observations spanning 600 ms. Initialization/processing can take longer.
-5. After the headset acknowledges alignment, the phone marker closes and the
-   app task moves behind Home/the previous app. Move the phone and your head
-   independently and compare the rectangle with the physical phone.
-6. To realign, tap **Show marker** in the phone's tracking notification. After
-   tracking loss, this first version also requires another marker observation;
-   automatic recovery without it is deliberately not yet implemented.
+1. Rebuild/install both apps and leave SteamVR running on the headset.
+2. Enter phone width/height and tap **Connect**. Grant camera, notification and
+   **display over other apps** access; install/update ARCore when requested.
+3. Connect or pair on Frame as usual. Authentication triggers the overlay, and
+   Frame automatically starts ARCore handoff and enables the VR rectangle.
+4. Keep the complete tag visible to both front cameras. Its position relative
+   to the headset must stay within 2 cm over at least 500 ms, with at least four
+   distinct accepted observations. The devices may move together in the room.
+5. The renderer confirms a visible rectangle before Frame acknowledges alignment.
+   The overlay then closes without changing the foreground app. ARCore continues
+   while Home or another app is visible.
+6. Tracking loss, lock/unlock and new connections request another overlay
+   acquisition automatically. A failed 20-second acquisition closes the overlay;
+   **Retry tracking** in the phone UI or **Retry** in the notification starts a new
+   attempt. Timeout never accepts or restores an alignment.
 
-**Stop ARCore** or the tracking notification's **Stop tracking** releases the
-phone camera. **Stop connection** also stops ARCore. Stopping tracking on Frame
-hides its rectangle; stop ARCore on the phone when finished to release camera
-resources. This prototype does not start tracking automatically after unlock.
+**Disconnect** stops the link, camera service and overlay. Android requires one
+special-access approval for drawing over other apps. The overlay is hidden on
+lock, disconnect, camera contention or fatal tracking errors. Stop/Retry remain
+available from the notification, and a timeout prevents indefinite screen cover.
+Automatic recovery still uses a fresh marker; trusted marker-free pocket
+relocalization and screen streaming are not implemented.
 
 The camera foreground service owns a small offscreen EGL context and ARCore
 session, so leaving the marker activity does not intentionally pause tracking.
@@ -59,12 +60,18 @@ elapsed realtime. These are approximate observation/update times, not calibrated
 exposure timestamps. Stationary gating reduces their motion error rather than
 claiming to compensate it.
 
-The gate compares against fixed baselines: approximately 1 cm phone/optical
-translation, 8 mm headset translation and 1.4 degrees of rotation. It also checks
-recent motion during detector processing, optical RMS, distinct observations,
-history proximity and interruptions. Moving observations restart acquisition.
-Alignment is acknowledged only for the current connection, anchor generation and
-acquisition ID. Delayed acknowledgments cannot close a new marker acquisition.
+Stability is a maximum 2 cm spread in headset-relative marker position over a
+minimum 500 ms batch, rather than separate limits on absolute phone/head motion.
+Current ARCore/headset poses also check relative movement during detector work.
+The gate validates registration consistency, optical RMS, distinct observations,
+history proximity and interruptions. Acquisition tolerates detector intervals
+longer than the 250 ms live-render timeout without repeatedly erasing its batch;
+phone pose freshness for rendering remains bounded to 250 ms.
+
+Alignment acknowledgments require a fresh native renderer heartbeat with a
+visible overlay and matching connection/generation/acquisition IDs. A delayed
+acknowledgment cannot dismiss a new acquisition. Missing or failed rendering
+leaves the marker visible until recovery or timeout.
 
 ARCore loss, stale phone poses, clock failure, anchor/session/acquisition changes,
 invalid headset tracking and reported SteamVR recenter events invalidate the
@@ -97,3 +104,5 @@ accuracy or actual Android background-camera behavior.
 ARCore reference: [sensor pose and frame timestamp](https://developers.google.com/ar/reference/java/com/google/ar/core/Frame).
 See also [coordinates](COORDINATE_SYSTEMS.md), [VR display](VR_DISPLAY.md) and
 the [companion session plan](../../docs/COMPANION_SESSION_PLAN.md).
+
+Android overlay access uses the standard [Settings permission](https://developer.android.com/reference/android/provider/Settings#canDrawOverlays). No accessibility service or background activity launch is used.

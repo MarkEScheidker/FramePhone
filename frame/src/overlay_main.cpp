@@ -233,9 +233,10 @@ int main(int argc, char **argv) {
         client.open();
         Display display(client, geometry);
         display.create();
-        std::cout << (arcore ? "VR screen ready: ARCore handoff; hold phone and headset still.\n"
-                             : "VR screen ready: fiducial-driven rectangle; headset alignment and "
-                               "motion timing are provisional.\n");
+        std::cout
+            << (arcore ? "VR screen ready: ARCore handoff; keep phone steady relative to headset.\n"
+                       : "VR screen ready: fiducial-driven rectangle; headset alignment and "
+                         "motion timing are provisional.\n");
         std::string previous_state;
         while (!stopped) {
             vr::VREvent_t event{};
@@ -289,8 +290,11 @@ int main(int argc, char **argv) {
                 state = "hidden: headset tracking unavailable";
                 handoff.reset(state);
             }
+            display.update(current, arcore);
             if (arcore && now - last_state_write >= 100'000'000) {
                 auto status = handoff.state;
+                status["visible"] =
+                    current.has_value() && client.overlay->IsOverlayVisible(display.handle);
                 status["updated_host_monotonic_ns"] = now;
                 const auto temporary = session / "arcore-state.json.tmp";
                 std::ofstream file(temporary);
@@ -305,7 +309,6 @@ int main(int argc, char **argv) {
                 std::cout << "VR screen " << state << '\n';
                 previous_state = state;
             }
-            display.update(current, arcore);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
         return 0;

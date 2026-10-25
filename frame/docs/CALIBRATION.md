@@ -1,6 +1,6 @@
 # Body and camera calibration
 
-Measure the outside phone/case width, height and thickness in millimeters and
+Measure the outside phone/case width and height in millimeters and
 save them in Android before pairing. These describe the rigid body, not the
 active display. A case change requires updated dimensions and a new optical trial.
 The tag fills the display width automatically including its quiet margin.

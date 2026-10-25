@@ -93,8 +93,8 @@ malformed data, unexpected sessions and reordered samples close the connection.
 | `samples` | Phone → Frame: session, cumulative queue-drop count, array of at most 64 sensor events. |
 | `error` | Phone → Frame, after TLS: fixed `code` for closed pairing, rejected/expired approval, failed authentication or protocol error. No credentials or raw request contents. |
 
-The profile's `dimensions` has `width_m`, `height_m`, `thickness_m`,
-`boundary:body_or_case`, `source:manual`. These dimensions do not imply active
+The profile's `dimensions` has `width_m`, `height_m`,
+`boundary:body_or_case`, `source:manual`. Older thickness fields are ignored. These dimensions do not imply active
 screen size, physical IMU location or a camera pose. Single-tag pose uses the separate fiducial profile's black edge and decoded
 orientation. Its initial scale is from unverified Android display DPI; body size
 is not substituted for marker size.
@@ -212,3 +212,11 @@ References: [Android sensors](https://developer.android.com/reference/android/ha
 and [TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html).
 Android currently targets SDK 36; future target-37 builds must account for
 [local-network permissions](https://developer.android.com/privacy-and-security/local-network-permission).
+
+Updated phones also report `automatic_marker_v1:true`. Frame selects ARCore
+handoff automatically and starts when the authenticated marker state becomes
+visible. Deliberate Stop suppresses automatic restart for that connection. The
+phone arms its camera foreground service from the visible Connect action, opens
+ARCore only after authentication, and controls a TYPE_APPLICATION_OVERLAY window.
+Lock/disconnect/loss fence acquisition IDs. Successful acknowledgment requires
+native `visible:true` after the OpenVR update succeeds. See the handoff guide.

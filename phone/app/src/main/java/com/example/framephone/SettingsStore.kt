@@ -9,11 +9,11 @@ class SettingsStore(context: Context) {
     private val prefs = context.getSharedPreferences("telemetry_v1", Context.MODE_PRIVATE)
     fun dimensions(): PhoneDimensions? = runCatching {
         PhoneDimensions(prefs.getString("width", "")!!.toDouble(),
-            prefs.getString("height", "")!!.toDouble(), prefs.getString("thickness", "")!!.toDouble())
+            prefs.getString("height", "")!!.toDouble())
     }.getOrNull()
     fun save(value: PhoneDimensions) {
         check(prefs.edit().putString("width", value.widthMm.toString())
-            .putString("height", value.heightMm.toString()).putString("thickness", value.thicknessMm.toString()).commit())
+            .putString("height", value.heightMm.toString()).remove("thickness").commit())
     }
     fun pairedName(): String? = prefs.getString("paired_name", null)
     fun remember(name: String, credential: String) {

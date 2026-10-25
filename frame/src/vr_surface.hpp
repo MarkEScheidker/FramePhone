@@ -8,7 +8,8 @@
 
 namespace framephone::surface {
 using Matrix = std::array<double, 12>;
-inline std::optional<Matrix> pose(const nlohmann::json &message, std::uint64_t now) {
+inline std::optional<Matrix> pose(const nlohmann::json &message, std::uint64_t now,
+                                  std::uint64_t max_age = 250'000'000) {
     if (message.value("status", "") != "measured")
         return {};
     if (message.at("schema") != "framephone-fiducial-pose-v1" || message.at("transform") != "T_HM")
@@ -17,7 +18,7 @@ inline std::optional<Matrix> pose(const nlohmann::json &message, std::uint64_t n
     if (!stamp.is_number_unsigned())
         throw std::runtime_error("invalid VR pose clock");
     auto time = stamp.get<std::uint64_t>();
-    if (time > now || now - time > 250'000'000)
+    if (time > now || now - time > max_age)
         return {};
     const auto &best = message.at("candidates").at(0);
     auto rotation = best.at("rotation").get<std::array<double, 9>>();

@@ -4,6 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class FiducialTest {
+    @Test fun rotatedViewportKeepsTheNaturalPortraitGeometry() {
+        assertEquals(Fiducial.viewportProfile(1080, 2400, 400.0).toString(),
+            Fiducial.viewportProfile(2400, 1080, 400.0).toString())
+    }
     @Test fun tagHasWhiteQuietZoneAndSquareBlackBorder() {
         assertEquals(10, Fiducial.rows.size)
         assertTrue(Fiducial.rows.all { it.length == 10 && it.first() == '0' && it.last() == '0' })

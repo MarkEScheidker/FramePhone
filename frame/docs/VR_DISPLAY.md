@@ -5,8 +5,8 @@ On the dashboard, start tracking and enable **Show rectangle in VR
 the latest accepted fiducial position and orientation. It is centered on the
 marker at the phone's screen plane. Keep the marker visible.
 
-For the optional **Use ARCore after brief marker alignment** mode, see
-[the handoff test](ARCORE_HANDOFF.md). It uses a stationary optical acquisition
+Updated phones select ARCore handoff automatically after connection; see
+[the handoff test](ARCORE_HANDOFF.md). It uses a stable relative optical acquisition
 followed by a world-space ARCore-driven rectangle and pauses tag detection.
 The following describes the default continuous optical mode.
 

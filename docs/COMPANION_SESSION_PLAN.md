@@ -1,7 +1,7 @@
 # Bluetooth companion sessions
 
 Proposed direction, researched 2026-10-25. Most of this flow is future work; an
-opt-in [stationary ARCore handoff test](../frame/docs/ARCORE_HANDOFF.md) now uses
+automatic [brief-marker ARCore handoff test](../frame/docs/ARCORE_HANDOFF.md) now uses
 the existing LAN link. The working stereo marker tracker, LAN pairing and VR rectangle remain
 the baseline. See the [roadmap](ROADMAP.md) and
 [coordinate conventions](../frame/docs/COORDINATE_SYSTEMS.md).
@@ -15,8 +15,7 @@ work belongs to a companion service, with visible session/stop controls.
 
 First setup:
 
-1. Open both apps and enter phone width and height. Remove depth from the setup
-   UI; preserve compatibility with older saved profiles during migration.
+1. Open both apps and enter phone width and height. Setup uses width/height; older thickness preferences are ignored.
 2. Select the headset in Android's companion-device picker, approve Bluetooth
    pairing on both devices and establish application trust.
 3. Grant the required Bluetooth, notification and camera permissions. Check
@@ -33,14 +32,15 @@ Normal use:
 3. On unlocking, start the tracking/capture session through the UI route Android
    permits. The practical baseline is a notification action followed by the
    system screen-sharing approval when required.
-4. Start ARCore and show the existing fullscreen marker. Aim for about one
-   second of visible acquisition once ARCore is ready. Hide it only after the
+4. The running phone session starts ARCore and shows its marker overlay. Aim
+   for relative movement within 2 cm over 500 ms once ARCore is ready. Hide it only after the
    headset acknowledges a valid alignment from several observations.
 5. Return to Home or another app. ARCore poses travel over Bluetooth; the entire
    display travels over Wi-Fi into the existing SteamVR screen surface.
 
-The network connection should become automatic. Fully unattended capture and
-marker display on every unlock are research targets, not promised behavior.
+The network connection should become automatic. The marker now uses an approved application overlay and reappears after unlock
+when the running session needs alignment. Fully unattended screen capture
+remains constrained by per-session consent.
 
 ## Android constraints to validate first
 

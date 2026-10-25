@@ -94,6 +94,10 @@ class FiducialPanel:
         self.arcore_enabled = tk.BooleanVar(value=False)
         self.handoff_active = False
         self.last_arcore_command = 0
+        self.auto_blocked_session = None
+        self.auto_last_attempt = 0
+        self.renderer_acquisition = None
+        self.automatic_controls = False
         self.vr_status = tk.StringVar(value="VR display is off.")
         panel = ttk.Frame(parent, padding=(0, 6))
         panel.pack(fill="both", expand=True)
@@ -145,6 +149,8 @@ class FiducialPanel:
             snapshot = link.snapshot() if link else None
             if not snapshot:
                 raise ValueError("Connect your phone first.")
+            if snapshot.get("automatic_marker"):
+                self.arcore_enabled.set(True)
             selections = self.app.camera_selection
             for v, (stream, calibration) in enumerate(zip(selections[2:], selections[:2])):
                 side = ("Front left", "Front right")[v]
@@ -182,6 +188,7 @@ class FiducialPanel:
         self.redraw()
         self.busy = True
         self.handoff_active = False
+        self.renderer_acquisition = None
         self.has_results = False
         self.publish_vr(None)
         self.toggle_vr()
@@ -344,6 +351,8 @@ class FiducialPanel:
         self.redraw()
 
     def stop(self):
+        if self.config:
+            self.auto_blocked_session = self.config["phone_session"]
         self.cancelled.set()
         with self.process_lock:
             process = self.process
@@ -379,11 +388,16 @@ class FiducialPanel:
             if path.exists() and path.stat().st_size <= 65536:
                 state = json.loads(path.read_text())
             latest = packet["poses"][-1] if packet["poses"] else {}
+            acquisition = (latest.get("generation"), latest.get("acquisition"))
+            if latest and acquisition != self.renderer_acquisition:
+                self.renderer_acquisition = acquisition
+                if "overlay" not in self.app.processes:
+                    self.toggle_vr()
             current = (state.get("generation") == latest.get("generation") and
                        state.get("acquisition") == latest.get("acquisition") and
                        0 <= time.monotonic_ns()-state.get("updated_host_monotonic_ns", 0) < 500_000_000 and
                        "overlay" in self.app.processes)
-            accepted = current and state.get("state") == "tracking"
+            accepted = current and state.get("state") == "tracking" and state.get("visible") is True
             paused = (accepted or not snapshot.get("marker_displayed") or
                       not snapshot.get("marker_state_fresh") or latest.get("state") != "tracking" or
                       "overlay" not in self.app.processes)
@@ -408,13 +422,13 @@ class FiducialPanel:
                 self.redraw()
             if accepted:
                 self.pose.set("ARCore world pose · optical detection paused\nSensor-to-screen origin and exposure timing are provisional")
-                self.status.set("Marker alignment accepted. Use Home/other apps; keep the rear camera uncovered.")
+                self.status.set("Tracking from phone. Optical detection paused.")
             elif latest.get("state") in ("error", "stopped"):
                 self.pose.set("ARCore unavailable — no current VR pose")
                 self.status.set("Open the phone app and restart ARCore. " + latest.get("reason", ""))
             elif latest.get("marker_required") and not snapshot.get("marker_displayed"):
                 self.pose.set("Alignment required — no current VR pose")
-                self.status.set("On the phone, tap Show marker in the tracking notification to align again.")
+                self.status.set("Waiting for the phone's automatic marker overlay.")
             else:
                 self.status.set("ARCore: " + state.get("reason", "waiting for VR display and phone poses"))
         except (OSError, ValueError, KeyError, TypeError) as error:
@@ -422,6 +436,21 @@ class FiducialPanel:
             self.status.set("ARCore handoff failed: " + str(error))
 
     def tick(self):
+        link = self.app.phone_panel.link
+        snapshot = link.snapshot() if link else None
+        automatic = bool(snapshot and snapshot.get("automatic_marker"))
+        if automatic != self.automatic_controls:
+            self.automatic_controls = automatic
+            if automatic:
+                self.arcore_toggle.pack_forget()
+            else:
+                self.arcore_toggle.pack(anchor="w", before=self.pose_label)
+        if (not self.busy and snapshot and snapshot.get("automatic_marker") and
+                snapshot["session"] != self.auto_blocked_session and
+                snapshot.get("marker_displayed") and snapshot.get("marker_state_fresh") and
+                time.monotonic()-self.auto_last_attempt >= 1):
+            self.auto_last_attempt = time.monotonic()
+            self.start()
         try:
             result, images = self.latest.get_nowait()
             if not self.cancelled.is_set():
@@ -432,8 +461,6 @@ class FiducialPanel:
         except queue.Empty:
             pass
         if self.busy and not self.cancelled.is_set():
-            link = self.app.phone_panel.link
-            snapshot = link.snapshot() if link else None
             if (not snapshot or snapshot["session"] != self.config["phone_session"] or
                     snapshot.get("fiducial") != self.config["fiducial"] or
                     (not self.config.get("arcore_handoff") and
@@ -468,6 +495,7 @@ class FiducialPanel:
             self.app.terminate("overlay")
             self.pose.set("Stopped — no current pose")
             if code and not self.cancelled.is_set():
+                self.auto_blocked_session = self.config["phone_session"]
                 self.status.set(f"Tracker failed (exit {code}): {error.strip()} · See tracker.log in Open results.")
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished (status {code}). Start tracking to retry.")

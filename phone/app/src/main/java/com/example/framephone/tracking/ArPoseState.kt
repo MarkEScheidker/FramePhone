@@ -13,21 +13,52 @@ object ArPoseState {
     private var required = true
     private var tracking = false
     private var latest: String? = null
-    @Volatile var status = "ARCore is off"
+    @Volatile var status = "Ready"
         private set
+    @Volatile var detail = ""
+        private set
+    @Volatile var connected = false
+        private set
+    @Volatile var unlocked = true
+        private set
+    @Volatile var running = false
+        internal set
+    @Volatile var overlayTimedOut = false
+        internal set
+    @Volatile var failed = false
+        private set
+
+    @Synchronized fun setConnected(value: Boolean) {
+        if (connected == value) return
+        connected = value
+        tracking = false
+        latest = null
+        requestMarker()
+        status = if (value) "Starting tracking" else "Waiting for headset"
+    }
+
+    @Synchronized fun setUnlocked(value: Boolean) {
+        if (unlocked && !value) requestMarker()
+        unlocked = value
+    }
+
+    @Synchronized fun acquisitionId() = acquisition
 
     @Synchronized fun beginSession() {
         generation = UUID.randomUUID().toString()
         sequence = 0
         latest = null
         tracking = false
+        failed = false
+        detail = ""
         requestMarker()
-        status = "Initializing ARCore — keep the rear camera uncovered"
+        status = if (connected) "Starting tracking" else "Waiting for headset"
     }
 
     @Synchronized fun requestMarker() {
         acquisition = UUID.randomUUID().toString()
         required = true
+        overlayTimedOut = false
     }
 
     @Synchronized fun publish(state: String, translation: FloatArray? = null, quaternion: FloatArray? = null,
@@ -36,6 +67,8 @@ object ArPoseState {
         val usable = state == "tracking"
         if (tracking && !usable) requestMarker()
         tracking = usable
+        failed = state == "error"
+        detail = reason.take(120)
         val message = JSONObject().put("type", "arcore_pose").put("generation", generation)
             .put("acquisition", acquisition).put("seq", ++sequence)
             // Frame.timestamp has an unspecified epoch. This is explicitly update time,
@@ -49,9 +82,21 @@ object ArPoseState {
                 .put("quaternion_xyzw", JSONArray(quaternion!!.map { it.toDouble() }))
         }
         latest = message.toString()
-        status = if (!usable) "ARCore $state${if (reason.isEmpty()) "" else ": $reason"}"
-            else if (required) "ARCore ready — hold phone and headset still for marker alignment"
-            else "ARCore tracking — marker hidden; rear camera must remain uncovered"
+        status = when {
+            failed -> "Tracking unavailable"
+            !connected -> "Waiting for headset"
+            state == "stopped" -> "Tracking stopped"
+            !usable -> when (reason) {
+                "INSUFFICIENT_LIGHT" -> "More light needed"
+                "INSUFFICIENT_FEATURES" -> "Point the rear camera at the room"
+                "EXCESSIVE_MOTION" -> "Hold still"
+                "camera_in_use" -> "Camera in use"
+                "screen_locked" -> "Phone locked"
+                else -> "Starting tracking"
+            }
+            required -> "Hold still"
+            else -> "Tracking"
+        }
     }
 
     @Synchronized fun message(session: String): JSONObject? = latest?.let {
@@ -65,7 +110,8 @@ object ArPoseState {
         if (sample.getString("generation") != generation || sample.getString("acquisition") != acquisition ||
             nowNs - sample.getLong("t_ns") !in 0..250_000_000L) return false
         required = false
-        status = "ARCore tracking — marker hidden; rear camera must remain uncovered"
+        overlayTimedOut = false
+        status = "Tracking"
         return true
     }
 

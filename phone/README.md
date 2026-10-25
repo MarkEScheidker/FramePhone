@@ -1,87 +1,52 @@
 # Android companion
 
-FramePhone sends live gyroscope, accelerometer and magnetometer observations to
-the Frame desktop app over an authenticated TLS connection. Android 12+;
-application ID `com.example.framephone`. A single AprilTag fills the screen width
-with its required white border and remains visible throughout the optical test.
-The phone reports its marker layout and visibility over the authenticated link.
-The optional brief-marker handoff uses Google ARCore and a camera foreground
-service. Continuous optical tracking still works without installing ARCore;
-neither mode captures the screen.
+Enter the phone's width and height, then tap **Connect**. After the headset
+connects, a screen-width AprilTag appears over the current app. Frame accepts a
+stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
+ARCore then supplies anchored motion over the existing secure LAN connection.
+
+Tracking recovery shows the overlay again automatically. The setup activity can
+stay closed. This is a prototype: background camera behavior, metric calibration
+and timing still need validation on the actual devices.
 
 ## Build
 
-Open this directory in Android Studio with JDK 17 and Android SDK 36, or run:
+Use Android Studio with JDK 17 and Android SDK 36, or run:
 
 ```bash
 cd phone
 bash gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-On Windows use `gradlew.bat`. Install `app/build/outputs/apk/debug/app-debug.apk`.
-SDK paths belong in ignored `local.properties`. See [development notes](../docs/DEVELOPMENT.md).
+Windows uses `gradlew.bat`. Install `app/build/outputs/apk/debug/app-debug.apk`.
+Android 12+; application ID `com.example.framephone`. See
+[development notes](../docs/DEVELOPMENT.md).
 
-## Pair and stream
+## Connect
 
-1. Put phone and headset on the same LAN.
-2. Measure the phone's **outside width, height and thickness**, including its
-   case, in portrait. Enter millimeters; these are not active-display dimensions.
-3. Tap **Save dimensions and start pairing**. Allow notifications so the Stop
-   control is visible while using other apps. Keep this screen open for pairing.
-4. On Frame, open **Connection → Find phones**, select this phone and click
-   **Pair new phone**. If discovery fails, type the IP shown on the phone.
-5. Compare **all four fingerprint groups** on the two physical screens. Only
-   choose **Fingerprints match** on both if they agree. Pairing closes after
-   90 seconds; use **Pair new headset** to reopen it.
-6. Telemetry starts immediately. The Frame displays dimensions, sensor values,
-   received rates, gaps and approximate sample age. Missing sensors are shown
-   explicitly; a missing magnetometer does not block the connection.
+1. Put the phone and headset on the same LAN. Enter outside phone/case width and
+   height in millimeters and tap **Connect**.
+2. Grant camera, notification and **display over other apps** access. Install or
+   update Google Play Services for AR when prompted. These are setup steps;
+   normal connections do not need a separate ARCore or marker button.
+3. Launch FramePhone on the headset. Saved pairing reconnects automatically.
+   For a new pairing, use **Connection → Pair new phone** on Frame and confirm
+   matching codes on both devices.
+4. Keep the phone's position relative to the headset within 2 cm for 500 ms,
+   with the marker visible in both front cameras. Moving both devices together
+   is allowed. The overlay disappears only after a successful visible VR handoff.
 
-For subsequent sessions, start the phone connection and launch FramePhone.
-It discovers and reconnects to the saved phone automatically, including after an
-IP change. Use **Connection → Reconnect** for a manual retry. Reconnect checks the
-full saved certificate fingerprint before transmitting the reconnect credential.
-This version remembers one headset; a newly approved pairing replaces it.
+Keep the rear camera uncovered while tracking. **Disconnect** stops networking,
+tracking and the overlay. The notification provides **Retry** and **Disconnect**;
+**Details** contains network diagnostics and pairing management. If alignment
+cannot complete within 20 seconds, the overlay closes and **Retry tracking** is
+available. A timeout does not accept a pose.
 
-The phone checks a real local TLS handshake before opening discovery. If startup
-fails, its status shows **Cannot start at TLS self-check** with diagnostic details.
-The corrected identity key permits TLS's pre-hashed signing operation. Updating
-from the original restricted key replaces that identity and clears the phone's
-old pairing once; choose **Pair new phone** on Frame to establish trust again.
+Width/height preferences and existing pairing survive this update; obsolete
+saved thickness is discarded when dimensions are saved. Rebuild both apps:
+older headset versions do not support automatic marker sessions.
 
-**Stop connection** (or the notification's Stop) closes listeners and streams.
-**Forget headset and stop** also revokes the saved credential. Stop before editing
-dimensions. There is no automatic boot startup or background reconnect loop.
-The enabled connection uses a connected-device foreground service, not an overlay.
-
-## Current limits
-
-After pairing, tap **Show fullscreen tracking marker** and keep it displayed.
-FramePhone enables its fixed front camera pair on startup. Approve authorization
-if prompted, then click **Start tracking** on its dashboard. Tap the marker or Back to return; doing so clears the tracking state.
-Fullscreen marker sizing is automatic, with whole-pixel cells and no size slider.
-Android's reported physical DPI supplies an unverified metric black-edge size.
-No forced brightness is applied. See [marker tracking](../frame/docs/FIDUCIAL_TRACKING.md)
-and [VR display](../frame/docs/VR_DISPLAY.md).
-
-Pairing uses manual fingerprint comparison, not QR scanning. Discovery is IPv4
-UDP broadcast; telemetry uses TLS 1.3/TCP on port 47643. Guest Wi-Fi/client
-isolation, firewall rules or future Android local-network permission changes may
-block access. Manual IP entry bypasses blocked discovery, not blocked TCP access.
-
-Gyro/accelerometer request 200 Hz; magnetometer requests 50 Hz. Actual rates and
-sensor availability depend on the phone. Uncalibrated channels are preferred,
-with vendor bias estimates separate; calibrated channels are explicit fallbacks.
-Original integer nanosecond timestamps and fixed natural-device axes are retained.
-Sampling during lock/sleep and power management still need device validation.
-
-The Frame estimates marker pose optically. For the experimental handoff, tap
-**Start ARCore + brief marker**, then enable the corresponding option on Frame.
-Hold the phone and headset still until alignment is acknowledged. The marker
-closes and the camera service continues behind Home/other apps. Tap **Show
-marker** in its notification to realign after loss; stop ARCore when finished.
-See [test procedure and limits](../frame/docs/ARCORE_HANDOFF.md). Physical-device
-validation of background tracking, timing and accuracy remains necessary.
-
-Robust paired-device visual identity, QR scanning, screen capture and remote input are not included.
-See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
+Gyro/accelerometer and magnetometer diagnostics remain available. Screen capture,
+Bluetooth transport and remote input are not implemented. See
+[handoff behavior and limits](../frame/docs/ARCORE_HANDOFF.md) and
+[the LAN protocol](../frame/docs/PAIRING_AND_IMU.md).

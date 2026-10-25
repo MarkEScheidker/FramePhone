@@ -53,13 +53,12 @@ object Protocol {
     }
 }
 
-data class PhoneDimensions(val widthMm: Double, val heightMm: Double, val thicknessMm: Double) {
+data class PhoneDimensions(val widthMm: Double, val heightMm: Double) {
     init {
         require(widthMm.isFinite() && widthMm in 20.0..500.0)
         require(heightMm.isFinite() && heightMm in widthMm..800.0)
-        require(thicknessMm.isFinite() && thicknessMm in 1.0..100.0)
     }
     fun json() = JSONObject().put("width_m", widthMm / 1000)
-        .put("height_m", heightMm / 1000).put("thickness_m", thicknessMm / 1000)
+        .put("height_m", heightMm / 1000)
         .put("boundary", "body_or_case").put("source", "manual")
 }

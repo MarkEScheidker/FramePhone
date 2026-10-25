@@ -12,14 +12,14 @@ import java.io.DataOutputStream
 
 class ProtocolTest {
     @Test fun measuredBodyDimensionsUseMetersAndRejectInvalidInput() {
-        val json = PhoneDimensions(75.0, 160.0, 9.5).json()
+        val json = PhoneDimensions(75.0, 160.0).json()
         assertEquals(0.075, json.getDouble("width_m"), 1e-9)
         assertEquals("body_or_case", json.getString("boundary"))
         for (bad in listOf(Double.NaN, Double.POSITIVE_INFINITY, -1.0, 0.0, 501.0)) {
-            assertThrows(IllegalArgumentException::class.java) { PhoneDimensions(bad, 160.0, 9.5) }
+            assertThrows(IllegalArgumentException::class.java) { PhoneDimensions(bad, 160.0) }
         }
-        assertThrows(IllegalArgumentException::class.java) { PhoneDimensions(75.0, 60.0, 9.5) }
-        assertThrows(IllegalArgumentException::class.java) { PhoneDimensions(75.0, 160.0, 0.0) }
+        assertThrows(IllegalArgumentException::class.java) { PhoneDimensions(75.0, 60.0) }
+        assertFalse(json.has("thickness_m"))
     }
     @Test fun wireRetainsIntegerNanosecondsAndUsesBigEndianLength() {
         val bytes = ByteArrayOutputStream()

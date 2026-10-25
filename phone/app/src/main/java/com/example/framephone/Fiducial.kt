@@ -33,7 +33,7 @@ object Fiducial {
     }
     fun drawn(context: Context, width: Int, height: Int) {
         drawnProfile = runCatching {
-            displayProfile(width, height, context.resources.displayMetrics.xdpi.toDouble()).toString()
+            viewportProfile(width, height, context.resources.displayMetrics.xdpi.toDouble()).toString()
         }.getOrNull()
         displayed = drawnProfile != null
     }
@@ -44,6 +44,8 @@ object Fiducial {
     fun automaticProfile(context: Context): JSONObject {
         val bounds = context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
         val xdpi = context.resources.displayMetrics.xdpi.toDouble()
-        return displayProfile(bounds.width(), bounds.height(), xdpi)
+        return viewportProfile(bounds.width(), bounds.height(), xdpi)
     }
+    fun viewportProfile(width: Int, height: Int, xdpi: Double): JSONObject =
+        displayProfile(minOf(width, height), maxOf(width, height), xdpi)
 }

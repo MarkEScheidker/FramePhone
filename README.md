@@ -1,7 +1,8 @@
 # FramePhone
 
 An experimental Android companion for Valve Steam Frame. The phone shows one
-fullscreen AprilTag and sends motion telemetry over a paired LAN connection.
+screen-width AprilTag overlay when alignment is needed and sends motion telemetry
+over a paired LAN connection.
 Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An optional SteamVR display follows the tracked
 screen as a flat rectangle.
@@ -10,7 +11,7 @@ screen as a flat rectangle.
 devices, with stable distance and orientation readings. The VR rectangle has
 also been demonstrated on the headset. Distance scale uses Android's reported
 display DPI; metric accuracy and motion timing still need independent validation.
-An optional brief-marker ARCore handoff prototype is available for device testing;
+An automatic brief-marker ARCore handoff prototype is available for device testing;
 its origin calibration and exposure timing are provisional. Bluetooth and screen
 streaming are future work.
 
@@ -27,14 +28,16 @@ in file Properties. Runtime libraries, desktop controls and the camera broker ar
 bundled. Docker/Podman is required only for building; Frametop is not required.
 The app uses the headset's installed SteamVR for the optional VR display.
 
-1. Start the phone connection in Android. Launch FramePhone on the headset:
-   cameras start automatically (approve desktop authorization if prompted), and
-   the app discovers and reconnects to the saved phone.
-2. For first-time pairing, expand **Connection**, select the phone and choose
-   **Pair new phone**. Compare and approve matching fingerprints on both devices.
-3. Show the fullscreen phone marker, then click **Start tracking** on the
-   dashboard. Enable **Show rectangle in VR (SteamVR)** for the screen rectangle.
-   The confirmed front pair is fixed; camera selectors are not exposed.
+1. Enter width and height on Android and tap **Connect**. Grant camera and
+   **display over other apps** access; install ARCore if requested.
+2. Launch FramePhone on the headset. Cameras start automatically (approve
+   desktop authorization if prompted), and the saved phone reconnects. For first
+   pairing, expand **Connection**, select the phone and choose **Pair new phone**.
+   Compare and approve matching codes on both devices.
+3. The marker overlay and headset tracking start automatically. Keep the phone
+   within 2 cm of its headset-relative position for 500 ms. When the VR rectangle
+   is visible and alignment is accepted, the marker disappears and ARCore takes
+   over. Recovery displays the overlay again. **Disconnect** stops the session.
 
 No photo selection, manual corners or marker-size adjustment is required. The
 white quiet border is part of the width-filling marker; the black square itself

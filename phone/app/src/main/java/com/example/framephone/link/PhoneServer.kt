@@ -27,7 +27,7 @@ import kotlin.concurrent.thread
 
 data class LinkStatus(val running: Boolean = false, val message: String = "Stopped",
     val address: String = "", val fingerprint: String = "", val request: String? = null,
-    val peer: String = "", val paired: String? = null)
+    val peer: String = "", val paired: String? = null, val connected: Boolean = false)
 
 class PhoneServer(private val context: Context, private val store: SettingsStore,
     private val dimensions: PhoneDimensions, private val publish: (LinkStatus) -> Unit) {
@@ -44,9 +44,10 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
         val latch = CountDownLatch(1)
         @Volatile var accepted = false
     }
-    private fun update(message: String, request: String? = null, peer: String = "", fingerprint: String = "") {
+    private fun update(message: String, request: String? = null, peer: String = "", fingerprint: String = "",
+                       connected: Boolean = false) {
         status = status.copy(message = message, request = request, peer = peer,
-            fingerprint = fingerprint, paired = store.pairedName())
+            fingerprint = fingerprint, paired = store.pairedName(), connected = connected)
         if (running) publish(status)
     }
     fun openPairing() {
@@ -111,7 +112,10 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                     }
                     runCatching { socket.close() }
                 }
-                finally { runCatching { socket.close() }; client = null; pending = null }
+                finally {
+                    runCatching { socket.close() }; client = null; pending = null
+                    if (status.connected) update("Waiting for headset")
+                }
             }
         } catch (error: Exception) {
             if (running) publish(LinkStatus(message = "Cannot start at $stage: ${error.javaClass.simpleName}: ${error.message?.take(200)}", paired = store.pairedName()))
@@ -195,9 +199,10 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
                 .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
+                .put("automatic_marker_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
-            update("Streaming gyro, accelerometer and magnetometer to $peer", peer = peer)
+            update("Connected", peer = peer, connected = true)
             stage = "sensor streaming"
             socket.soTimeout = 8000
             val lastWrite = AtomicLong(SystemClock.elapsedRealtime())

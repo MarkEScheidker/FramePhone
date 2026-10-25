@@ -37,6 +37,15 @@ class ArcoreLinkTests(unittest.TestCase):
         self.assertNotIn("translation_m", state.arcore_poses[-1])
         self.assertFalse(state.snapshot(15_000_000_000)["arcore"]["clock_valid"])
 
+    def test_width_height_profiles_and_automatic_marker_capability(self):
+        capabilities = dict(profile(), automatic_marker_v1=True)
+        capabilities["dimensions"] = {"width_m": .075, "height_m": .16}
+        state = Telemetry(capabilities)
+        self.assertEqual(state.snapshot(0)["dimensions"], (.075, .16))
+        self.assertTrue(state.snapshot(0)["automatic_marker"])
+        self.assertEqual(Telemetry(profile()).dimensions, (.075, .16))
+        self.assertFalse(Telemetry(profile()).snapshot(0)["automatic_marker"])
+
     def test_malformed_unannounced_reordered_poses_rejected(self):
         with self.assertRaises(ValueError):
             Telemetry(profile()).receive(pose_message(), 2_000_000_000)

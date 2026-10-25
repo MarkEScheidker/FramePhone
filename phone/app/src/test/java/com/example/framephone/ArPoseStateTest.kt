@@ -7,7 +7,7 @@ import org.junit.Before
 import org.junit.Test
 
 class ArPoseStateTest {
-    @Before fun begin() { ArPoseState.beginSession() }
+    @Before fun begin() { ArPoseState.setConnected(false); ArPoseState.setUnlocked(true); ArPoseState.beginSession() }
     private fun pose(time: Long = 1_000_000_000L) {
         ArPoseState.publish("tracking", floatArrayOf(0f, 0f, 0f), floatArrayOf(0f, 0f, 0f, 1f), updatedAtNs = time)
     }
@@ -52,5 +52,20 @@ class ArPoseStateTest {
         pose(1_030_000_000L)
         assertFalse(ArPoseState.acknowledge(old, 1_040_000_000L))
         assertEquals(1L, ArPoseState.message("connection-2")!!.getLong("seq"))
+    }
+    @Test fun lockAndDisconnectFenceAutomaticAcquisitions() {
+        ArPoseState.setConnected(true)
+        pose()
+        val old = acknowledgment()
+        assertTrue(ArPoseState.acknowledge(old, 1_010_000_000L))
+        ArPoseState.setUnlocked(false)
+        assertTrue(ArPoseState.markerRequired())
+        assertFalse(ArPoseState.acknowledge(old, 1_020_000_000L))
+        ArPoseState.setUnlocked(true)
+        pose(1_030_000_000L)
+        assertTrue(ArPoseState.acknowledge(acknowledgment(), 1_040_000_000L))
+        ArPoseState.setConnected(false)
+        assertNull(ArPoseState.message("old-connection"))
+        assertFalse(ArPoseState.acknowledge(old, 1_050_000_000L))
     }
 }

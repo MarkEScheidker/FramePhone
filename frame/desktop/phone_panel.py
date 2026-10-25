@@ -262,7 +262,7 @@ class PhonePanel:
                     self.parent.after(50, self.connect_next)
         snapshot = self.link.snapshot() if self.link else None
         if snapshot:
-            self.geometry.set("Phone body / case: %.1f × %.1f × %.1f mm" % tuple(x * 1000 for x in snapshot["dimensions"]))
+            self.geometry.set("Phone body / case: %.1f × %.1f mm" % tuple(x * 1000 for x in snapshot["dimensions"][:2]))
             for name, row in snapshot["rows"].items():
                 if not row["available"]:
                     text = "Unavailable on this phone"

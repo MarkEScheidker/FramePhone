@@ -193,12 +193,13 @@ class Telemetry:
         if not isinstance(self.session, str) or not 1 <= len(self.session) <= 64:
             raise ValueError("Invalid session")
         dimensions = profile["dimensions"]
-        w, h, d = (dimensions[key] for key in ("width_m", "height_m", "thickness_m"))
-        if not all(type(x) in (int, float) and math.isfinite(x) for x in (w, h, d)):
+        w, h = (dimensions[key] for key in ("width_m", "height_m"))
+        if not all(type(x) in (int, float) and math.isfinite(x) for x in (w, h)):
             raise ValueError("Invalid dimensions")
-        if not .02 <= w <= .5 or not w <= h <= .8 or not .001 <= d <= .1:
+        if not .02 <= w <= .5 or not w <= h <= .8:
             raise ValueError("Invalid dimensions")
-        self.dimensions = (w, h, d)
+        self.dimensions = (w, h)
+        self.automatic_marker = profile.get("automatic_marker_v1") is True
         self.fiducial = validate_fiducial(profile.get("fiducial"))
         self.marker_displayed = None
         self.marker_state_ns = None
@@ -330,6 +331,7 @@ class Telemetry:
                           if live and self.offset_ns is not None else None}
         return {"rows": rows, "count": self.count, "gaps": self.gaps, "dropped": self.dropped,
                 "session": self.session, "dimensions": self.dimensions, "fiducial": self.fiducial,
+                "automatic_marker": self.automatic_marker,
                 "marker_displayed": self.marker_displayed,
                 "marker_state_fresh": self.marker_state_ns is not None and now-self.marker_state_ns < 1_000_000_000,
                 "arcore": {"schema": "framephone-arcore-v1", "session": self.session,

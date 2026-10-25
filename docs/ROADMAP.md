@@ -11,7 +11,7 @@ This establishes an optical baseline for testing geometry, scale and timing.
 - Camera previews, marker counts, pose diagnostics and opt-in trial recording.
 - A single executable with desktop controls and the bundled camera broker.
 - An optional head-relative SteamVR screen rectangle demonstrated on the headset; metric alignment and timing still need validation.
-- An opt-in [brief-marker ARCore handoff prototype](../frame/docs/ARCORE_HANDOFF.md)
+- An automatic [brief-marker ARCore handoff prototype](../frame/docs/ARCORE_HANDOFF.md)
   over the existing LAN link; physical background tracking, timing and extrinsics
   remain unverified.
 
