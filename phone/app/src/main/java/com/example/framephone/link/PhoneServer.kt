@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import com.example.framephone.Fiducial
+import com.example.framephone.tracking.ArPoseState
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
@@ -193,6 +194,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("clock", "android_elapsed_realtime_ns").put("axes", "android_natural_device")
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
+                .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
             update("Streaming gyro, accelerometer and magnetometer to $peer", peer = peer)
@@ -205,10 +207,20 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                     while (running && alive.get()) {
                         val message = Protocol.read(input)
                         val received = SystemClock.elapsedRealtimeNanos()
-                        require(message.getString("type") == "ping")
-                        Protocol.write(output, JSONObject().put("type", "pong").put("session", session)
-                            .put("h0", message.getLong("h0")).put("p1", received)
-                            .put("p2", SystemClock.elapsedRealtimeNanos()))
+                        when (message.getString("type")) {
+                            "ping" -> Protocol.write(output, JSONObject().put("type", "pong").put("session", session)
+                                .put("h0", message.getLong("h0")).put("p1", received)
+                                .put("p2", SystemClock.elapsedRealtimeNanos()))
+                            "alignment_accepted" -> {
+                                require(hello.optBoolean("arcore_pose_v1") && message.getString("session") == session)
+                                ArPoseState.acknowledge(message)
+                            }
+                            "alignment_lost" -> {
+                                require(hello.optBoolean("arcore_pose_v1") && message.getString("session") == session)
+                                ArPoseState.alignmentLost(message)
+                            }
+                            else -> error("Unsupported command")
+                        }
                     }
                 } catch (_: Exception) { alive.set(false); runCatching { socket.close() } }
             }
@@ -222,9 +234,14 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             }
             try {
                 var stateAt = -500L
+                var lastPose = ""
                 while (running && alive.get()) {
                     Protocol.write(output, feed.batch(session))
                     lastWrite.set(SystemClock.elapsedRealtime())
+                    if (hello.optBoolean("arcore_pose_v1")) ArPoseState.message(session)?.let { pose ->
+                        val identity = "${pose.getString("generation")}:${pose.getLong("seq")}"
+                        if (identity != lastPose) { Protocol.write(output, pose); lastPose = identity }
+                    }
                     val now = SystemClock.elapsedRealtime()
                     if (hello.optBoolean("marker_state_v1") && now - stateAt >= 250) {
                         Protocol.write(output, JSONObject().put("type", "marker_state").put("session", session)

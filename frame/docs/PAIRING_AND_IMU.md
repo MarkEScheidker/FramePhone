@@ -99,6 +99,32 @@ screen size, physical IMU location or a camera pose. Single-tag pose uses the se
 orientation. Its initial scale is from unverified Android display DPI; body size
 is not substituted for marker size.
 
+## Optional ARCore extension
+
+Frame advertises `arcore_pose_v1:true` in `hello`; the updated phone echoes it
+in `profile`. Older peers retain the original sensor/marker behavior. An opted-in
+peer can receive `arcore_pose` messages over the same authenticated TLS stream.
+Raw sensor messages are unchanged.
+
+A pose has the connection `session`, anchor `generation`, marker `acquisition`,
+monotonic `seq`, `state` (`tracking`, `paused`, `error`, `stopped`) and
+`marker_required`. Tracking messages contain `translation_m` and a unit
+`quaternion_xyzw`, expressing `T_AD` (anchor-relative natural-device sensor pose).
+`t_ns` uses `update_elapsed_realtime_ns`, sampled after session update;
+`frame_timestamp_ns` retains ARCore's original unspecified-epoch frame clock.
+Neither timestamp is presented as calibrated optical exposure time.
+
+Frame bounds pose history to 90 entries, validates transforms and ordering, and
+maps update timestamps with the existing clock exchange. The handoff requires a
+recent exchange with RTT at most 40 ms. Stale poses do not drive the VR surface.
+
+The headset may send `alignment_accepted` or `alignment_lost` with the connection
+session, generation and acquisition. The phone accepts an acknowledgment only
+for its current fresh tracked acquisition. Loss requests a new acquisition;
+delayed commands cannot dismiss a newer marker. Commands use a bounded queue on
+the existing network worker. No new socket, trust authority or cryptography is
+introduced. See [ARCore handoff](ARCORE_HANDOFF.md) for acquisition and limits.
+
 Each capability names `gyro`, `accel` or `mag`, with `available`, Android
 sensor type, units, calibrated/uncalibrated flag, requested rate, minimum delay
 and sensor name when present. Events contain `sensor`, per-sensor `seq`,

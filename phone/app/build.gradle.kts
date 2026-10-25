@@ -38,6 +38,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.arcore)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.activity.compose)

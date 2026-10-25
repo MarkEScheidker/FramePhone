@@ -5,7 +5,9 @@ the Frame desktop app over an authenticated TLS connection. Android 12+;
 application ID `com.example.framephone`. A single AprilTag fills the screen width
 with its required white border and remains visible throughout the optical test.
 The phone reports its marker layout and visibility over the authenticated link.
-No screen capture permission or ARCore installation is needed for this milestone.
+The optional brief-marker handoff uses Google ARCore and a camera foreground
+service. Continuous optical tracking still works without installing ARCore;
+neither mode captures the screen.
 
 ## Build
 
@@ -73,6 +75,13 @@ with vendor bias estimates separate; calibrated channels are explicit fallbacks.
 Original integer nanosecond timestamps and fixed natural-device axes are retained.
 Sampling during lock/sleep and power management still need device validation.
 
-The Frame estimates marker pose optically. ARCore/world alignment, robust paired-device
-visual identity, QR scanning, screen capture and remote input are not included.
+The Frame estimates marker pose optically. For the experimental handoff, tap
+**Start ARCore + brief marker**, then enable the corresponding option on Frame.
+Hold the phone and headset still until alignment is acknowledged. The marker
+closes and the camera service continues behind Home/other apps. Tap **Show
+marker** in its notification to realign after loss; stop ARCore when finished.
+See [test procedure and limits](../frame/docs/ARCORE_HANDOFF.md). Physical-device
+validation of background tracking, timing and accuracy remains necessary.
+
+Robust paired-device visual identity, QR scanning, screen capture and remote input are not included.
 See the [implemented LAN protocol](../frame/docs/PAIRING_AND_IMU.md).

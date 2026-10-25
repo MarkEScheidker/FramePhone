@@ -10,7 +10,7 @@ def evidence_message(message):
         return {key: value[key] for key in keys if key in value}
     kind = message["type"]
     if kind == "profile":
-        result = select(message, ("type", "version", "session", "clock", "axes"))
+        result = select(message, ("type", "version", "session", "clock", "axes", "arcore_pose_v1"))
         result["dimensions"] = select(message["dimensions"], ("width_m", "height_m", "thickness_m", "boundary"))
         if "fiducial" in message:
             result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source", "screen_width_px", "screen_height_px", "black_edge_px"))
@@ -26,6 +26,10 @@ def evidence_message(message):
         result = select(message, ("type", "session", "displayed"))
         if message.get("fiducial") is not None:
             result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source", "screen_width_px", "screen_height_px", "black_edge_px"))
+    elif kind == "arcore_pose":
+        result = select(message, ("type", "session", "generation", "acquisition", "seq", "t_ns",
+                                  "frame_timestamp_ns", "time_source", "state", "transform", "marker_required",
+                                  "translation_m", "quaternion_xyzw", "reason"))
     else:
         raise ValueError("Only validated sensor and clock evidence may be recorded")
     return result

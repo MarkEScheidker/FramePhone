@@ -55,6 +55,10 @@ install(FILES third_party/openvr/LICENSE third_party/openvr/README.md DESTINATIO
 install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN "*.md")
 
 if(BUILD_TESTING)
+    add_executable(framephone-arcore-tests tests/test_arcore_handoff.cpp)
+    target_include_directories(framephone-arcore-tests SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
+    target_compile_options(framephone-arcore-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME framephone-arcore-handoff COMMAND framephone-arcore-tests)
     add_test(NAME framephone-overlay-self-test COMMAND framephone-overlay --self-test)
     add_executable(framephone-fiducial-tests tests/test_fiducial.cpp)
     target_link_libraries(framephone-fiducial-tests PRIVATE framephone_fiducial "${POSE_OPENCV_CORE}" "${POSE_OPENCV_CALIB}")

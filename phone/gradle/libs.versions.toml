@@ -11,8 +11,10 @@ material = "1.13.0"
 composeBom = "2024.09.00"
 activityCompose = "1.13.0"
 json = "20240303"
+arcore = "1.52.0"
 
 [libraries]
+arcore = { group = "com.google.ar", name = "core", version.ref = "arcore" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

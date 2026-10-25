@@ -331,6 +331,13 @@ int main(int argc, char **argv) {
         auto last_status = last_pair;
         std::array<std::uint64_t, 2> received{}, captures{};
         while (!stopped && index < std::uint64_t(max_pairs)) {
+            if (!replay && config.value("arcore_handoff", false) &&
+                std::filesystem::exists(session / "optical-paused")) {
+                pairer = StereoFramePairer(rig);
+                last_pair = last_status = std::chrono::steady_clock::now();
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
             if (replay && !eof) {
                 auto frame = replay->next();
                 if (frame)
@@ -391,6 +398,9 @@ int main(int argc, char **argv) {
             message["processing_ms"] = std::chrono::duration<double, std::milli>(
                                            std::chrono::steady_clock::now() - last_pair)
                                            .count();
+            message["observed_host_monotonic_ns"] = std::uint64_t(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(last_pair.time_since_epoch())
+                    .count());
             message["processed_host_monotonic_ns"] =
                 std::uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
                                   std::chrono::steady_clock::now().time_since_epoch())

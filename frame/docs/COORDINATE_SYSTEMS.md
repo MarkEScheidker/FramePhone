@@ -9,7 +9,7 @@ are right-handed.
 | H | Imported factory head frame: X right, Y up, Z backward. |
 | M | Marker black-square center: X decoded right, Y decoded top, Z out of screen. |
 | B | Phone/case body: currently no calibrated transform to M. |
-| W | SteamVR runtime world: future world-alignment work. |
+| W | SteamVR standing space; used by the experimental ARCore handoff. |
 
 The optical tracker publishes **T_HM**. Decoded corners define the orientation;
 Android's reported physical display DPI supplies the marker black edge. That
@@ -27,6 +27,10 @@ transform T_QM:
 
 `T_WA = T_WH * T_HM * inverse(T_AQ * T_QM)`
 
-Compute T_AQ from same-frame anchor/camera poses. Neither this registration nor
-ARCore is implemented. The camera-to-screen transform and inter-world alignment
-cannot both be solved from one arbitrary pose. See [roadmap](../../docs/ROADMAP.md).
+Compute T_AQ from same-frame anchor/camera poses. This calibrated registration
+is not implemented. The camera-to-screen transform and inter-world alignment
+cannot both be solved from one arbitrary pose. The
+[ARCore handoff prototype](ARCORE_HANDOFF.md) uses the natural-device sensor pose
+`T_AD` and provisionally assumes sensor and marker origins coincide; its
+stationary registration is not a calibrated implementation of the formula above.
+See [roadmap](../../docs/ROADMAP.md).

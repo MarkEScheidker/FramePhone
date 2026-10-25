@@ -1,19 +1,41 @@
 package com.example.framephone
 
 import android.app.Activity
+import android.Manifest
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import android.view.View
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import com.example.framephone.tracking.ArPoseService
+import com.example.framephone.tracking.ArPoseState
+import com.google.ar.core.ArCoreApk
 
 /** A dedicated portrait surface keeps the marker square independent of text/theme settings. */
 class MarkerActivity : Activity() {
+    private val main = Handler(Looper.getMainLooper())
+    private var installRequested = false
+    private var trackingStarted = false
+    private val arcore get() = intent.getBooleanExtra("arcore", false)
+    private val checkAlignment = object : Runnable {
+        override fun run() {
+            if (arcore && trackingStarted && !ArPoseState.markerRequired()) {
+                // Return to the previous app/Home while the camera foreground service continues.
+                moveTaskToBack(true)
+                finish()
+            } else main.postDelayed(this, 100)
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -29,9 +51,38 @@ class MarkerActivity : Activity() {
     }
     override fun onResume() {
         super.onResume()
+        if (arcore && !trackingStarted) prepareTracking()
+        main.removeCallbacks(checkAlignment)
+        main.post(checkAlignment)
         window.decorView.postInvalidate()
     }
+    private fun prepareTracking() {
+        if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.CAMERA), 10)
+            return
+        }
+        try {
+            if (ArCoreApk.getInstance().requestInstall(this, !installRequested) == ArCoreApk.InstallStatus.INSTALL_REQUESTED) {
+                installRequested = true
+                return
+            }
+            ArPoseState.requestMarker()
+            startForegroundService(Intent(this, ArPoseService::class.java))
+            trackingStarted = true
+        } catch (error: Exception) {
+            Toast.makeText(this, "Cannot start ARCore: ${error.javaClass.simpleName}", Toast.LENGTH_LONG).show()
+            finish()
+        }
+    }
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 10) {
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) prepareTracking()
+            else { Toast.makeText(this, "Camera permission is required for ARCore", Toast.LENGTH_LONG).show(); finish() }
+        }
+    }
     override fun onPause() {
+        main.removeCallbacks(checkAlignment)
         Fiducial.displayed = false
         super.onPause()
     }

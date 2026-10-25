@@ -11,8 +11,16 @@ This establishes an optical baseline for testing geometry, scale and timing.
 - Camera previews, marker counts, pose diagnostics and opt-in trial recording.
 - A single executable with desktop controls and the bundled camera broker.
 - An optional head-relative SteamVR screen rectangle demonstrated on the headset; metric alignment and timing still need validation.
+- An opt-in [brief-marker ARCore handoff prototype](../frame/docs/ARCORE_HANDOFF.md)
+  over the existing LAN link; physical background tracking, timing and extrinsics
+  remain unverified.
 
 ## Next milestones
+
+The proposed product flow is documented in the
+[Bluetooth companion session plan](COMPANION_SESSION_PLAN.md): Bluetooth presence
+and poses, secure Wi-Fi screen streaming, and brief marker acquisition followed
+by ARCore tracking. Platform lifecycle tests come before implementation promises.
 
 1. Validate physical front-camera/calibration associations, marker distance scale,
    orientation, loss/reacquisition and VR surface alignment on the headset.
@@ -26,7 +34,7 @@ This establishes an optical baseline for testing geometry, scale and timing.
 5. Stream ordinary phone apps/Home into the tracked screen and evaluate whether
    native SteamVR accessory registration/input bindings are useful.
 
-ARCore, shared room maps, full display capture/streaming and a registered virtual
-controller are not implemented. The discarded phone-object and arbitrary-photo
+Production ARCore alignment, shared room maps, full display capture/streaming and
+a registered virtual controller are not implemented. The discarded phone-object and arbitrary-photo
 matching experiments have been removed rather than retained as alternate product
 paths. Local private recordings and working notes are not source assets.

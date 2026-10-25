@@ -279,7 +279,8 @@ class Window:
         import tkinter as tk
         if self.closing:
             return
-        visible = self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
+        visible = (self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
+                   and not self.tracking_panel.busy)
         for index, (_, stream) in enumerate(FRONT_CAMERAS):
             self.preview_reader.update(index, stream, visible)
             if not visible:

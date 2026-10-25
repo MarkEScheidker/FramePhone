@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.example.framephone.MainActivity
 import com.example.framephone.SettingsStore
+import com.example.framephone.tracking.ArPoseService
 
 object TelemetryState {
     var status by mutableStateOf(LinkStatus())
@@ -28,6 +29,7 @@ class TelemetryService : Service() {
         val store = SettingsStore(this)
         when (intent?.action) {
             "stop", "forget" -> {
+                stopService(Intent(this, ArPoseService::class.java))
                 server?.close()
                 server = null
                 if (intent.action == "forget") store.forget()

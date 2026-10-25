@@ -5,6 +5,7 @@ import ipaddress
 import json
 import math
 import os
+import queue
 from pathlib import Path
 import socket
 import ssl
@@ -213,6 +214,9 @@ class Telemetry:
         self.gaps, self.count, self.dropped = 0, 0, 0
         self.probes = deque(maxlen=30)
         self.offset_ns, self.rtt_ns = None, None
+        self.arcore_enabled = profile.get("arcore_pose_v1") is True
+        self.arcore_poses = deque(maxlen=90)
+        self.arcore_received_ns = 0
 
     def clock_reply(self, message, h3, pending):
         h0, p1, p2 = (integer(message[k]) for k in ("h0", "p1", "p2"))
@@ -232,6 +236,44 @@ class Telemetry:
         _, self.rtt_ns, self.offset_ns = min(recent, key=lambda p: p[1])
 
     def receive(self, message, now):
+        if message.get("type") == "arcore_pose":
+            if not self.arcore_enabled or message.get("session") != self.session:
+                raise ValueError("Unannounced ARCore pose/session")
+            for key in ("generation", "acquisition"):
+                value = message.get(key)
+                if not isinstance(value, str) or not 1 <= len(value) <= 64 or not value.isascii() or not value.isprintable():
+                    raise ValueError("Invalid ARCore identity")
+            seq, stamp = integer(message.get("seq")), integer(message.get("t_ns"))
+            integer(message.get("frame_timestamp_ns"))
+            reason = message.get("reason", "")
+            if not isinstance(reason, str) or len(reason) > 120:
+                raise ValueError("Invalid ARCore tracking reason")
+            if (seq == 0 or stamp == 0 or message.get("state") not in ("tracking", "paused", "error", "stopped") or
+                    type(message.get("marker_required")) is not bool or message.get("transform") != "T_AD" or
+                    message.get("time_source") != "update_elapsed_realtime_ns"):
+                raise ValueError("Invalid ARCore state/coordinates")
+            if self.arcore_poses:
+                previous = self.arcore_poses[-1]
+                if previous["generation"] == message["generation"]:
+                    if seq <= previous["seq"] or stamp <= previous["t_ns"]:
+                        raise ValueError("Reordered ARCore pose")
+                else:
+                    self.arcore_poses.clear()
+            keys = ("generation", "acquisition", "seq", "t_ns", "frame_timestamp_ns", "state", "marker_required")
+            pose = {key: message[key] for key in keys}
+            pose["reason"] = reason
+            if message["state"] == "tracking":
+                translation = vector(message.get("translation_m"))
+                rotation = message.get("quaternion_xyzw")
+                if (not isinstance(rotation, list) or len(rotation) != 4 or
+                        any(type(x) not in (int, float) or not math.isfinite(x) for x in rotation) or
+                        abs(sum(x*x for x in rotation)-1) > .002 or
+                        any(abs(x) > 10000 for x in translation)):
+                    raise ValueError("Invalid ARCore transform")
+                pose.update(translation_m=list(translation), quaternion_xyzw=list(rotation))
+            self.arcore_poses.append(pose)
+            self.arcore_received_ns = now
+            return
         if message.get("type") == "marker_state":
             if message.get("session") != self.session or type(message.get("displayed")) is not bool:
                 raise ValueError("Invalid marker state/session")
@@ -290,6 +332,13 @@ class Telemetry:
                 "session": self.session, "dimensions": self.dimensions, "fiducial": self.fiducial,
                 "marker_displayed": self.marker_displayed,
                 "marker_state_fresh": self.marker_state_ns is not None and now-self.marker_state_ns < 1_000_000_000,
+                "arcore": {"schema": "framephone-arcore-v1", "session": self.session,
+                           "clock_valid": bool(self.probes and now-self.probes[-1][0] <= 10_000_000_000
+                                               and self.rtt_ns <= 40_000_000),
+                           "received_host_monotonic_ns": self.arcore_received_ns,
+                           "poses": [dict(p, host_t_ns=round(p["t_ns"]-self.offset_ns))
+                                     for p in self.arcore_poses] if self.offset_ns is not None else []}
+                          if self.arcore_enabled else None,
                 "rtt_ms": None if self.rtt_ns is None else self.rtt_ns / 1e6}
 
 
@@ -303,6 +352,21 @@ class PhoneLink:
         self.profile = None
         self.profile_received_ns = None
         self.recording = None
+        self.commands = queue.Queue(maxsize=8)
+
+    def alignment_command(self, kind, generation, acquisition):
+        if kind not in ("alignment_accepted", "alignment_lost"):
+            raise ValueError("Invalid alignment command")
+        with self.lock:
+            if not self.telemetry or not self.telemetry.arcore_enabled:
+                return False
+            message = {"type": kind, "session": self.telemetry.session,
+                       "generation": generation, "acquisition": acquisition}
+        try:
+            self.commands.put_nowait(message)
+            return True
+        except queue.Full:
+            return False
 
     def start_recording(self, path):
         from telemetry_recording import TelemetryRecording
@@ -365,6 +429,7 @@ class PhoneLink:
                         raise ValueError("Phone identity changed. No credential sent. Verify the phone and pair again.")
                     hello = {"type": "hello", "version": 1, "mode": "pair" if pair else "reconnect",
                              "marker_state_v1": True,
+                             "arcore_pose_v1": True,
                              "name": socket.gethostname()[:60]}
                     if saved:
                         hello["credential"] = saved["credential"]
@@ -404,6 +469,12 @@ class PhoneLink:
                     phase = "sensor streaming"
                     pending, next_ping = set(), 0
                     while not self.stopped.is_set():
+                        for _ in range(8):
+                            try:
+                                command = self.commands.get_nowait()
+                            except queue.Empty:
+                                break
+                            write_message(sock, command)
                         now = time.monotonic_ns()
                         if now >= next_ping:
                             if pending:

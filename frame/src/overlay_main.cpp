@@ -1,4 +1,4 @@
-#include "vr_surface.hpp"
+#include "arcore_handoff.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -119,7 +119,7 @@ struct Display {
         auto pixels = texture();
         check(client.overlay->SetOverlayRaw(handle, pixels.data(), texture_size, texture_size, 4));
     }
-    void update(const std::optional<Matrix> &pose) {
+    void update(const std::optional<Matrix> &pose, bool world = false) {
         if (!pose) {
             check(client.overlay->HideOverlay(handle));
             return;
@@ -128,8 +128,12 @@ struct Display {
         for (int row = 0; row < 3; ++row)
             for (int col = 0; col < 4; ++col)
                 matrix.m[row][col] = float((*pose)[row * 4 + col]);
-        check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
-            handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
+        if (world)
+            check(client.overlay->SetOverlayTransformAbsolute(handle, vr::TrackingUniverseStanding,
+                                                              &matrix));
+        else
+            check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
+                handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
         check(client.overlay->ShowOverlay(handle));
     }
     ~Display() {
@@ -220,23 +224,55 @@ int main(int argc, char **argv) {
         std::signal(SIGTERM, stop);
         std::signal(SIGINT, stop);
         auto session = std::filesystem::path(argv[2]);
-        auto geometry = Geometry::from_session(read(session / "session.json"));
+        const auto config = read(session / "session.json");
+        auto geometry = Geometry::from_session(config);
+        const bool arcore = config.value("arcore_handoff", false);
+        ArcoreHandoff handoff;
+        std::uint64_t last_state_write = 0;
         Client client;
         client.open();
         Display display(client, geometry);
         display.create();
-        std::cout << "VR screen ready: fiducial-driven rectangle; headset alignment and "
-                     "motion timing are provisional.\n";
+        std::cout << (arcore ? "VR screen ready: ARCore handoff; hold phone and headset still.\n"
+                             : "VR screen ready: fiducial-driven rectangle; headset alignment and "
+                               "motion timing are provisional.\n");
         std::string previous_state;
         while (!stopped) {
             vr::VREvent_t event{};
             while (client.system->PollNextEvent(&event, sizeof(event)))
                 if (event.eventType == vr::VREvent_Quit)
                     stopped = 1;
+                else if (event.eventType == vr::VREvent_StandingZeroPoseReset ||
+                         event.eventType == vr::VREvent_SeatedZeroPoseReset ||
+                         event.eventType == vr::VREvent_ChaperoneUniverseHasChanged)
+                    handoff.reset("headset tracking origin changed; show marker again");
+            vr::TrackedDevicePose_t head{};
+            client.system->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &head,
+                                                           1);
+            const auto now = now_ns();
+            const bool head_valid = head.bPoseIsValid && head.bDeviceIsConnected;
+            if (head_valid) {
+                Matrix matrix{};
+                for (int r = 0; r < 3; ++r)
+                    for (int c = 0; c < 4; ++c)
+                        matrix[r * 4 + c] = head.mDeviceToAbsoluteTracking.m[r][c];
+                handoff.head(now, matrix);
+            }
             std::optional<Matrix> current;
             std::string state = "waiting for an accepted optical pose";
             try {
-                if (!stopped && std::filesystem::exists(session / "vr-pose.json")) {
+                if (arcore && !stopped && head_valid) {
+                    Json phone = Json::object(), optical = Json::object();
+                    if (std::filesystem::exists(session / "phone-pose.json"))
+                        phone = read(session / "phone-pose.json");
+                    if (std::filesystem::exists(session / "vr-pose.json"))
+                        optical = read(session / "vr-pose.json");
+                    if (!phone.empty() && phone.at("session") != config.at("phone_session"))
+                        throw std::runtime_error("phone session changed");
+                    current = handoff.update(phone, optical, now);
+                    state = handoff.state.at("reason").get<std::string>();
+                } else if (!arcore && !stopped &&
+                           std::filesystem::exists(session / "vr-pose.json")) {
                     const auto message = read(session / "vr-pose.json");
                     current = pose(message, now_ns());
                     state = current ? "visible"
@@ -246,19 +282,30 @@ int main(int argc, char **argv) {
                 }
             } catch (const std::exception &error) {
                 state = std::string("hidden: ") + error.what();
+                handoff.reset(state);
             }
-            vr::TrackedDevicePose_t head{};
-            client.system->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &head,
-                                                           1);
-            if (!head.bPoseIsValid || !head.bDeviceIsConnected) {
+            if (!head_valid) {
                 current.reset();
                 state = "hidden: headset tracking unavailable";
+                handoff.reset(state);
+            }
+            if (arcore && now - last_state_write >= 100'000'000) {
+                auto status = handoff.state;
+                status["updated_host_monotonic_ns"] = now;
+                const auto temporary = session / "arcore-state.json.tmp";
+                std::ofstream file(temporary);
+                file << status.dump() << '\n';
+                file.close();
+                if (!file)
+                    throw std::runtime_error("cannot publish ARCore handoff state");
+                std::filesystem::rename(temporary, session / "arcore-state.json");
+                last_state_write = now;
             }
             if (state != previous_state) {
                 std::cout << "VR screen " << state << '\n';
                 previous_state = state;
             }
-            display.update(current);
+            display.update(current, arcore);
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
         }
         return 0;

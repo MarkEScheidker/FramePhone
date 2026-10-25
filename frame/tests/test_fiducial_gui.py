@@ -82,9 +82,27 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
               "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}
     class Phone:
         displayed = True
+        arcore = False
+        required = True
+        ar_state = "tracking"
+        acquisition = "scan-1"
+        commands = []
+        def alignment_command(self, kind, generation, acquisition):
+            self.commands.append(kind)
+            if kind == "alignment_accepted":
+                self.displayed = False
+                self.required = False
+            else:
+                self.required = True
+            return True
         def snapshot(self):
+            now = time.monotonic_ns()
+            packet = {"schema": "framephone-arcore-v1", "session": "synthetic-phone", "clock_valid": True,
+                      "received_host_monotonic_ns": now, "poses": [{"generation": "anchor-1",
+                      "acquisition": self.acquisition, "state": self.ar_state, "marker_required": self.required,
+                      "host_t_ns": now, "translation_m": [0, 0, 0], "quaternion_xyzw": [0, 0, 0, 1]}]}
             return {"session": "synthetic-phone", "dimensions": (.07, .15, .009), "fiducial": target,
-                    "marker_displayed": self.displayed, "marker_state_fresh": True}
+                    "marker_displayed": self.displayed, "marker_state_fresh": True, "arcore": packet if self.arcore else None}
         def stop(self):
             pass
     os.environ["XDG_CONFIG_HOME"] = str(temporary / "config")
@@ -241,7 +259,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: not panel.busy,timeout=10)
         assert "no synchronized pair" in panel.status.get()
         assert "latest skew" in panel.status.get() and "limit 3 ms" in panel.status.get()
-        assert all(panel.preview_images), "live previews disappeared when stereo pairing failed"
+        # Preview workers restart after the tracker relinquishes the cameras.
+        until(lambda: all(panel.preview_images) and len(window.preview_reader.workers) == 2)
         assert all(c.winfo_height() > 40 for c in panel.canvases), "status text pushed camera data out of view"
         assert not any(c.find_withtag("pose-axis") for c in panel.canvases)
         skewed.clear()
@@ -254,6 +273,53 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         assert "disconnected" in panel.status.get().lower(), panel.status.get()
         assert (panel.session/"tracker.log").exists()
         print("Tk single-tag pose, VR process/publication, stale/blank loss, marker hiding, reacquisition and disconnect clearing passed")
+        # Native engine geometry is covered independently. This process fixture
+        # exercises the actual dashboard/command/gate lifecycle without SteamVR.
+        helper.write_text("""import json,sys,time
+from pathlib import Path
+s=Path(sys.argv[-1]); key=None; accepted=False; changed=0
+while True:
+    try:
+        p=json.loads((s/'phone-pose.json').read_text())['poses'][-1]
+        k=(p['generation'],p['acquisition'])
+        if k!=key: key=k; accepted=False; changed=time.monotonic_ns()
+        o=json.loads((s/'vr-pose.json').read_text())
+        if p['state']!='tracking': accepted=False
+        elif o.get('status')=='measured' and o.get('processed_host_monotonic_ns',0)>=changed: accepted=True
+        state={'generation':key[0],'acquisition':key[1],'state':'tracking' if accepted else 'acquiring',
+               'reason':'synthetic handoff process','updated_host_monotonic_ns':time.monotonic_ns()}
+        t=s/'arcore-state.json.tmp'; t.write_text(json.dumps(state)); t.replace(s/'arcore-state.json')
+    except (OSError,ValueError,KeyError,IndexError): pass
+    time.sleep(.03)
+""")
+        window.phone_panel.link = phone
+        phone.arcore = True
+        phone.displayed = True
+        panel.arcore_enabled.set(True)
+        panel.start()
+        until(lambda: panel.handoff_active and not phone.displayed)
+        assert panel.busy and 'overlay' in window.processes
+        assert 'alignment_accepted' in phone.commands
+        until(lambda: not window.preview_reader.workers)
+        assert (panel.session/'optical-paused').exists()
+        deadline=time.monotonic()+.3
+        until(lambda: time.monotonic()>=deadline)
+        before=(panel.session/'run/poses.jsonl').read_bytes()
+        deadline=time.monotonic()+.4
+        until(lambda: time.monotonic()>=deadline)
+        assert (panel.session/'run/poses.jsonl').read_bytes()==before, 'detector still running after handoff'
+        phone.ar_state='paused'
+        phone.acquisition='scan-2'
+        phone.required=True
+        until(lambda: not panel.handoff_active and 'notification' in panel.status.get())
+        assert panel.busy and (panel.session/'optical-paused').exists()
+        phone.ar_state='tracking'
+        phone.displayed=True
+        until(lambda: panel.handoff_active and not phone.displayed)
+        window.phone_panel.link=None
+        until(lambda: not panel.busy and 'overlay' not in window.processes)
+        assert not panel.handoff_active
+        print('Tk ARCore acknowledgment, hidden marker continuity, detector suspension and reacquisition passed')
     finally:
         stop.set()
         writer.join(timeout=2)

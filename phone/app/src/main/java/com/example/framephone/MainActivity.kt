@@ -3,6 +3,7 @@ package com.example.framephone
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
@@ -24,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import com.example.framephone.link.PhoneDimensions
 import com.example.framephone.link.TelemetryService
 import com.example.framephone.link.TelemetryState
+import com.example.framephone.tracking.ArPoseService
+import com.example.framephone.tracking.ArPoseState
 
 class MainActivity : ComponentActivity() {
     private lateinit var store: SettingsStore
@@ -57,6 +60,10 @@ class MainActivity : ComponentActivity() {
     }
     @Composable
     private fun Screen() {
+        var arStatus by remember { mutableStateOf(ArPoseState.status) }
+        LaunchedEffect(Unit) {
+            while (true) { arStatus = ArPoseState.status; kotlinx.coroutines.delay(250) }
+        }
         val saved = remember { store.dimensions() }
         var width by rememberSaveable { mutableStateOf(saved?.widthMm?.toString() ?: "") }
         var height by rememberSaveable { mutableStateOf(saved?.heightMm?.toString() ?: "") }
@@ -74,6 +81,15 @@ class MainActivity : ComponentActivity() {
             DimensionField("Thickness (mm)", thickness, !status.running) { thickness = it }
             Button(onClick = { startActivity(Intent(this@MainActivity, MarkerActivity::class.java)) },
                 modifier = Modifier.fillMaxWidth()) { Text("Show fullscreen tracking marker") }
+            Button(onClick = { startActivity(Intent(this@MainActivity, MarkerActivity::class.java).putExtra("arcore", true)) },
+                enabled = status.running, modifier = Modifier.fillMaxWidth()) { Text("Start ARCore + brief marker") }
+            Text(arStatus)
+            Text("ARCore tracking is provided by Google and is subject to Google's Terms of Service and Privacy Policy.")
+            Row {
+                TextButton(onClick = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://policies.google.com/terms"))) }) { Text("Google terms") }
+                TextButton(onClick = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://policies.google.com/privacy"))) }) { Text("Privacy policy") }
+            }
+            OutlinedButton(onClick = { stopService(Intent(this@MainActivity, ArPoseService::class.java)) }) { Text("Stop ARCore") }
             Text("One AprilTag fills the screen width with its required white border. Keep it displayed while tracking; tap it or use Back to return. Frame uses its two front cameras to measure position and rotation.")
             Button(onClick = {
                 runCatching {
@@ -111,7 +127,7 @@ class MainActivity : ComponentActivity() {
             if (remembered != null) OutlinedButton(onClick = {
                 command("forget"); remembered = null
             }) { Text("Forget headset and stop") }
-            Text("Gyroscope and accelerometer request 200 Hz; magnetometer requests 50 Hz where available. The marker stays visible for this optical calibration test. ARCore anchoring comes later.")
+            Text("For ARCore: connect Frame, start ARCore here, then enable ARCore handoff and VR on Frame. Hold both devices still until alignment completes. The marker then closes; tracking continues with the rear camera. Use the tracking notification to show the marker again after loss.")
             Text("Sensors use Android's fixed natural-device axes: X right, Y up, Z out of the screen. Rotating the UI does not rotate these axes. Stop the connection before editing dimensions.")
         }
     }

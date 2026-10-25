@@ -157,9 +157,10 @@ class TLSTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False):
+    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False, arcore=False):
         errors, received, notices = [], [], []
         ready = threading.Event()
+        control_received = threading.Event()
         with tempfile.TemporaryDirectory() as directory:
             store = PairingStore(Path(directory) / "pairing.json")
             if not pair:
@@ -203,6 +204,8 @@ class TLSTests(unittest.TestCase):
                             if reject_credential:
                                 return
                         capabilities = profile()
+                        if arcore:
+                            capabilities["arcore_pose_v1"] = True
                         write_message(conn, capabilities)
                         ping = read_message(conn)
                         phone_time = time.monotonic_ns() + 1_000_000_000
@@ -215,6 +218,15 @@ class TLSTests(unittest.TestCase):
                                     "origin": "black_square_center", "axes": "right_up_front", "size_source": "android_display_dpi",
                                     "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}})
                         ready.set()
+                        if arcore:
+                            from test_arcore_link import pose_message
+                            for seq in range(1, 21):
+                                write_message(conn, pose_message(seq, time.monotonic_ns()+1_000_000_000))
+                                time.sleep(.02)
+                            self.assertEqual(read_message(conn), {
+                                "type": "alignment_accepted", "session": "test-session",
+                                "generation": "anchor-1", "acquisition": "scan-1"})
+                            control_received.set()
                         # Keep the session open while the test checks the live snapshot.
                         conn.recv(1)
                 except BaseException as error:
@@ -243,6 +255,10 @@ class TLSTests(unittest.TestCase):
                     self.assertTrue(snapshot["marker_displayed"])
                     self.assertTrue(snapshot["marker_state_fresh"])
                     self.assertEqual(snapshot["fiducial"]["black_edge_px"], 864)
+                if arcore:
+                    self.assertTrue(client.alignment_command("alignment_accepted", "anchor-1", "scan-1"))
+                    self.assertTrue(control_received.wait(3))
+                    self.assertEqual(client.snapshot()["arcore"]["poses"][-1]["seq"], 20)
                 client.stop()
             client_thread.join(6)
             server_thread.join(6)
@@ -257,13 +273,16 @@ class TLSTests(unittest.TestCase):
             if record:
                 entries = [json.loads(line) for line in recording_path.read_text().splitlines()]
                 self.assertEqual([entry["message"]["type"] for entry in entries[:-1]],
-                                 ["profile", "pong", "samples"] + (["marker_state"] if marker else []))
+                                 ["profile", "pong", "samples"] + (["marker_state"] if marker else []) + (["arcore_pose"]*20 if arcore else []))
                 self.assertTrue(entries[-1]["end"])
                 self.assertNotIn("credential", recording_path.read_text())
                 self.assertTrue(all(type(entry["received_host_monotonic_ns"]) is int for entry in entries[:-1]))
 
     def test_pair_and_live_telemetry(self):
         self.exercise()
+
+    def test_arcore_poses_alignment_command_and_recording(self):
+        self.exercise(pair=False, arcore=True, record=True)
 
     def test_pinned_reconnect(self):
         self.exercise(pair=False)

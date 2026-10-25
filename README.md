@@ -10,7 +10,9 @@ screen as a flat rectangle.
 devices, with stable distance and orientation readings. The VR rectangle has
 also been demonstrated on the headset. Distance scale uses Android's reported
 display DPI; metric accuracy and motion timing still need independent validation.
-ARCore anchoring and screen streaming are future work.
+An optional brief-marker ARCore handoff prototype is available for device testing;
+its origin calibration and exposure timing are provisional. Bluetooth and screen
+streaming are future work.
 
 ## Build and run
 
@@ -68,6 +70,7 @@ have been removed. The supported build and UI use the same single-marker path.
 - [Build](frame/docs/BUILD.md) and [development](docs/DEVELOPMENT.md)
 - [Tracking and replay](frame/docs/FIDUCIAL_TRACKING.md)
 - [VR test display](frame/docs/VR_DISPLAY.md)
+- [Brief-marker ARCore test](frame/docs/ARCORE_HANDOFF.md)
 - [Pairing and telemetry](frame/docs/PAIRING_AND_IMU.md)
 - [Architecture](frame/docs/ARCHITECTURE.md), [coordinates](frame/docs/COORDINATE_SYSTEMS.md)
 - [Calibration](frame/docs/CALIBRATION.md), [validation](frame/docs/TRACKING_VALIDATION.md)

@@ -22,7 +22,7 @@ REJECTION_HINTS = {
 }
 
 
-def create_session(directory, snapshot, factory_root, selections, ring, record):
+def create_session(directory, snapshot, factory_root, selections, ring, record, arcore_handoff=False):
     if not snapshot:
         raise ValueError("Connect your phone first.")
     if snapshot.get("marker_displayed") is False:
@@ -32,6 +32,8 @@ def create_session(directory, snapshot, factory_root, selections, ring, record):
     target = validate_fiducial(snapshot.get("fiducial"))
     if target is None:
         raise ValueError("Update the Android app and reconnect. A valid automatic marker profile is required.")
+    if arcore_handoff and snapshot.get("arcore") is None:
+        raise ValueError("Update the phone app and start ARCore before handoff tracking.")
     left, right, left_stream, right_stream = selections
     if not all(selections) or left == right or left_stream == right_stream:
         raise ValueError("Choose two distinct front streams and matching factory calibrations.")
@@ -48,6 +50,9 @@ def create_session(directory, snapshot, factory_root, selections, ring, record):
               "left": left, "right": right, "left_stream": left_stream, "right_stream": right_stream,
               "ring": str(ring), "capture_clock": "steam-frame-mono-v4l2",
               "clock_alignment": "unverified_no_imu_fusion", "record": bool(record)}
+    if arcore_handoff:
+        config["arcore_handoff"] = True
+        config["clock_alignment"] = "stationary_update_time_prototype"
     (directory / "session.json").write_text(json.dumps(config, indent=2) + "\n")
     return config
 
@@ -86,6 +91,9 @@ class FiducialPanel:
         self.pose = tk.StringVar(value="No marker pose")
         self.record = tk.BooleanVar(value=False)
         self.vr_enabled = tk.BooleanVar(value=False)
+        self.arcore_enabled = tk.BooleanVar(value=False)
+        self.handoff_active = False
+        self.last_arcore_command = 0
         self.vr_status = tk.StringVar(value="VR display is off.")
         panel = ttk.Frame(parent, padding=(0, 6))
         panel.pack(fill="both", expand=True)
@@ -105,6 +113,9 @@ class FiducialPanel:
         ttk.Checkbutton(options, text="Show rectangle in VR (SteamVR)", variable=self.vr_enabled,
                         command=self.toggle_vr).pack(side="left", padx=8)
         ttk.Label(panel, textvariable=self.vr_status, wraplength=650).pack(anchor="w")
+        self.arcore_toggle = ttk.Checkbutton(panel, text="Use ARCore after brief marker alignment (experimental)",
+                                            variable=self.arcore_enabled)
+        self.arcore_toggle.pack(anchor="w")
         self.pose_label = ttk.Label(panel, textvariable=self.pose, font=("monospace", 11), wraplength=650)
         self.pose_label.pack(anchor="w")
         ttk.Label(panel, textvariable=self.status, wraplength=650).pack(anchor="w", pady=4)
@@ -152,7 +163,9 @@ class FiducialPanel:
                     raise ValueError(f"{side} ({stream}): {error}. Stereo pose needs both front cameras.") from error
             session = self.app.sessions / ("tag-" + uuid.uuid4().hex[:12])
             self.config = create_session(session, snapshot, getattr(self.app.runtime, "factory_root", Path("/")),
-                                         selections, self.app.runtime.ring, self.record.get())
+                                         selections, self.app.runtime.ring, self.record.get(), self.arcore_enabled.get())
+            if self.config.get("arcore_handoff"):
+                self.vr_enabled.set(True)
             self.session = session
             output = session / "run"
             recording = link.start_recording(session / "telemetry.jsonl") if self.config["record"] else None
@@ -168,6 +181,7 @@ class FiducialPanel:
         self.result = self.images = None
         self.redraw()
         self.busy = True
+        self.handoff_active = False
         self.has_results = False
         self.publish_vr(None)
         self.toggle_vr()
@@ -175,6 +189,7 @@ class FiducialPanel:
         self.pose.set("Waiting for decoded markers")
         self.status.set(f"Reported black edge: {self.config['fiducial']['black_edge_m']*1000:.1f} mm. Searching both front views…")
         self.start_button.configure(state="disabled")
+        self.arcore_toggle.configure(state="disabled")
         def run():
             code, error = 1, ""
             try:
@@ -226,6 +241,9 @@ class FiducialPanel:
         if result and result["status"] == "measured":
             message = {key: result[key] for key in ("schema", "transform", "status", "processed_host_monotonic_ns")}
             message["candidates"] = [{key: result["candidates"][0][key] for key in ("rotation", "translation_m")}]
+            if "observed_host_monotonic_ns" in result:
+                message["observed_host_monotonic_ns"] = result["observed_host_monotonic_ns"]
+                message["candidates"][0]["rms_px"] = result["candidates"][0]["rms_px"]
         try:
             temporary = self.session / "vr-pose.json.tmp"
             temporary.write_text(json.dumps(message, allow_nan=False) + "\n")
@@ -253,7 +271,8 @@ class FiducialPanel:
             data = self.images[v] if paired else self.preview_images[v] if time.monotonic()-self.preview_updated[v] < 1 else None
             if data is None:
                 canvas.image = None
-                canvas.create_text(12, 12, anchor="nw", fill="#eeeeee", text="Waiting for this camera…")
+                canvas.create_text(12, 12, anchor="nw", fill="#eeeeee",
+                                   text="Optical detection paused — ARCore tracking" if self.handoff_active else "Waiting for this camera…")
                 continue
             canvas.image, scale, offset = fit_image(data, canvas.winfo_width(), canvas.winfo_height())
             canvas.create_image(*offset, image=canvas.image, anchor="nw")
@@ -307,6 +326,9 @@ class FiducialPanel:
         self.result = result
         self.publish_vr(result)
         counts = [sum(t["id"] == 0 for t in view) for view in result["detections"]]
+        for view, frame in enumerate(result["frames"]):
+            side = ("Front left", "Front right")[view]
+            self.camera_status[view].set(f"{side} · {frame['width']}×{frame['height']} · ID 0 markers: {counts[view]}")
         self.status.set(f"ID 0 markers: left {counts[0]} · right {counts[1]}")
         if result["status"] == "measured":
             best = result["candidates"][0]
@@ -334,11 +356,70 @@ class FiducialPanel:
                         process.kill()
                 threading.Thread(target=reap, daemon=True).start()
         self.result = None
+        self.handoff_active = False
         self.publish_vr(None)
         self.app.terminate("overlay")
         self.pose.set("Stopped — no current pose")
         self.status.set("Stopped. Start tracking to search again.")
         self.redraw()
+
+    def update_arcore(self, link, snapshot):
+        """Bridge validated phone poses and native handoff state; never solve in Tk."""
+        packet = snapshot.get("arcore")
+        if packet is None:
+            self.stop()
+            self.status.set("ARCore extension unavailable. Update and reconnect the phone.")
+            return
+        try:
+            temporary = self.session / "phone-pose.json.tmp"
+            temporary.write_text(json.dumps(packet, allow_nan=False) + "\n")
+            temporary.replace(self.session / "phone-pose.json")
+            state = {}
+            path = self.session / "arcore-state.json"
+            if path.exists() and path.stat().st_size <= 65536:
+                state = json.loads(path.read_text())
+            latest = packet["poses"][-1] if packet["poses"] else {}
+            current = (state.get("generation") == latest.get("generation") and
+                       state.get("acquisition") == latest.get("acquisition") and
+                       0 <= time.monotonic_ns()-state.get("updated_host_monotonic_ns", 0) < 500_000_000 and
+                       "overlay" in self.app.processes)
+            accepted = current and state.get("state") == "tracking"
+            paused = (accepted or not snapshot.get("marker_displayed") or
+                      not snapshot.get("marker_state_fresh") or latest.get("state") != "tracking" or
+                      "overlay" not in self.app.processes)
+            gate = self.session / "optical-paused"
+            if paused and not gate.exists():
+                gate.touch()
+            elif not paused:
+                gate.unlink(missing_ok=True)
+            if latest and time.monotonic()-self.last_arcore_command >= .5:
+                kind = ("alignment_accepted" if accepted and latest.get("marker_required") else
+                        "alignment_lost" if not accepted and not latest.get("marker_required") else None)
+                if kind and link.alignment_command(kind, latest["generation"], latest["acquisition"]):
+                    self.last_arcore_command = time.monotonic()
+            if accepted != self.handoff_active:
+                self.handoff_active = accepted
+                self.result = self.images = None
+                if accepted:
+                    self.preview_images = [None, None]
+                    self.preview_detections = [[], []]
+                    for view, side in enumerate(("Front left", "Front right")):
+                        self.camera_status[view].set(side + " · optical detection paused")
+                self.redraw()
+            if accepted:
+                self.pose.set("ARCore world pose · optical detection paused\nSensor-to-screen origin and exposure timing are provisional")
+                self.status.set("Marker alignment accepted. Use Home/other apps; keep the rear camera uncovered.")
+            elif latest.get("state") in ("error", "stopped"):
+                self.pose.set("ARCore unavailable — no current VR pose")
+                self.status.set("Open the phone app and restart ARCore. " + latest.get("reason", ""))
+            elif latest.get("marker_required") and not snapshot.get("marker_displayed"):
+                self.pose.set("Alignment required — no current VR pose")
+                self.status.set("On the phone, tap Show marker in the tracking notification to align again.")
+            else:
+                self.status.set("ARCore: " + state.get("reason", "waiting for VR display and phone poses"))
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            self.stop()
+            self.status.set("ARCore handoff failed: " + str(error))
 
     def tick(self):
         try:
@@ -355,10 +436,13 @@ class FiducialPanel:
             snapshot = link.snapshot() if link else None
             if (not snapshot or snapshot["session"] != self.config["phone_session"] or
                     snapshot.get("fiducial") != self.config["fiducial"] or
-                    snapshot.get("marker_displayed") is False or
-                    (snapshot.get("marker_displayed") is True and not snapshot.get("marker_state_fresh"))):
+                    (not self.config.get("arcore_handoff") and
+                     (snapshot.get("marker_displayed") is False or
+                      (snapshot.get("marker_displayed") is True and not snapshot.get("marker_state_fresh"))))):
                 self.stop()
                 self.status.set("Phone disconnected, marker hidden, or marker geometry changed. Show the marker and start again.")
+            elif self.config.get("arcore_handoff"):
+                self.update_arcore(link, snapshot)
             elif time.monotonic() - self.last_update > 1:
                 self.result = None
                 self.images = None
@@ -388,6 +472,7 @@ class FiducialPanel:
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished (status {code}). Start tracking to retry.")
             self.start_button.configure(state="normal")
+            self.arcore_toggle.configure(state="normal")
             self.redraw()
         if not self.closed:
             self.timer = self.parent.after(50, self.tick)

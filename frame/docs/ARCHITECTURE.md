@@ -34,10 +34,11 @@ losing the connection clears the pose and hides the VR object. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
 
-Each visible camera view has one native preview worker. It detects and annotates
+Each visible idle camera view has one native preview worker. It detects and annotates
 its own source frames, independently of phone pairing or stereo tracking, and
 Python retains only the newest image per camera. Hiding the views stops these
-workers; tracking and the VR display continue. Pose axes use only the exact
+workers; a running tracker also stops them to avoid duplicate detection, supplying
+its own paired previews instead. Tracking and the VR display continue. Pose axes use only the exact
 synchronized tracking pair. Missing preview slots do not suppress valid pose
 telemetry. Waiting streams and worker errors are reported per camera.
 
@@ -46,6 +47,13 @@ client. It neither registers a device driver nor replaces the scene application.
 Factory-head/runtime-head alignment and capture-to-runtime timing are provisional;
 this is a slow-motion calibration surface, not a world-stabilized product.
 See [VR display](VR_DISPLAY.md) and the [roadmap](../../docs/ROADMAP.md).
+
+The optional [ARCore handoff](ARCORE_HANDOFF.md) adds a phone camera service,
+negotiated poses/acknowledgments on the existing TLS link, and a native
+stationary registration step. After acceptance, the renderer uses SteamVR
+standing space and anchored phone motion; optical detection sleeps until another
+visible marker acquisition. Camera access remains in the independent module.
+Sensor/screen origins and observation timing are provisional in this prototype.
 
 
 ## Source boundaries

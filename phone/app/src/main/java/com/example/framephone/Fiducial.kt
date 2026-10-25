@@ -38,7 +38,9 @@ object Fiducial {
         displayed = drawnProfile != null
     }
     fun currentProfile(context: Context): JSONObject =
-        if (displayed && drawnProfile != null) JSONObject(drawnProfile!!) else automaticProfile(context)
+        // Keep the last actual portrait raster after hiding it. Another app's
+        // display rotation must not change the geometry of an ARCore session.
+        if (drawnProfile != null) JSONObject(drawnProfile!!) else automaticProfile(context)
     fun automaticProfile(context: Context): JSONObject {
         val bounds = context.getSystemService(WindowManager::class.java).maximumWindowMetrics.bounds
         val xdpi = context.resources.displayMetrics.xdpi.toDouble()
