@@ -13,9 +13,7 @@ import threading
 import time
 
 from front_cameras import DEFAULT_CAMERAS, MAPPING_VERSION, default_selection, factory_cameras, mono_streams
-from camera_image import fit_image
 from camera_previews import CameraPreviews
-from ring_preview import preview, diagnostics
 
 
 def host_environment():
@@ -47,7 +45,7 @@ class Runtime:
             raise ValueError("The desktop's pkexec authorization tool is missing.")
         return [pkexec, "--disable-internal-agent",
                 str(self.root / "opt/framephone/bin/framephone-camd"),
-                "--status", "2"]
+                "--status", "0"]
 
 
 
@@ -60,13 +58,11 @@ class Window:
         self.preview_reader = CameraPreviews(runtime)
         self.preview_updated = [0, 0]
         self.preview_selected = ["", ""]
-        self.camera_diagnostics = {}
-        self.last_camera_diagnostic = [0, 0]
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
         self.factories, self.available_streams, self.stream_info = {}, [], {}
-        self.factory_boxes, self.stream_boxes, self.native_views = [], [], {}
+        self.factory_boxes, self.stream_boxes = [], []
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
         state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "framephone"
@@ -87,7 +83,7 @@ class Window:
         mapping = saved if saved.get("mapping_version") == MAPPING_VERSION else {}
         for key in ("left", "right", "left_stream", "right_stream"):
             setattr(self, key, tk.StringVar(value=mapping.get(key, "")))
-        self.show_views = tk.BooleanVar(value=bool(saved.get("show_views", False)))
+        self.show_views = tk.BooleanVar(value=bool(saved.get("show_camera_views", True)))
         self.status = tk.StringVar(value="Pair the phone, show its fullscreen marker, then open Marker tracking.")
         root.title("FramePhone")
         root.geometry("1000x900")
@@ -99,7 +95,7 @@ class Window:
         phone_tab, marker_tab, camera_tab = (ttk.Frame(tabs) for _ in range(3))
         tabs.add(phone_tab, text="Phone telemetry")
         tabs.add(marker_tab, text="Marker tracking")
-        tabs.add(camera_tab, text="Camera setup")
+        tabs.add(camera_tab, text="Diagnostics")
         from phone_panel import PhonePanel
         self.phone_panel = PhonePanel(phone_tab, self.config.parent)
         from fiducial_panel import FiducialPanel
@@ -107,36 +103,15 @@ class Window:
         panel = ttk.Frame(camera_tab, padding=16)
         panel.pack(fill="both", expand=True)
         panel.columnconfigure(0, weight=1)
-        panel.rowconfigure(3, weight=1)
-        ttk.Label(panel, text="Front camera setup — choose streams in Marker tracking",
-                  font=("sans", 16, "bold"), wraplength=650).grid(row=0, column=0, sticky="w")
+        panel.rowconfigure(2, weight=1)
+        ttk.Label(panel, text="Diagnostics", font=("sans", 16, "bold")).grid(row=0, column=0, sticky="w")
         actions = ttk.Frame(panel)
         actions.grid(row=1, column=0, sticky="ew", pady=10)
-        self.camera_button = ttk.Button(actions, text="Enable cameras", command=self.enable_cameras)
-        self.camera_button.pack(side="left")
-        ttk.Button(actions, text="Refresh cameras", command=self.refresh).pack(side="left", padx=8)
         self.test_button = ttk.Button(actions, text="Geometry self-test", command=self.self_test)
         self.test_button.pack(side="left")
-        ttk.Checkbutton(actions, text="Show front camera views", variable=self.show_views,
-                        command=self.toggle_views).pack(side="left", padx=8)
-        self.preview_panel = ttk.Frame(panel)
-        self.preview_panel.grid(row=2, column=0, sticky="ew")
-        self.preview_panel.columnconfigure((0, 1), weight=1, uniform="front-cameras")
-        self.previews, self.preview_titles = [], []
-        for index, title in enumerate(("Front left", "Front right")):
-            view = ttk.Frame(self.preview_panel)
-            view.grid(row=0, column=index, padx=6, sticky="nsew")
-            heading = ttk.Label(view, text=title, wraplength=280)
-            heading.pack()
-            self.preview_titles.append(heading)
-            preview = ttk.Label(view, text="Waiting for camera frames")
-            preview.pack()
-            self.previews.append(preview)
-            ttk.Button(view, text="Open full-size view", command=lambda v=index: self.open_native_view(v)).pack()
-        if not self.show_views.get():
-            self.preview_panel.grid_remove()
+        ttk.Button(actions, text="Open results", command=lambda: self.open_folder(self.sessions)).pack(side="left", padx=8)
         self.output = ScrolledText(panel, height=10, state="disabled", font=("monospace", 9))
-        self.output.grid(row=3, column=0, sticky="nsew", pady=8)
+        self.output.grid(row=2, column=0, sticky="nsew", pady=8)
         root.after(100, self.drain)
         root.after(250, self.update_previews)
 
@@ -153,33 +128,15 @@ class Window:
         self.config.parent.mkdir(parents=True, exist_ok=True)
         temp = self.config.with_suffix(".tmp")
         settings = {key: getattr(self, key).get() for key in
-                    ("left", "right", "left_stream", "right_stream", "show_views")}
+                    ("left", "right", "left_stream", "right_stream")}
+        settings["show_camera_views"] = self.show_views.get()
         settings["mapping_version"] = MAPPING_VERSION
         temp.write_text(json.dumps(settings, indent=2) + "\n")
         temp.replace(self.config)
 
     def toggle_views(self):
-        if self.show_views.get():
-            self.preview_panel.grid()
-        else:
-            self.preview_panel.grid_remove()
-            for widget in self.previews:
-                widget.configure(image="")
-                widget.image = None
+        self.tracking_panel.set_camera_views(self.show_views.get())
         self.save()
-
-    def open_native_view(self, index):
-        import tkinter as tk
-        from tkinter import ttk
-        if index in self.native_views:
-            self.native_views[index][0].lift()
-            return
-        window = tk.Toplevel(self.root)
-        window.title(("Front left", "Front right")[index] + " — full-size camera view")
-        label = ttk.Label(window, text="Waiting for camera frames")
-        label.pack()
-        window.protocol("WM_DELETE_WINDOW", lambda: (self.native_views.pop(index, None), window.destroy()))
-        self.native_views[index] = (window, label)
 
     def spawn(self, name, command, env=None):
         if name in self.processes:
@@ -283,7 +240,7 @@ class Window:
                     if self.tracking_panel.busy:
                         self.tracking_panel.stop()
                 elif name == "overlay":
-                    self.tracking_panel.vr_status.set("VR display stopped. See Camera setup log." if value else "VR display closed.")
+                    self.tracking_panel.vr_status.set("VR display stopped. See Diagnostics log." if value else "VR display closed.")
                 elif name == "self-test":
                     self.self_test_result = value == 0
                     self.test_button.configure(state="normal")
@@ -307,7 +264,7 @@ class Window:
             else:
                 self.jobs.discard("scan")
                 self.log("Camera discovery: " + str(value))
-                self.status.set("Cameras are not ready. Retry Enable/Refresh cameras; see Camera setup log.")
+                self.status.set("Cameras are not ready. Retry Enable/Refresh cameras; see Diagnostics log.")
         if not self.closing:
             self.root.after(100, self.drain)
 
@@ -315,90 +272,26 @@ class Window:
         import tkinter as tk
         if self.closing:
             return
-        marker_visible = self.tracking_panel.parent.winfo_ismapped()
-        for index, (widget, stream) in enumerate(zip(self.previews, (self.left_stream, self.right_stream))):
-            enabled = marker_visible or self.preview_panel.winfo_ismapped() or index in self.native_views
-            self.preview_reader.update(index, stream.get(), enabled)
-            if not enabled:
+        visible = self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
+        for index, stream in enumerate((self.left_stream.get(), self.right_stream.get())):
+            self.preview_reader.update(index, stream, visible)
+            if not visible:
+                self.preview_updated[index] = 0
                 continue
-            changed = self.preview_selected[index] != stream.get()
+            changed = self.preview_selected[index] != stream
             if changed:
-                self.preview_selected[index] = stream.get()
+                self.preview_selected[index] = stream
                 self.preview_updated[index] = 0
             item = self.preview_reader.take(index)
             if item is None and not changed and time.monotonic()-self.preview_updated[index] < 1.5:
                 continue
+            result, error = item if item else (None, "Waiting for camera frames…" if stream else "Select a camera stream.")
             if item is not None:
                 self.preview_updated[index] = time.monotonic()
-            result, error = item if item else (None, "Waiting for camera/detector frames…" if stream.get() else "Select a camera stream.")
-            if stream.get() and (result is None or result[3].get("frame_status") in ("paused", "raw")):
-                # Preserve the direct ring-reader route when detection/timing is
-                # unavailable. Never attach another frame's detections to it.
-                try:
-                    raw = preview(self.runtime.ring, stream.get(), metadata=True)
-                    if raw and (result is None or raw[3]["sequence"] != result[3]["sequence"]):
-                        width, height, pgm, metadata = raw
-                        result = (width, height, pgm, dict(metadata, detections=[], frame_status="raw",
-                                  reason="Raw image; tag annotations unavailable"))
-                    snapshot = diagnostics(self.runtime.ring, stream.get())
-                    self.camera_diagnostics[("left", "right")[index]] = dict(snapshot, preview_error=error)
-                    counters = f"sequence {snapshot['latest_sequence']} · published {snapshot['published_frames']} · dropped {snapshot['dropped_frames']}"
-                    if "capture_events" in snapshot:
-                        counters += (f"\nevents {snapshot['capture_events']} · buffers {snapshot['candidate_buffers']} · "
-                                     + ("mapped" if snapshot['mapping_ready'] else f"learning {snapshot['learning_events']} events"))
-                    if result:
-                        width, height, pgm, metadata = result
-                        result = (width, height, pgm, dict(metadata, counters=counters))
-                    else:
-                        error = counters + "; " + error
-                    if time.monotonic()-self.last_camera_diagnostic[index] >= 5:
-                        self.last_camera_diagnostic[index] = time.monotonic()
-                        self.log("[camera-preview] " + stream.get() + ": " + counters + "; " + error)
-                        self.sessions.mkdir(parents=True, exist_ok=True)
-                        temporary = self.sessions/"camera-status.json.tmp"
-                        temporary.write_text(json.dumps(self.camera_diagnostics, indent=2)+"\n")
-                        temporary.replace(self.sessions/"camera-status.json")
-                except (OSError, ValueError) as exc:
-                    if result is None:
-                        error = str(exc)
             try:
-                if result:
-                    width, height, pgm, metadata = result
-                    published = metadata["publish_monotonic_ns"]
-                    if published:
-                        age = (time.monotonic_ns()-published)/1e6
-                        if age < 0 or age > 1000:
-                            metadata = dict(metadata, publication_warning=f"publisher age {age:.0f} ms")
-                            result = (width, height, pgm, metadata)
-                    self.preview_updated[index] = time.monotonic()
-                    # The native preview has already drawn this frame's tag boxes
-                    # and centers. These observations need no synchronized pair.
-                    image = tk.PhotoImage(data=pgm, format="PPM")
-                    if index in self.native_views:
-                        window, label = self.native_views[index]
-                        window.title(("Front left", "Front right")[index] + f" — {stream.get()} — {width}×{height} native pixels")
-                        label.configure(image=image, text="")
-                        label.image = image
-                    if self.show_views.get():
-                        available = max(80, (self.preview_panel.winfo_width()-32)//2)
-                        scaled, _, _ = fit_image(pgm, available, 250)
-                        widget.configure(image=scaled, text="")
-                        widget.image = scaled
-                    info = self.stream_info.get(stream.get())
-                    identity = f"video{info['node']}" if info else stream.get()
-                    self.preview_titles[index].configure(text=("Front left", "Front right")[index] + f" • {identity} • {width}×{height} source")
-                else:
-                    widget.configure(image="", text=error[-300:], wraplength=280)
-                    widget.image = None
-                    if index in self.native_views:
-                        self.native_views[index][1].configure(image="", text=error[-300:])
-            except (OSError, ValueError, tk.TclError) as exc:
-                result, error = None, str(exc)
-                widget.configure(image="", text=error[-300:], wraplength=280)
-                widget.image = None
-                if index in self.native_views:
-                    self.native_views[index][1].configure(image="", text=error[-300:])
-            self.tracking_panel.camera_preview(index, stream.get(), result, error[-300:])
+                self.tracking_panel.camera_preview(index, stream, result, error)
+            except (ValueError, tk.TclError) as exc:
+                self.tracking_panel.camera_preview(index, stream, None, str(exc))
         if not self.closing:
             self.root.after(100, self.update_previews)
 

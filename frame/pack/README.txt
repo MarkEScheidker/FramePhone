@@ -1,4 +1,4 @@
-FramePhone single-file Linux desktop test
+FramePhone single-file Linux desktop app
 
 Build from the repository root: bash frame/build.sh
 Output: frame/build/dist/FramePhone-arm64.run

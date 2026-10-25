@@ -154,27 +154,20 @@ std::string waiting_status(const std::array<std::uint64_t, 2> &counts,
 }
 void camera_preview(const std::filesystem::path &path, const std::string &camera) {
     std::cout.unsetf(std::ios::unitbuf);
-    FrametopRing ring({path, camera, "preview-diagnostic", "steam-frame-mono-v4l2"});
+    FrametopRing ring({path, camera, "camera-preview", "steam-frame-mono-v4l2"});
     TagDetector detector;
     auto last_frame = std::chrono::steady_clock::now();
     auto last_notice = last_frame;
-    std::uint64_t received = 0, last_sequence = 0;
     while (!stopped) {
         auto frame = ring.poll();
         auto now = std::chrono::steady_clock::now();
-        // Preview delivery follows the reader's advancing frame sequence. A
-        // publication-age diagnostic must not discard an otherwise readable image.
         if (!frame) {
             if (now - last_frame >= std::chrono::seconds(1) &&
                 now - last_notice >= std::chrono::seconds(1)) {
                 std::cout << Json{{"schema", "framephone-camera-preview-v1"},
                                   {"camera_id", camera},
                                   {"image_bytes", 0},
-                                  {"frames_received", received},
-                                  {"last_sequence", last_sequence},
-                                  {"reason", now - last_frame >= std::chrono::seconds(1)
-                                                 ? "Camera is not delivering fresh frames"
-                                                 : "Waiting for first camera frame"}}
+                                  {"reason", "Waiting for camera frames"}}
                                  .dump()
                           << '\n'
                           << std::flush;
@@ -184,8 +177,6 @@ void camera_preview(const std::filesystem::path &path, const std::string &camera
             continue;
         }
         last_frame = now;
-        ++received;
-        last_sequence = frame->frame_number;
         auto &image = frame->image;
         require(image.width <= 4096 && image.height <= 4096,
                 "preview image exceeds 4096 pixels per side");

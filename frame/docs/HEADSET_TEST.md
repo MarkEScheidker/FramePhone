@@ -16,16 +16,16 @@
 6. Enable **Show tracked screen in VR (SteamVR)**. With SteamVR active, a thin
    screen-shaped object should follow the marker. This renderer needs hardware
    validation; its head alignment and motion timing are provisional. Details
-   appear under **Camera setup** if loading fails.
+   appear under **Diagnostics** if loading fails.
 7. Cover the marker: pose and VR object must disappear. Reveal it: they should
    return automatically. Leaving the marker Activity stops the test; show it and
    Start tracking again. Stop/disconnect must clear the pose and VR display.
 
 Expected front defaults are video3/slam_left and video0/slam_right, but cover
 lenses to verify both physical identity and calibration mapping. Side cameras
-are not used. **Camera setup → Show front camera views** provides native/full-size
-previews. Geometry self-test exercises synthetic detection and pose, not hardware
-accuracy or successful SteamVR integration.
+are not used. **Marker tracking → Show camera views** controls both previews;
+hiding them leaves tracking active. **Diagnostics → Geometry self-test** exercises
+synthetic detection and pose, not hardware accuracy or SteamVR integration.
 
 For calibration, compare marker-center distance with independently measured
 positions at several distances and angles. Scale comes from Android's reported
@@ -41,25 +41,9 @@ For "no synchronized pair", read `tracker.log`: it now includes left/right frame
 counts and the latest capture skew versus the 3 ms gate. Camera previews continue
 even after this failure; boxes in those views are per-camera 2D detections.
 
-For a black camera view, check its sequence/published/dropped counters. Zero
-published frames means no usable image has reached that stream's ring; increasing
-dropped counts means the broker is rejecting buffers. Increasing published counts
-with no annotated image suggests a reader/detector issue. These counters narrow
-the failure; they do not prove its hardware cause. Allow camera startup to settle.
-Use **Open results** to find `camera-status.json` alongside the trial folders and
-include it with the Camera setup log. It is saved when previews are unavailable
-or paused and contains camera identifiers/counters, not images or pairing secrets.
-The updated broker also reports capture events, candidate buffer count and whether
-the queue is mapped or still learning. Zero published/dropped counts can occur
-during learning; they alone do not prove the sensor is inactive. Events increasing
-while learning identifies a queue-mapping problem. The learning-event count may
-reset when a failed attempt expands the buffer candidates; the Camera setup log
-reports that expansion. A rising capture-event count with zero published frames
-does not require changing tag size, lighting or pose settings. No candidate buffers means
-discovery could not attach the DMA buffers; no events with candidates/mapping
-requires checking the capture event route or XRService's stream activity.
-Close the previous FramePhone window fully before launching a rebuilt executable,
-then enable cameras again so the new broker owns a fresh discovery session.
+Camera startup and process errors appear in **Diagnostics** and `desktop.log`.
+Close the previous FramePhone window before opening a rebuilt executable, then
+enable cameras so the new broker starts a fresh session.
 
 See [single-marker tracking](FIDUCIAL_TRACKING.md), [VR display](VR_DISPLAY.md),
 [calibration](CALIBRATION.md), and [validation](TRACKING_VALIDATION.md).

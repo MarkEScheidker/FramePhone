@@ -6,8 +6,8 @@ Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An optional SteamVR display follows the tracked
 screen as a thin rectangular object.
 
-**Early development:** pairing, camera views and marker detection have been seen
-on the owner's devices. The current VR renderer needs headset validation.
+**Early development:** pairing and live stereo pose tracking work on the owner's
+devices, with stable distance and orientation readings. The current VR renderer needs headset validation.
 Distance scale uses Android's reported display DPI and remains unverified.
 ARCore anchoring and screen streaming are future work.
 

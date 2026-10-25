@@ -24,7 +24,7 @@ flowchart LR
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
-| camera_previews.py / fiducial --preview-ring | Independent raw readers, per-camera native detection, annotated Gray8 pipes and one-frame queues. |
+| camera_previews.py / fiducial --preview-ring | Per-camera detection and annotated Gray8 previews with one-frame queues. |
 | framephone-overlay | Six pose-driven screen-slab faces through OpenVR; hides stale/lost data. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
@@ -34,16 +34,12 @@ losing the connection clears the pose and hides the VR object. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
 
-Live camera previews are independent from stereo tracking and remain available
-before Start or after a pairing timeout. Each camera has an independent direct
-ring reader polled every 100 ms; native detection cannot block pixel delivery.
-A recent annotated image may replace the raw preview, but its boxes stay attached
-to its own pixels. After 500 ms without detector output, newer raw frames appear
-without old annotations. Python retains only one newest packet per camera and
-pauses workers when no relevant view is visible. Tracking-frame axes are shown only on
-the corresponding recorded preview pair. Missing preview slots do not suppress
-otherwise valid pose telemetry. Stereo pairing and all pose acceptance gates
-remain unchanged.
+Each visible camera view has one native preview worker. It detects and annotates
+its own source frames, independently of phone pairing or stereo tracking, and
+Python retains only the newest image per camera. Hiding the views stops these
+workers; tracking and the VR display continue. Pose axes use only the exact
+synchronized tracking pair. Missing preview slots do not suppress valid pose
+telemetry. Waiting streams and worker errors are reported per camera.
 
 The VR helper is separate from tracking/TLS and discovers the installed SteamVR
 client. It neither registers a device driver nor replaces the scene application.

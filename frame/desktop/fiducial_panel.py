@@ -78,9 +78,9 @@ class FiducialPanel:
         self.latest = queue.Queue(maxsize=1)
         self.closed = self.busy = False
         self.result = self.images = self.config = self.session = None
-        self.raw_images = [None, None]
-        self.raw_detections = [[], []]
-        self.raw_updated = [0, 0]
+        self.preview_images = [None, None]
+        self.preview_detections = [[], []]
+        self.preview_updated = [0, 0]
         self.camera_status = [tk.StringVar(value=name + " — select/enable camera") for name in ("Front left", "Front right")]
         self.last_update = 0
         self.has_results = False
@@ -88,15 +88,16 @@ class FiducialPanel:
         self.pose = tk.StringVar(value="No marker pose")
         self.record = tk.BooleanVar(value=False)
         self.vr_enabled = tk.BooleanVar(value=False)
-        self.vr_status = tk.StringVar(value="VR test off. Distance scale and headset alignment are unverified.")
+        self.vr_status = tk.StringVar(value="VR display is off.")
         panel = ttk.Frame(parent, padding=12)
         panel.pack(fill="both", expand=True)
-        ttk.Label(panel, text="Single-marker tracking", font=("sans", 20, "bold")).pack(anchor="w")
+        ttk.Label(panel, text="Phone tracking", font=("sans", 20, "bold")).pack(anchor="w")
         ttk.Label(panel, text="One large tag36h11 marker, ID 0. Keep its whole black square and white margin visible.",
                   wraplength=900).pack(anchor="w", pady=6)
         setup = ttk.Frame(panel)
         setup.pack(fill="x")
-        ttk.Button(setup, text="Enable cameras", command=app.enable_cameras).pack(side="left")
+        app.camera_button = ttk.Button(setup, text="Enable cameras", command=app.enable_cameras)
+        app.camera_button.pack(side="left")
         ttk.Button(setup, text="Refresh cameras", command=app.refresh).pack(side="left", padx=6)
         ttk.Button(setup, text="Open results", command=lambda: app.open_folder(app.sessions)).pack(side="right")
         self.boxes = []
@@ -126,8 +127,10 @@ class FiducialPanel:
         self.pose_label = ttk.Label(panel, textvariable=self.pose, font=("monospace", 11), wraplength=650)
         self.pose_label.pack(anchor="w")
         ttk.Label(panel, textvariable=self.status, wraplength=650).pack(anchor="w", pady=4)
+        ttk.Checkbutton(panel, text="Show camera views", variable=app.show_views,
+                        command=app.toggle_views).pack(anchor="w")
         self.canvases = []
-        images = ttk.Frame(panel)
+        self.image_panel = images = ttk.Frame(panel)
         images.pack(fill="both", expand=True, pady=8)
         images.rowconfigure(0, weight=1)
         for v in range(2):
@@ -139,6 +142,7 @@ class FiducialPanel:
             canvas.bind("<Configure>", lambda _event: self.redraw())
             images.columnconfigure(v, weight=1)
             self.canvases.append(canvas)
+        self.set_camera_views(app.show_views.get())
         self.timer = parent.after(50, self.tick)
 
     def start(self):
@@ -257,11 +261,11 @@ class FiducialPanel:
         if not self.vr_enabled.get() or not self.busy or self.cancelled.is_set():
             self.publish_vr(None)
             self.app.terminate("overlay")
-            self.vr_status.set("VR test display is off.")
+            self.vr_status.set("VR display is off.")
             return
         if "overlay" not in self.app.processes:
             if self.app.spawn("overlay", self.app.runtime.command("overlay", "--session", self.session)):
-                self.vr_status.set("Opening VR test display. Details appear in Camera setup log.")
+                self.vr_status.set("Opening VR display. Details appear in Diagnostics log.")
             else:
                 self.vr_status.set("Cannot start VR display. Optical tracking remains available.")
 
@@ -270,7 +274,7 @@ class FiducialPanel:
         for v, canvas in enumerate(self.canvases):
             canvas.delete("all")
             paired = self.result is not None and self.images is not None
-            data = self.images[v] if paired else self.raw_images[v] if time.monotonic()-self.raw_updated[v] < 1 else None
+            data = self.images[v] if paired else self.preview_images[v] if time.monotonic()-self.preview_updated[v] < 1 else None
             if data is None:
                 canvas.image = None
                 canvas.create_text(12, 12, anchor="nw", fill="#eeeeee", text="Waiting for this camera…")
@@ -301,30 +305,25 @@ class FiducialPanel:
                                            arrow="last", tags="pose-axis")
                         canvas.create_text(*point(line[-1]), anchor="sw", fill=axis_color, text=name)
 
+    def set_camera_views(self, visible):
+        if visible:
+            self.image_panel.pack(fill="both", expand=True, pady=8)
+        else:
+            self.image_panel.pack_forget()
+
     def camera_preview(self, view, stream, current, error):
         side = ("Front left", "Front right")[view]
         if current:
             width, height, data, metadata = current
-            self.raw_images[view] = data
-            self.raw_detections[view] = metadata.get("detections", [])
-            self.raw_updated[view] = time.monotonic()
-            count = sum(tag["id"] == 0 for tag in metadata.get("detections", []))
-            state = metadata.get("frame_status", "")
-            if state == "raw":
-                mode = f"Raw available frame {metadata['sequence']} · no annotations"
-            elif state == "paused":
-                mode = f"Paused · last annotated frame {metadata['sequence']}"
-            else:
-                mode = f"tracking pair {self.result['pair']}" if self.result is not None and self.images is not None else f"preview · ID 0 markers: {count} (2D)"
-            if metadata.get("publication_warning"):
-                mode += " · " + metadata["publication_warning"]
-            if metadata.get("counters"):
-                mode += "\n" + metadata["counters"]
-            self.camera_status[view].set(f"{side} · {stream} · {width}×{height}\n{mode}")
+            self.preview_images[view] = data
+            self.preview_detections[view] = metadata.get("detections", [])
+            self.preview_updated[view] = time.monotonic()
+            count = sum(tag["id"] == 0 for tag in self.preview_detections[view])
+            self.camera_status[view].set(f"{side} · {width}×{height} · ID 0 markers: {count}")
         else:
-            self.raw_images[view] = None
-            self.raw_detections[view] = []
-            self.camera_status[view].set(f"{side} · {stream or 'not selected'}\n{error}")
+            self.preview_images[view] = None
+            self.preview_detections[view] = []
+            self.camera_status[view].set(f"{side} · {error}")
         if self.parent.winfo_ismapped() and (self.result is None or self.images is None):
             self.redraw()
 
@@ -332,8 +331,7 @@ class FiducialPanel:
         self.result = result
         self.publish_vr(result)
         counts = [sum(t["id"] == 0 for t in view) for view in result["detections"]]
-        self.status.set(f"ID 0 markers: left {counts[0]} · right {counts[1]} · "
-                        f"processing {result['processing_ms']:.1f} ms · {result['reason'].replace('_', ' ')}")
+        self.status.set(f"ID 0 markers: left {counts[0]} · right {counts[1]}")
         if result["status"] == "measured":
             best = result["candidates"][0]
             x, y, z = best["translation_m"]

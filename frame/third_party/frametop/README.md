@@ -39,9 +39,8 @@ The buffer-completion fix in `xrcams.c` is backported from experimental commit
 [`723ad4a6b9ac2ecd245a4a392893bceb5174efd4`](https://github.com/Frametop/frametop/commit/723ad4a6b9ac2ecd245a4a392893bceb5174efd4)
 (2026-10-10). It rebuilds a QUERYBUF-owned run when an unrelated allocation
 interrupts plane pairing, restores missing plane-0 buffers in descriptor order,
-and removes duplicate fragments. The backport preserves FramePhone's existing
-retention of QUERYBUF-owned short fragments. The base archive hash below does
-not describe this separately identified backport.
+and removes duplicate fragments. The base archive hash below describes the
+original archive; this backport is identified separately.
 Upstream archive SHA-256:
 `7b366ba7d022a79ca98a12839098808fc5d8b82bec270e3e6b0d36937d89c522`.
 The broker is compiled statically and runs on the headset host. Local adaptations:
@@ -62,16 +61,7 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   descriptors when every index matches a unique attached DMA buffer; retain
   vote-based learning/relearning for incomplete/changing mappings. Synchronize
   DMA caches while sampling in the learning fallback as well as normal capture.
-- Attach compatible fallback runs before dropping privileges. Start with the
-  original candidate set; expand after failed learning instead of staying locked
-  to an open-order guess. Per-buffer QUERYBUF identities exclude known foreign
-  buffers. Preserve QUERYBUF-owned short fragments when grouping discovery data.
-- Permit per-index resolution across multiple/shuffled runs when votes identify
-  unique winners; retain the existing observation, dominance and ambiguity
-  thresholds. Reject allocation-order blocks with holes from failed attachments.
-- Report capture-event, buffer and mapping diagnostics in the ring's formerly
-  reserved 24-byte camera tail, gated by a diagnostics version. Version-1 header,
-  camera sizes, image offsets and sequence protocol remain unchanged.
+- Reject allocation-order mapping blocks with holes from failed attachments.
 
 Retain both MIT notices in source and binary distributions. The Python preview
 reader also implements this ABI and sequence protocol using bounded read-only

@@ -19,7 +19,7 @@ Only accepted `T_HM` poses drive it. The GUI atomically publishes a minimal loca
 The renderer checks finite rigid transforms and processing timestamps itself,
 hides updates older than 250 ms, checks HMD tracking and destroys its overlays
 on shutdown. It exits if the parent desktop dies. Nothing is installed into the
-SteamVR runtime. Logs go to Camera setup and `desktop.log`.
+SteamVR runtime. Logs go to Diagnostics and `desktop.log`.
 
 This first renderer deliberately uses **head-relative** transforms. The imported
 factory head frame is provisionally treated as the runtime HMD frame. It does

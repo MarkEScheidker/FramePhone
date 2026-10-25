@@ -92,71 +92,6 @@ static void capture_mapping_test(void) {
     learn(&c, 0);
     assert(starts == 2 && ends == 2);
     assert(c.learn_events == 1 && c.votes[0][0] == 1 && c.votes[0][1] == 1);
-    /* An open-order binding to a 15-buffer run must not hide another
-     * compatible run. Only positively identified foreign buffers are excluded. */
-    xr.ncameras = 2;
-    xr_camera_t *left = &xr.cameras[0], *right = &xr.cameras[1];
-    memset(left, 0, sizeof(*left));
-    memset(right, 0, sizeof(*right));
-    strcpy(left->sensor, "og01a1b 4-0060");
-    strcpy(right->sensor, "og01a1b 4-0036");
-    for (int g = 0; g < 2; g++) {
-        memset(&xr.groups[g], 0, sizeof(xr.groups[g]));
-        xr.groups[g].planesize[0] = 4096;
-        xr.groups[g].buf[0].xfd = 200+g;
-    }
-    xr.groups[0].cam = right; /* heuristic guess */
-    xr.groups[1].cam = left;
-    assert(candidate_buffer(right, 0, 0, 4096));
-    assert(candidate_buffer(right, 1, 0, 4096));
-    left->nqbuf = 1;
-    left->qbuf_xfd[0] = 200;
-    assert(!candidate_buffer(right, 0, 0, 4096));
-    right->nqbuf = 1;
-    right->qbuf_xfd[0] = 201;
-    assert(candidate_buffer(right, 1, 0, 4096));
-    right->qbuf_xfd[0] = 200; /* conflicting identities are not evidence */
-    assert(!candidate_buffer(right, 0, 0, 4096));
-    assert(!candidate_buffer(right, 1, 0, 8192));
-
-    /* 15 candidates across fragments, 8 observed indices, shuffled queue.
-     * The original shared-run gate loops forever despite unique evidence. */
-    memset(&c, 0, sizeof(c));
-    c.nslots = 7; /* primary open-order guess sees only unrelated buffers */
-    c.ncandidates = 15;
-    c.need = 4096;
-    c.lay.width = c.lay.height = c.lay.pitch = 64;
-    memset(&ring_camera, 0, sizeof(ring_camera));
-    ring_camera.nslots = 4;
-    ring_camera.stride = 64;
-    ring_camera.slot_bytes = 64+4096;
-    c.rc = &ring_camera;
-    c.ring_slots = output;
-    static uint64_t fragmented[15][NSAMP];
-    int chosen[] = {12, 9, 14, 7, 11, 8, 13, 10};
-    for (int s = 0; s < c.ncandidates; s++) {
-        c.slot_group[s] = s < 7 ? 0 : 1;
-        c.slot_pos[s] = 2*s+1; /* no contiguous allocation-order hypothesis */
-        c.fd[s] = s;
-        memset(fragmented[s], 80+s, sizeof(fragmented[s]));
-        c.map[s] = (uint8_t *)fragmented[s];
-        sample_words(c.map[s], c.need, c.samp[s]);
-    }
-    for (int cycle = 0; cycle < 28; cycle++) {
-        for (int i = 0; i < 8; i++) {
-            for (int k = 0; k < NSAMP; k++) fragmented[chosen[i]][k]++;
-            on_frame(&c, i, cycle*8+i, cycle*8+i+1000, mono_ns());
-        }
-        if (cycle == 19) assert(!c.mapped && c.nslots == 7 && !ring_camera.published);
-    }
-    assert(c.mapped && c.shared && c.events == 224 && c.nslots == 15);
-    assert(ring_camera.published >= 8 && ring_camera.latest >= 8);
-    for (int i = 0; i < 8; i++) assert(c.slot_of[i] == chosen[i]);
-    c.mapped = false;
-    c.votes[0][1] = c.nobs[0]; /* indistinguishable second camera/buffer */
-    resolve_map(&c);
-    assert(!c.mapped);
-
     /* A missing attachment must not collapse allocation positions. Unique
      * observed mappings may still recover via the per-index resolver. */
     memset(&c, 0, sizeof(c));
@@ -170,7 +105,7 @@ static void capture_mapping_test(void) {
     assert(!resolve_block(&c));
     resolve_map(&c);
     assert(c.mapped);
-    puts("Exact/fragmented queue mapping, ambiguity rejection and DMA learning passed.");
+    puts("Exact queue mapping, allocation bounds and DMA synchronization passed.");
 }
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--mapping")) {
@@ -193,36 +128,6 @@ int main(int argc, char **argv) {
     grouping.write_text('#include <assert.h>\n#include ' + json.dumps(str(source / "xrcams.c")) + '''
 int main(void) {
     static xr_state_t state;
-    state.ncameras = 2;
-    for (int i = 0; i < 2; i++) {
-        state.cameras[i].nplanes = 2;
-        state.cameras[i].planesize[0] = 4096;
-        state.cameras[i].planesize[1] = 128;
-    }
-    state.cameras[0].nqbuf = 1;
-    state.cameras[0].qbuf_xfd[0] = 300;
-    state.cameras[1].nqbuf = 15;
-    nfdents = 32;
-    for (int i = 0; i < 16; i++) {
-        fdents[2*i].kind = fdents[2*i+1].kind = FD_DMABUF;
-        fdents[2*i].size = 4096;
-        fdents[2*i+1].size = 128;
-        fdents[2*i].xfd = 300+2*i;
-        fdents[2*i+1].xfd = 301+2*i;
-        if (i) state.cameras[1].qbuf_xfd[i-1] = 300+2*i;
-    }
-    build_groups(&state);
-    assert(state.ngroups == 2);
-    assert(state.groups[0].nbufs == 1 && state.groups[1].nbufs == 15);
-    assert(state.groups[0].cam == &state.cameras[0] && state.groups[0].exact);
-    assert(state.groups[1].cam == &state.cameras[1] && state.groups[1].exact);
-    state.ngroups = 0;
-    state.cameras[0].nqbuf = state.cameras[1].nqbuf = 0;
-    nfdents = 2;
-    build_groups(&state);
-    assert(state.ngroups == 0); /* unrelated one-buffer noise remains excluded */
-    puts("QUERYBUF-owned short buffer fragments preserved.");
-
     /* An unrelated allocation between plane 0 and plane 1 used to leave
      * 15/16 buffers in separate fragments. Reconstruct all 16 from QUERYBUF. */
     memset(&state, 0, sizeof(state));

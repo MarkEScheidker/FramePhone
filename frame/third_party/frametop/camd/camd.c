@@ -89,7 +89,6 @@ typedef struct {
 
     /* candidate buffers, in XRService allocation order */
     int             nslots;
-    int             ncandidates;        /* attached fallback buffers, including inactive ones */
     int             slot_group[MAX_SLOTS];
     int             slot_pos[MAX_SLOTS];
     int             fd[MAX_SLOTS];      /* kept for DMA_BUF_IOCTL_SYNC       */
@@ -246,33 +245,6 @@ static bool group_fits(const xr_group_t *g, const xr_camera_t *cam, size_t need)
     return g->planesize[1] == cam->planesize[1] && g->planesize[0] >= need;
 }
 
-/* A run's camera may have been guessed from fd-open order, and even an exact
- * first-buffer owner does not establish ownership of every buffer in that run.
- * Consider compatible runs, rejecting individual buffers positively queued by
- * another camera. Never let an open-order guess hide this camera's real queue. */
-static bool candidate_buffer(const xr_camera_t *cam, int group, int buffer, size_t need)
-{
-    const xr_group_t *g = &xr.groups[group];
-    if (!group_fits(g, cam, need))
-        return false;
-    int xfd = g->buf[buffer].xfd;
-    bool ours = false, other = false;
-    for (int i = 0; i < xr.ncameras; i++)
-        for (int j = 0; j < xr.cameras[i].nqbuf; j++)
-            if (xr.cameras[i].qbuf_xfd[j] == xfd) {
-                if (&xr.cameras[i] == cam) ours = true;
-                else other = true;
-            }
-    if (other)
-        return false;
-    if (ours)
-        return true;
-    char model[16], group_model[16];
-    model_of(cam->sensor, model, sizeof(model));
-    model_of(g->cam ? g->cam->sensor : g->sensor, group_model, sizeof(group_model));
-    return !strcmp(model, group_model);
-}
-
 /* Discovery already queried the queue's DMA-BUF descriptors. Prefer those
  * exact identities to image-change voting, which can fail to converge when
  * cameras complete together or CPU caches hide DMA updates. Use this only when
@@ -308,9 +280,9 @@ static bool map_query_buffers(cam_t *c)
 }
 
 /*
- * Attach compatible same-model runs, including fragments and runs whose
- * open-order owner is only a guess. Per-buffer QUERYBUF identities exclude
- * positively identified foreign buffers before any pixel-change learning.
+ * Candidate buffers for a camera: the queue bound to it. The two upper cameras
+ * share one 32-buffer run, bound to only one of them, so a camera without its
+ * own run also gets runs bound to cameras of the same model.
  */
 static void setup_camera(cam_t *c, xr_camera_t *cam, int pidfd)
 {
@@ -335,61 +307,57 @@ static void setup_camera(cam_t *c, xr_camera_t *cam, int pidfd)
         if (xr.groups[g].cam == cam && group_fits(&xr.groups[g], cam, c->need))
             own = true, exact = exact || xr.groups[g].exact;
 
-    int primary = 0;
-    /* Keep working queues on their original candidate set. Attach fallbacks
-     * now, while privileged, but use them only if that set cannot converge. */
-    for (int pass = 0; pass < 2; pass++) {
-        for (int g = 0; g < xr.ngroups; g++) {
+    char model[16];
+    model_of(cam->sensor, model, sizeof(model));
 
-            xr_group_t *grp = &xr.groups[g];
+    for (int g = 0; g < xr.ngroups; g++) {
 
-            bool preferred = !own || grp->cam == cam;
-            if (preferred != (pass == 0))
+        xr_group_t *grp = &xr.groups[g];
+
+        if (!group_fits(grp, cam, c->need))
+            continue;
+
+        if (own && grp->cam != cam)
+            continue;
+
+        if (!own) {
+            char gm[16];
+            model_of(grp->cam ? grp->cam->sensor : grp->sensor, gm, sizeof(gm));
+            if (strcmp(gm, model))
                 continue;
-
-            if (!group_fits(grp, cam, c->need))
-                continue;
-
-            for (int b = 0; b < grp->nbufs && c->nslots < MAX_SLOTS; b++) {
-
-                if (!candidate_buffer(cam, g, b, c->need))
-                    continue;
-
-                int fd = (int)syscall(SYS_pidfd_getfd, pidfd, grp->buf[b].xfd, 0u);
-
-                if (fd < 0) {
-                    fprintf(stderr, "pidfd_getfd(%d): %s\n", grp->buf[b].xfd, strerror(errno));
-                    continue;
-                }
-
-                void *m = mmap(NULL, grp->buf[b].size, PROT_READ, MAP_SHARED, fd, 0);
-
-                if (m == MAP_FAILED) {
-                    fprintf(stderr, "mmap(xfd %d): %s\n", grp->buf[b].xfd, strerror(errno));
-                    close(fd);
-                    continue;
-                }
-
-                int s = c->nslots++;
-                c->slot_group[s] = g;
-                c->slot_pos[s]   = b;
-                c->fd[s]         = fd;
-                c->map[s]        = m;
-
-                sample_words(c->map[s], c->need, c->samp[s]);
-            }
         }
-        if (pass == 0)
-            primary = c->nslots;
+
+        for (int b = 0; b < grp->nbufs && c->nslots < MAX_SLOTS; b++) {
+
+            int fd = (int)syscall(SYS_pidfd_getfd, pidfd, grp->buf[b].xfd, 0u);
+
+            if (fd < 0) {
+                fprintf(stderr, "pidfd_getfd(%d): %s\n", grp->buf[b].xfd, strerror(errno));
+                continue;
+            }
+
+            void *m = mmap(NULL, grp->buf[b].size, PROT_READ, MAP_SHARED, fd, 0);
+
+            if (m == MAP_FAILED) {
+                fprintf(stderr, "mmap(xfd %d): %s\n", grp->buf[b].xfd, strerror(errno));
+                close(fd);
+                continue;
+            }
+
+            int s = c->nslots++;
+            c->slot_group[s] = g;
+            c->slot_pos[s]   = b;
+            c->fd[s]         = fd;
+            c->map[s]        = m;
+
+            sample_words(c->map[s], c->need, c->samp[s]);
+        }
     }
 
-    c->ncandidates = c->nslots;
-    if (!map_query_buffers(c) && primary)
-        c->nslots = primary;
-
-    printf("  %-24s %-12s %ux%u pitch %u, %d active / %d attached candidate buffers%s\n", c->slug, cam->path,
-           c->lay.width, c->lay.height, c->lay.pitch, c->nslots, c->ncandidates,
-           !own ? " (compatible runs)" : exact ? " (includes QUERYBUF-owned run)" : " (open-order hint; compatible runs)");
+    printf("  %-24s %-12s %ux%u pitch %u, %d candidate buffers%s\n", c->slug, cam->path,
+           c->lay.width, c->lay.height, c->lay.pitch, c->nslots,
+           !own ? " (shared run)" : exact ? ", bound by VIDIOC_QUERYBUF" : ", bound by open order");
+    map_query_buffers(c);
 }
 
 /* ------------------------------------------------------ index -> buffer */
@@ -509,11 +477,6 @@ static bool resolve_each(cam_t *c)
 
 static void reset_learning(cam_t *c)
 {
-    if (c->ncandidates > c->nslots) {
-        fprintf(stderr, "%s: expanding candidates from %d to %d compatible buffers\n",
-                c->slug, c->nslots, c->ncandidates);
-        c->nslots = c->ncandidates;
-    }
     memset(c->votes, 0, sizeof(c->votes));
     memset(c->nobs, 0, sizeof(c->nobs));
     c->maxindex     = 0;
@@ -526,11 +489,9 @@ static void resolve_map(cam_t *c)
     int depth = c->maxindex + 1;
     bool shared = c->slot_group[0] != c->slot_group[c->nslots - 1] || c->nslots > depth;
 
-    /* Multiple candidate runs need not mean two indistinguishable cameras:
-     * a single queue can be fragmented or shuffled. resolve_each still requires
-     * strong, unique per-index votes and rejects equally active alternatives. */
+    /* a shuffled shared run can't be split by change votes alone */
     c->shared = shared;
-    c->mapped = resolve_block(c) || resolve_each(c);
+    c->mapped = resolve_block(c) || (!shared && resolve_each(c));
 
     if (c->mapped) {
         fflush(stdout);
@@ -1096,9 +1057,6 @@ static uint8_t *ring_create(size_t *len_out)
         rc->nslots      = FH_RING_SLOTS;
         rc->slot_offset = off;
         rc->slot_bytes  = (sizeof(fh_ring_slot_t) + (size_t)rc->stride * rc->height + 63) & ~(size_t)63;
-        rc->candidate_buffers = (uint32_t)c->nslots;
-        rc->mapping_ready = c->mapped;
-        rc->diagnostics_version = 1;
         off += rc->nslots * rc->slot_bytes;
 
         if (dark) {
@@ -1384,12 +1342,6 @@ int main(int argc, char **argv)
         }
 
         uint64_t now = mono_ns();
-        for (int i = 0; i < ncams; i++) {
-            cams[i].rc->capture_events = cams[i].events;
-            cams[i].rc->candidate_buffers = (uint32_t)cams[i].nslots;
-            cams[i].rc->mapping_ready = cams[i].mapped;
-            cams[i].rc->learning_events = (uint32_t)cams[i].learn_events;
-        }
         __atomic_store_n(&ring->heartbeat_ns, now, __ATOMIC_RELEASE);
 
         if (opt_with_color && now - last_want >= 500000000ull) {

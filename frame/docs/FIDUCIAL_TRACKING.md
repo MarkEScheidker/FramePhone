@@ -18,19 +18,13 @@ is required. One tag is sufficient; the same tag is observed in both front camer
    reports ID 0 counts for left/right, processing time and pose quality. Tilt and
    move slowly, then hide/reveal the marker to test loss and automatic reacquisition.
 
-Both camera tabs show live per-camera AprilTag outlines and center crosses as
-soon as cameras are available, even before Start and without a synchronized
-stereo pair. Direct ring readers poll each camera independently; native preview workers add
-annotations from their own exact frames. Images continue if a detector stalls
-or fails. Workers do not need
-phone pairing or a calibration/pose solve. A 2D marker outline alone is not a 3D
-pose. Missing streams show per-camera publisher counters. A paused detector
-retains its last annotated image with a Paused label; if newer raw pixels are
-available, they appear explicitly without annotations. Publication-age warnings
-do not blank otherwise readable preview images. These display fallbacks do not
-relax tracking freshness or stereo acceptance. The preview reader accepts padded
-grayscale rows, as does the tracker. Images fit and center within their panes,
-preserving aspect ratio; tag boxes and pose axes use the same display transform.
+**Show camera views** in Marker tracking displays the two front cameras with
+AprilTag outlines, center crosses and marker counts. Each native worker annotates
+its own frame without requiring phone pairing or a stereo pose. A 2D outline
+alone is not a 3D measurement. Waiting streams and errors have per-camera status.
+Images fit and center within their panes, preserving aspect ratio; pose overlays
+use the same display transform. Hide the views to stop preview processing while
+tracking continues.
 
 During tracking the second tab also displays current headset-relative XYZ,
 distance, Z/Y/X rotation and RMS. Accepted poses add red X, green Y and blue Z

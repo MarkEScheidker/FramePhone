@@ -4,7 +4,6 @@ Run under Xvfb with the CMake build directory. No headset/phone/root required.
 """
 import json
 import os
-import re
 from pathlib import Path
 import struct
 import subprocess
@@ -36,13 +35,11 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         data[offset + 32:offset + 32 + len(name)] = name
         struct.pack_into("<IIIIIIQQ", data, offset + 64, v, 0, width, height, strides[v], 4,
                          starts[v], slot_bytes[v])
-        struct.pack_into("<QIIII", data, offset+136, 0, 4, 1, 0, 1)
     images[1] = b"".join(images[1][y*width:(y+1)*width]+bytes([222])*32 for y in range(height))
     ring = temporary / "ring"
     ring.write_bytes(data)
     stop, blank, pause = threading.Event(), threading.Event(), threading.Event()
     right_missing, right_blank, skewed = threading.Event(), threading.Event(), threading.Event()
-    old_publication = threading.Event()
     right_missing.set()
     def publish():
         number = 0
@@ -59,14 +56,12 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
                         continue
                     start = starts[v]+(number%4)*slot_bytes[v]
                     capture = now+(20_000_000 if v and skewed.is_set() else v*100000)
-                    published = now-5_000_000_000 if old_publication.is_set() else now
                     os.pwrite(file.fileno(), struct.pack("<QQQQQIf", 2 * number + 1, number,
-                              capture, now, published, number, 100.), start)
+                              capture, now, now, number, 100.), start)
                     hidden = blank.is_set() or (v == 1 and right_blank.is_set())
                     os.pwrite(file.fileno(), bytes([24]) * len(images[v]) if hidden else images[v], start + 64)
                     os.pwrite(file.fileno(), struct.pack("<Q", 2 * number + 2), start)
                     os.pwrite(file.fileno(), struct.pack("<QQ", number, number), 64 + v * 160 + 104)
-                    os.pwrite(file.fileno(), struct.pack("<Q", number), 64 + v * 160 + 136)
                 stop.wait(.04)
     class TestRuntime(Runtime):
         overlay_command = None
@@ -134,59 +129,26 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: "scan" not in window.jobs)
         assert set(window.available_streams) == {"slam_left", "slam_right"}
         window.tabs.select(1)
-        until(lambda: bool(panel.raw_detections[0]) and "published 0" in panel.camera_status[1].get())
+        until(lambda: bool(panel.preview_detections[0]) and "Waiting for camera frames" in panel.camera_status[1].get())
         assert not panel.busy and panel.result is None
-        assert panel.raw_detections[0] and panel.raw_detections[0][0]["id"] == 0
-        assert panel.raw_images[0] != b"P5\n640 480\n255\n"+images[0], "preview has no drawn tag annotations"
-        assert panel.raw_images[1] is None and panel.images is None
+        assert panel.preview_detections[0] and panel.preview_detections[0][0]["id"] == 0
+        assert panel.preview_images[0] != b"P5\n640 480\n255\n"+images[0], "preview has no drawn tag annotations"
+        assert panel.preview_images[1] is None and panel.images is None
         panel.start()
         assert not panel.busy and "Front right" in panel.status.get()
         right_missing.clear()
-        until(lambda: all(panel.raw_detections))
-        assert "preview" in panel.camera_status[1].get()
-        old_publication.set()
-        until(lambda: all("publisher age" in status.get() for status in panel.camera_status))
-        assert all(panel.raw_images), "publication timestamp warning blanked readable camera data"
-        assert all(panel.raw_detections), "advancing frames were discarded before tag detection"
-        old_publication.clear()
-        until(lambda: all("publisher age" not in status.get() for status in panel.camera_status))
+        until(lambda: all(panel.preview_detections))
         original_command = runtime.command
-        def failed_preview(tool, *args):
-            if args and args[0] == "--preview-ring":
-                return [sys.executable, "-c", "import sys;sys.stderr.write('Synthetic detector failed');sys.exit(4)"]
-            return original_command(tool, *args)
-        runtime.command = failed_preview
-        window.preview_reader.close()
-        window.preview_updated = [0, 0]
-        until(lambda: all("Raw available" in status.get() for status in panel.camera_status))
-        assert all(panel.raw_images), "detector failure prevented direct ring preview"
-        assert (window.sessions/"camera-status.json").exists()
-        assert json.loads((window.sessions/"camera-status.json").read_text())["left"]["latest_sequence"] > 0
-        runtime.command = original_command
-        window.preview_reader.close()
-        until(lambda: all(panel.raw_detections))
-        # A right detector that remains alive but never emits stdout must not
-        # stop right pixels. Earlier fallback-only reads updated at ~1.5 s.
-        def stalled_right(tool, *args):
+        def failed_right(tool, *args):
             if args and args[0] == "--preview-ring" and args[-1] == "slam_right":
-                return [sys.executable, "-c", "import time;time.sleep(90)"]
+                return [sys.executable, "-c", "import sys;sys.stderr.write('Camera preview failed');sys.exit(4)"]
             return original_command(tool, *args)
-        runtime.command = stalled_right
+        runtime.command = failed_right
         window.preview_reader.stop(1)
-        until(lambda: "Raw available" in panel.camera_status[1].get())
-        sequences = set()
-        deadline = time.monotonic()+.8
-        while time.monotonic() < deadline:
-            root.update()
-            match = re.search(r"Raw available frame (\d+)", panel.camera_status[1].get())
-            if match:
-                sequences.add(int(match[1]))
-            time.sleep(.01)
-        assert len(sequences) >= 3, ("right preview stalled with detector", sequences)
-        assert panel.raw_detections[0], "right detector stalled the left view"
+        until(lambda: "Camera preview failed" in panel.camera_status[1].get())
+        assert panel.preview_images[0] and panel.preview_images[1] is None
         runtime.command = original_command
-        window.preview_reader.stop(1)
-        until(lambda: all(panel.raw_detections))
+        until(lambda: all(panel.preview_detections))
         assert all(getattr(canvas,"image",None) for canvas in panel.canvases)
         for canvas in panel.canvases:
             assert canvas.winfo_ismapped() and canvas.winfo_height() > 40
@@ -201,18 +163,29 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         window.self_test()
         until(lambda: window.self_test_result is not None)
         assert window.self_test_result
+        window.show_views.set(False)
+        window.toggle_views()
+        until(lambda: not window.preview_reader.workers)
+        assert not any(canvas.winfo_ismapped() for canvas in panel.canvases)
         window.show_views.set(True)
         window.toggle_views()
+        until(lambda: all(panel.preview_detections))
         window.tabs.select(2)
-        until(lambda: all(getattr(w, "image", None) for w in window.previews))
-        for widget in window.previews:
-            assert widget.winfo_rootx()+widget.winfo_width() <= root.winfo_rootx()+root.winfo_width()
+        until(lambda: not window.preview_reader.workers)
         window.tabs.select(1)
+        until(lambda: all(panel.preview_detections))
         panel.start()
         until(lambda: panel.result is not None and panel.result["status"] == "measured")
         assert "Marker center XYZ" in panel.pose.get()
         assert "left 1" in panel.status.get() and "right 1" in panel.status.get()
         assert all(c.find_withtag("pose-axis") for c in panel.canvases)
+        window.show_views.set(False)
+        window.toggle_views()
+        until(lambda: not window.preview_reader.workers)
+        assert panel.busy and panel.result["status"] == "measured"
+        window.show_views.set(True)
+        window.toggle_views()
+        until(lambda: all(panel.preview_detections))
         with patch("fiducial_panel.preview_pair", return_value=None):
             until(lambda: panel.result is not None and panel.result["status"] == "measured" and panel.images is None)
             assert "Marker center XYZ" in panel.pose.get()
@@ -252,7 +225,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: not panel.busy,timeout=10)
         assert "no synchronized pair" in panel.status.get()
         assert "latest skew" in panel.status.get() and "limit 3 ms" in panel.status.get()
-        assert all(panel.raw_images), "live previews disappeared when stereo pairing failed"
+        assert all(panel.preview_images), "live previews disappeared when stereo pairing failed"
         assert all(c.winfo_height() > 40 for c in panel.canvases), "status text pushed camera data out of view"
         assert not any(c.find_withtag("pose-axis") for c in panel.canvases)
         skewed.clear()

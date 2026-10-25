@@ -707,8 +707,7 @@ static void split_groups(xr_state_t *st)
     }
 }
 
-/* Backported from Frametop 723ad4a6b9ac2ecd245a4a392893bceb5174efd4;
- * retain FramePhone's QUERYBUF-owned short fragments during final pruning. */
+/* Backported from Frametop 723ad4a6b9ac2ecd245a4a392893bceb5174efd4. */
 static const fdent_t *fdent_of(int xfd)
 {
     for (int i = 0; i < nfdents; i++)
@@ -776,13 +775,9 @@ static void complete_exact_groups(xr_state_t *st)
 
     int keep = 0;
 
-    for (int i = 0; i < st->ngroups; i++) {
-        bool queried = false;
-        for (int b = 0; b < st->groups[i].nbufs && !queried; b++)
-            queried = qbuf_owner(st, st->groups[i].buf[b].xfd) != NULL;
-        if (st->groups[i].nbufs >= 4 || queried)
+    for (int i = 0; i < st->ngroups; i++)
+        if (st->groups[i].nbufs >= 4)
             st->groups[keep++] = st->groups[i];
-    }
 
     st->ngroups = keep;
 }
@@ -864,15 +859,9 @@ static void build_groups(xr_state_t *st)
 
     int keep = 0;
 
-    for (int i = 0; i < st->ngroups; i++) {
-        bool queried = false;
-        for (int b = 0; b < st->groups[i].nbufs && !queried; b++)
-            queried = qbuf_owner(st, st->groups[i].buf[b].xfd) != NULL;
-        /* A split can leave a valid one-buffer fragment. Dropping it can
-         * turn a complete QUERYBUF mapping into an unresolvable partial run. */
-        if (st->groups[i].nbufs >= 4 || queried)
+    for (int i = 0; i < st->ngroups; i++)
+        if (st->groups[i].nbufs >= 4)
             st->groups[keep++] = st->groups[i];
-    }
 
     st->ngroups = keep;
 
