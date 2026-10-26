@@ -27,6 +27,7 @@ jobs:
       - run: python3 frame/tests/test_fiducial_desktop.py
       - run: python3 frame/tests/test_phone_link.py
       - run: python3 frame/tests/test_arcore_link.py
+      - run: python3 frame/tests/test_pose_stream.py
       - run: python3 frame/modules/camera/tests/test_broker.py
       - run: python3 scripts/package-source.py
 

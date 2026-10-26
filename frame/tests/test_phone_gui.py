@@ -166,6 +166,60 @@ def automatic_reconnect():
             root.destroy()
 
 
+def transport_recovery():
+    """A previously authenticated peer reconnects after sleep/network loss without enrollment."""
+    with tempfile.TemporaryDirectory() as directory:
+        root = tk.Tk()
+        panel = PhonePanel(root, Path(directory))
+        panel.store.save({"pin":"a"*64,"credential":"b"*64,"host":"127.0.0.1"})
+        panel.host.set("127.0.0.1")
+        attempts=[]
+        class Link:
+            def __init__(self, store, notify, confirm):
+                self.notify=notify
+                self.stopped=threading.Event()
+                self.retryable=False
+            def snapshot(self): return None
+            def stop(self): self.stopped.set()
+            def run(self, host, pair):
+                attempts.append((host,pair))
+                assert not pair
+                self.notify('connected',host)
+                if len(attempts)==1:
+                    self.retryable=True
+                    self.notify('ended','Disconnected')
+                else:
+                    self.notify('status','Recovered')
+                    self.stopped.wait(5)
+                    self.notify('ended','Disconnected')
+        def until(predicate):
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                root.update()
+                if predicate(): return
+                time.sleep(.01)
+            raise AssertionError(panel.status.get())
+        try:
+            with patch('phone_panel.PhoneLink',Link):
+                panel.connect()
+                until(lambda: panel.status.get()=='Recovered')
+                assert attempts==[('127.0.0.1',False)]*2
+                panel.disconnect()
+                until(lambda: not panel.worker.is_alive())
+                assert panel.retry_timer is None and not panel.retry_enabled
+                # A pin/protocol failure is not treated as a transient network loss.
+                panel.retry_enabled=True
+                panel.link.stopped.clear()
+                panel.link.retryable=False
+                panel.schedule_retry()
+                assert not panel.retry_enabled and panel.retry_timer is None
+            print('Authenticated transport-loss recovery, manual cancellation and identity-failure retry stop passed')
+        finally:
+            panel.close()
+            root.destroy()
+
+
 if __name__ == "__main__":
     main()
     automatic_reconnect()
+    transport_recovery()

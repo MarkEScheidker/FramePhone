@@ -8,10 +8,10 @@ factory fisheye calibration. An optional SteamVR display follows the tracked
 screen as a flat rectangle.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
-devices, with stable distance and orientation readings. The VR rectangle has
-also been demonstrated on the headset. Distance scale uses Android's reported
+devices, with stable distance and orientation readings. Both optical and ARCore-driven VR rectangles have
+been demonstrated on the headset. Distance scale uses Android's reported
 display DPI; metric accuracy and motion timing still need independent validation.
-An automatic brief-marker ARCore handoff prototype is available for device testing;
+The automatic brief-marker ARCore handoff now includes bounded motion prediction;
 its origin calibration and exposure timing are provisional. Bluetooth and screen
 streaming are future work.
 

@@ -46,6 +46,47 @@ class ArcoreLinkTests(unittest.TestCase):
         self.assertEqual(Telemetry(profile()).dimensions, (.075, .16))
         self.assertFalse(Telemetry(profile()).snapshot(0)["automatic_marker"])
 
+    def test_capture_clock_bias_corrected_gyro_and_compact_live_packet(self):
+        from test_phone_link import batch
+        state = self.telemetry()
+        state.clock_reply({"session": "test-session", "h0": 1_900_000_000,
+                           "p1": 900_500_000, "p2": 900_500_000}, 1_901_000_000, {1_900_000_000})
+        for i in range(4):
+            pose = dict(pose_message(i+1, 1_000_000_000+i*10_000_000), marker_required=False,
+                        capture_t_ns=980_000_000+i*10_000_000,
+                        capture_time_source="camera2_realtime_center_exposure")
+            state.receive(pose, 2_000_000_000+i*10_000_000)
+        gyro = batch()
+        gyro["samples"][0].update(v=[.1, .2, .3], bias=[.01, .02, .03])
+        state.receive(gyro, 2_040_000_000)
+        packet = state.pose_packet(2_040_000_000, compact=True)
+        self.assertEqual(len(packet["poses"]), 2)
+        self.assertEqual(len(state.arcore_poses), 4)
+        self.assertEqual(packet["poses"][-1]["pose_host_t_ns"], 2_010_000_000)
+        self.assertEqual(packet["poses"][-1]["host_t_ns"], 2_030_000_000)
+        for actual, expected in zip(packet["gyro"][0]["w_rad_s"], [.09, .18, .27]):
+            self.assertAlmostEqual(actual, expected)
+        self.assertEqual(packet["pose_hz"], 100)
+        state.clock_reply({"session": "test-session", "h0": 2_100_000_000,
+                           "p1": 5_100_500_000, "p2": 5_100_500_000}, 2_101_000_000, {2_100_000_000})
+        self.assertFalse(state.arcore_poses, "sleep clock jumps must discard old prediction history")
+        self.assertFalse(state.gyro_history)
+
+    def test_unverified_or_inconsistent_capture_clock_rejected(self):
+        for fields in ({"capture_t_ns": 900_000_000},
+                       {"capture_t_ns": 1_000_000_001, "capture_time_source": "camera2_realtime_center_exposure"},
+                       {"capture_t_ns": 700_000_000, "capture_time_source": "camera2_realtime_center_exposure"}):
+            with self.assertRaises(ValueError):
+                self.telemetry().receive(dict(pose_message(), **fields), 2_000_000_000)
+
+    def test_source_sequence_rate_distinguishes_skipped_delivery(self):
+        state = self.telemetry()
+        state.receive(pose_message(1, 1_000_000_000), 2_000_000_000)
+        state.receive(pose_message(3, 1_020_000_000), 2_020_000_000)
+        packet = state.pose_packet(2_020_000_000)
+        self.assertEqual(packet["pose_hz"], 50)
+        self.assertEqual(packet["source_hz"], 100)
+
     def test_malformed_unannounced_reordered_poses_rejected(self):
         with self.assertRaises(ValueError):
             Telemetry(profile()).receive(pose_message(), 2_000_000_000)

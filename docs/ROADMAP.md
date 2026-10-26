@@ -1,40 +1,36 @@
 # Roadmap
 
-The immediate milestone is a continuously visible fullscreen AprilTag tracked
-by the two front Frame cameras, with a simple pose-driven screen object in VR.
-This establishes an optical baseline for testing geometry, scale and timing.
+Stereo marker tracking and the ARCore-driven VR rectangle have been demonstrated
+on the test devices. The current milestone is reliable recovery and measured
+motion timing before adding Bluetooth and screen video.
 
 ## Current components
 
-- Android fullscreen marker, saved body dimensions and secure LAN telemetry.
+- Automatic screen-width marker overlay, width/height setup and pinned LAN pairing.
 - Native AprilTag detection, factory KB4 calibration, stereo pose and replay.
-- Camera previews, marker counts, pose diagnostics and opt-in trial recording.
-- A single executable with desktop controls and the bundled camera broker.
-- An optional head-relative SteamVR screen rectangle demonstrated on the headset; metric alignment and timing still need validation.
-- An automatic [brief-marker ARCore handoff prototype](../frame/docs/ARCORE_HANDOFF.md)
-  over the existing LAN link; physical background tracking, timing and extrinsics
-  remain unverified.
+- Marker-to-ARCore world registration with a 2 cm / 500 ms relative stability gate.
+- A latest-only renderer channel, bounded gyro/velocity prediction and rate/age diagnostics.
+- Camera access as a standalone module, a bundled broker and one desktop executable.
+- Optional bounded recordings of camera, sensor, ARCore and clock evidence.
+
+Metric scale, sensor-to-screen and factory/runtime-head extrinsics are still
+provisional. Sleep recovery and the latest prediction changes need physical
+validation; software tests do not establish tracking accuracy or latency.
 
 ## Next milestones
 
-The proposed product flow is documented in the
-[Bluetooth companion session plan](COMPANION_SESSION_PLAN.md): Bluetooth presence
-and poses, secure Wi-Fi screen streaming, and brief marker acquisition followed
-by ARCore tracking. Platform lifecycle tests come before implementation promises.
+1. Measure wake/reacquisition, delivered/render rates, motion-to-display delay,
+   jitter and steady-state battery/CPU behavior on the actual devices.
+2. Calibrate sensor/screen and factory/runtime-head transforms and verify the
+   headset exposure clock against historical headset world poses.
+3. Handle drift, recenter, tracking resets and pocket relocalization with clear
+   validity rules; keep marker reacquisition as the reliable fallback.
+4. Implement Bluetooth companion presence and secure Wi-Fi bootstrap as described
+   in the [companion session plan](COMPANION_SESSION_PLAN.md).
+5. Stream Home and ordinary phone apps into the tracked surface, respecting
+   Android's capture lifecycle, and evaluate accessory/input integration.
 
-1. Validate physical front-camera/calibration associations, marker distance scale,
-   orientation, loss/reacquisition and VR surface alignment on the headset.
-2. Add historical headset world poses, exposure-clock mapping and verified
-   factory-head/runtime-head calibration. Measure latency before compensation.
-3. Prove ARCore camera tracking can continue across Home and ordinary app use on
-   the actual phone. Calibrate its camera-to-screen rigid transform separately.
-4. Use a brief marker observation batch to align anchored ARCore motion with
-   headset world tracking. Hide the marker only after verified alignment; handle
-   drift, tracking loss, recenter, session reset and pocket recovery explicitly.
-5. Stream ordinary phone apps/Home into the tracked screen and evaluate whether
-   native SteamVR accessory registration/input bindings are useful.
-
-Production ARCore alignment, shared room maps, full display capture/streaming and
-a registered virtual controller are not implemented. The discarded phone-object and arbitrary-photo
-matching experiments have been removed rather than retained as alternate product
-paths. Local private recordings and working notes are not source assets.
+Bluetooth transport, full display streaming, shared room maps and a registered
+virtual controller are not implemented. Earlier phone-object/photo-matching
+experiments have been removed. Private captures and working notes are not source
+assets. See [the handoff guide](../frame/docs/ARCORE_HANDOFF.md) for current limits.

@@ -239,6 +239,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             }
             try {
                 var stateAt = -500L
+                var lastDisplayed: Boolean? = null
                 var lastPose = ""
                 while (running && alive.get()) {
                     Protocol.write(output, feed.batch(session))
@@ -248,11 +249,13 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                         if (identity != lastPose) { Protocol.write(output, pose); lastPose = identity }
                     }
                     val now = SystemClock.elapsedRealtime()
-                    if (hello.optBoolean("marker_state_v1") && now - stateAt >= 250) {
+                    val displayed = Fiducial.displayed
+                    if (hello.optBoolean("marker_state_v1") && (displayed != lastDisplayed || now - stateAt >= 250)) {
                         Protocol.write(output, JSONObject().put("type", "marker_state").put("session", session)
-                            .put("displayed", Fiducial.displayed)
+                            .put("displayed", displayed)
                             .apply { runCatching { Fiducial.currentProfile(context) }.getOrNull()?.let { put("fiducial", it) } })
                         stateAt = now
+                        lastDisplayed = displayed
                     }
                     Thread.sleep(10)
                 }

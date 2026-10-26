@@ -55,6 +55,10 @@ install(FILES third_party/openvr/LICENSE third_party/openvr/README.md DESTINATIO
 install(DIRECTORY docs/ DESTINATION share/framephone/docs FILES_MATCHING PATTERN "*.md")
 
 if(BUILD_TESTING)
+    add_executable(framephone-prediction-tests tests/test_pose_prediction.cpp)
+    target_include_directories(framephone-prediction-tests SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
+    target_compile_options(framephone-prediction-tests PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME framephone-pose-prediction COMMAND framephone-prediction-tests)
     add_executable(framephone-arcore-tests tests/test_arcore_handoff.cpp)
     target_include_directories(framephone-arcore-tests SYSTEM PRIVATE "${POSE_JSON_INCLUDE}")
     target_compile_options(framephone-arcore-tests PRIVATE -Wall -Wextra -Wpedantic)

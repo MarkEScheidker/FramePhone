@@ -49,7 +49,7 @@ this is a slow-motion calibration surface, not a world-stabilized product.
 See [VR display](VR_DISPLAY.md) and the [roadmap](../../docs/ROADMAP.md).
 
 The automatic [ARCore handoff](ARCORE_HANDOFF.md) adds a phone camera service,
-negotiated poses/acknowledgments on the existing TLS link, and a native
+negotiated poses/acknowledgments on the existing TLS link, a latest-only off-UI pose publisher, and a native
 headset-relative stability registration step. After acceptance, the renderer uses SteamVR
 standing space and anchored phone motion; optical detection sleeps until another
 visible marker acquisition. Camera access remains in the independent module.
@@ -75,3 +75,9 @@ phone candidates are bounded and checked with the existing certificate pin;
 first-time pairing remains an explicit, fingerprint-approved action. Connection
 controls and the activity log expand inline. Raw sensor telemetry and recording
 remain independent from optical pose estimation.
+
+`pose_stream.py` owns bounded renderer publication rather than the Tk timer.
+`pose_prediction.hpp` predicts briefly from the latest measured ARCore pose;
+validated post-exposure gyro samples affect rotation, and recent ARCore velocity
+affects translation. Predictions never enter the optical registration/history.
+The renderer measures cadence and age independently from UI refresh.

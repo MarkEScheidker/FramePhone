@@ -89,6 +89,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         ar_state = "tracking"
         acquisition = "scan-1"
         commands = []
+        def pose_packet(self):
+            return self.snapshot()["arcore"]
         def alignment_command(self, kind, generation, acquisition):
             self.commands.append(kind)
             if kind == "alignment_accepted":
@@ -320,13 +322,40 @@ while True:
         phone.required=True
         until(lambda: not panel.handoff_active and 'automatic marker' in panel.status.get())
         assert panel.busy and (panel.session/'optical-paused').exists()
-        phone.ar_state='tracking'
         phone.displayed=True
+        until(lambda: panel.result is not None and panel.result['status']=='measured' and
+              not (panel.session/'optical-paused').exists())
+        assert not panel.handoff_active and phone.displayed, 'ARCore resume must not gate optical detection or accept early'
+        window.terminate('overlay')
+        until(lambda: 'overlay' not in window.processes)
+        until(lambda: panel.result is not None and panel.result['status']=='measured' and
+              not (panel.session/'optical-paused').exists())
+        assert phone.displayed and not panel.handoff_active, 'renderer shutdown incorrectly suppressed detection'
+        phone.acquisition='scan-2-ready'
+        phone.ar_state='tracking'
         until(lambda: panel.handoff_active and not phone.displayed)
-        window.phone_panel.link=None
+        # A screen-off/resume may report a new display layout. Rebuild the
+        # optical session automatically rather than blocking this paired link.
+        previous_session=panel.session
+        target['screen_height_px'] += 10
+        phone.acquisition='scan-3'
+        phone.required=True
+        phone.displayed=True
+        until(lambda: panel.session!=previous_session and panel.busy)
+        assert panel.config['fiducial']['screen_height_px']==target['screen_height_px']
+        (panel.session/'allow-visible').touch()
+        until(lambda: panel.handoff_active and not phone.displayed)
+        panel.stop(manual=True)
         until(lambda: not panel.busy and 'overlay' not in window.processes)
+        phone.acquisition='scan-4'
+        phone.required=True
+        phone.displayed=True
+        deadline=time.monotonic()+.4
+        until(lambda: time.monotonic()>=deadline)
+        assert not panel.busy, 'deliberate Stop restarted automatically'
+        window.phone_panel.link=None
         assert not panel.handoff_active
-        print('Tk ARCore acknowledgment, hidden marker continuity, detector suspension and reacquisition passed')
+        print('Tk ARCore acknowledgment, detector suspension, reacquisition, layout recovery and manual Stop passed')
     finally:
         stop.set()
         writer.join(timeout=2)

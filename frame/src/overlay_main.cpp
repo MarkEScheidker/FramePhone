@@ -1,7 +1,8 @@
-#include "arcore_handoff.hpp"
+#include "pose_prediction.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <deque>
 #include <dlfcn.h>
 #include <filesystem>
 #include <fstream>
@@ -30,6 +31,26 @@ Json read(const std::filesystem::path &path) {
     std::ifstream file(path);
     return Json::parse(file);
 }
+struct Metadata {
+    std::filesystem::path path;
+    std::filesystem::file_time_type modified{};
+    Json value = Json::object();
+    bool loaded = false;
+    const Json &get() {
+        if (!std::filesystem::exists(path)) {
+            loaded = false;
+            value = Json::object();
+        } else {
+            auto stamp = std::filesystem::last_write_time(path);
+            if (!loaded || stamp != modified) {
+                value = read(path);
+                modified = stamp;
+                loaded = true;
+            }
+        }
+        return value;
+    }
+};
 std::filesystem::path client_library() {
     if (const char *explicit_path = std::getenv("FRAMEPHONE_OPENVR_LIBRARY"))
         return explicit_path;
@@ -233,6 +254,20 @@ int main(int argc, char **argv) {
         client.open();
         Display display(client, geometry);
         display.create();
+        vr::ETrackedPropertyError property_error{};
+        const auto frequency = client.system->GetFloatTrackedDeviceProperty(
+            vr::k_unTrackedDeviceIndex_Hmd, vr::Prop_DisplayFrequency_Float, &property_error);
+        const double render_hz = property_error == vr::TrackedProp_Success &&
+                                         std::isfinite(frequency) && frequency >= 60 &&
+                                         frequency <= 144
+                                     ? frequency
+                                     : 90;
+        const auto period = std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(1 / render_hz));
+        auto next_render = std::chrono::steady_clock::now();
+        std::deque<std::uint64_t> rendered;
+        Metadata phone_metadata{session / "phone-pose.json"},
+            optical_metadata{session / "vr-pose.json"};
         std::cout
             << (arcore ? "VR screen ready: ARCore handoff; keep phone steady relative to headset.\n"
                        : "VR screen ready: fiducial-driven rectangle; headset alignment and "
@@ -260,17 +295,36 @@ int main(int argc, char **argv) {
                 handoff.head(now, matrix);
             }
             std::optional<Matrix> current;
+            double prediction_ms = 0, pose_age_ms = 0, pose_hz = 0, source_hz = 0,
+                   capture_delay_ms = 0, delivery_ms = 0;
+            bool gyro_prediction = false;
             std::string state = "waiting for an accepted optical pose";
             try {
                 if (arcore && !stopped && head_valid) {
-                    Json phone = Json::object(), optical = Json::object();
-                    if (std::filesystem::exists(session / "phone-pose.json"))
-                        phone = read(session / "phone-pose.json");
-                    if (std::filesystem::exists(session / "vr-pose.json"))
-                        optical = read(session / "vr-pose.json");
+                    const auto &phone = phone_metadata.get(), &optical = optical_metadata.get();
                     if (!phone.empty() && phone.at("session") != config.at("phone_session"))
                         throw std::runtime_error("phone session changed");
                     current = handoff.update(phone, optical, now);
+                    if (current) {
+                        const auto predicted = predict_pose(*current, phone, now);
+                        current = predicted.pose;
+                        prediction_ms = predicted.milliseconds;
+                        gyro_prediction = predicted.gyro;
+                        pose_age_ms =
+                            double(std::int64_t(now) - pose_time_ns(phone.at("poses").back())) /
+                            1e6;
+                        pose_hz = phone.value("pose_hz", 0.);
+                        source_hz = phone.value("source_hz", pose_hz);
+                        const auto &latest = phone.at("poses").back();
+                        if (latest.contains("capture_t_ns"))
+                            capture_delay_ms = (latest.at("t_ns").get<std::int64_t>() -
+                                                latest.at("capture_t_ns").get<std::int64_t>()) /
+                                               1e6;
+                        delivery_ms = std::max(
+                            0., (phone.at("received_host_monotonic_ns").get<std::int64_t>() -
+                                 latest.at("host_t_ns").get<std::int64_t>()) /
+                                    1e6);
+                    }
                     state = handoff.state.at("reason").get<std::string>();
                 } else if (!arcore && !stopped &&
                            std::filesystem::exists(session / "vr-pose.json")) {
@@ -291,11 +345,27 @@ int main(int argc, char **argv) {
                 handoff.reset(state);
             }
             display.update(current, arcore);
+            if (current) {
+                rendered.push_back(now);
+                while (rendered.size() > 120 || now - rendered.front() > 1'000'000'000)
+                    rendered.pop_front();
+            } else
+                rendered.clear();
             if (arcore && now - last_state_write >= 100'000'000) {
                 auto status = handoff.state;
                 status["visible"] =
                     current.has_value() && client.overlay->IsOverlayVisible(display.handle);
                 status["updated_host_monotonic_ns"] = now;
+                status["pose_hz"] = pose_hz;
+                status["source_hz"] = source_hz;
+                status["render_hz"] = rendered.size() > 1 ? (rendered.size() - 1) * 1e9 /
+                                                                (rendered.back() - rendered.front())
+                                                          : 0;
+                status["pose_age_ms"] = pose_age_ms;
+                status["prediction_ms"] = prediction_ms;
+                status["gyro_prediction"] = gyro_prediction;
+                status["camera_processing_ms"] = capture_delay_ms;
+                status["delivery_ms"] = delivery_ms;
                 const auto temporary = session / "arcore-state.json.tmp";
                 std::ofstream file(temporary);
                 file << status.dump() << '\n';
@@ -309,7 +379,10 @@ int main(int argc, char **argv) {
                 std::cout << "VR screen " << state << '\n';
                 previous_state = state;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            next_render += period;
+            if (next_render < std::chrono::steady_clock::now())
+                next_render = std::chrono::steady_clock::now();
+            std::this_thread::sleep_until(next_render);
         }
         return 0;
     } catch (const std::exception &error) {

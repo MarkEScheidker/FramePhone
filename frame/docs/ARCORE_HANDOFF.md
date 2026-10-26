@@ -1,6 +1,6 @@
 # Brief-marker ARCore handoff
 
-An automatic tracking prototype: acquire a marker while their relative position is stable,
+An automatic tracking prototype: acquire a marker while the phone/headset relative position is stable,
 establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
 mode remains available. Bluetooth and screen streaming are separate future work;
@@ -14,7 +14,7 @@ this test uses the existing authenticated LAN connection.
 3. Connect or pair on Frame as usual. Authentication triggers the overlay, and
    Frame automatically starts ARCore handoff and enables the VR rectangle.
 4. Keep the complete tag visible to both front cameras. Its position relative
-   to the headset must stay within 2 cm over at least 500 ms, with at least four
+   to the headset must stay within 2 cm over at least 500 ms, with at least three
    distinct accepted observations. The devices may move together in the room.
 5. The renderer confirms a visible rectangle before Frame acknowledges alignment.
    The overlay then closes without changing the foreground app. ARCore continues
@@ -32,7 +32,7 @@ Automatic recovery still uses a fresh marker; trusted marker-free pocket
 relocalization and screen streaming are not implemented.
 
 The camera foreground service owns a small offscreen EGL context and ARCore
-session, so leaving the marker activity does not intentionally pause tracking.
+session, so leaving the setup activity does not intentionally pause tracking.
 Camera contention, device restrictions, lock/sleep and actual tracking quality
 still require physical-phone testing. Error/status text appears in Android's
 setup screen; the Frame dashboard reports acquisition and loss state.
@@ -53,12 +53,14 @@ origins introduces error during rotation; this is not calibrated screen tracking
 Factory-head/runtime-HMD extrinsics and display DPI also remain provisional.
 
 Headset pose history is matched to the host time the stereo pair was obtained,
-before detector processing. Phone pose history uses elapsed-realtime timestamps
-taken after ARCore update and the existing low-RTT clock exchange. ARCore's
-original frame timestamp is recorded separately; its epoch is not assumed to be
-elapsed realtime. These are approximate observation/update times, not calibrated
-exposure timestamps. Stationary gating reduces their motion error rather than
-claiming to compensate it.
+before detector processing. Phone timestamps are mapped through the existing
+low-RTT clock exchange. When Camera2 declares a REALTIME timestamp source and
+provides exposure/rolling-shutter metadata, the phone also supplies an estimated
+center-row exposure timestamp. It shares the IMU's elapsed-realtime epoch.
+Otherwise the phone explicitly falls back to update-completion time, and raw
+IMU prediction is disabled. ARCore's original frame timestamp is recorded
+separately; its unspecified epoch is never assumed to match the sensor clock.
+Headset camera exposure timing and factory/runtime extrinsics remain unverified.
 
 Stability is a maximum 2 cm spread in headset-relative marker position over a
 minimum 500 ms batch, rather than separate limits on absolute phone/head motion.
@@ -77,8 +79,14 @@ ARCore loss, stale phone poses, clock failure, anchor/session/acquisition change
 invalid headset tracking and reported SteamVR recenter events invalidate the
 offset and hide the surface. Pose freshness is bounded to 250 ms. Reacquisition
 does not silently trust the previous alignment. Drift correction, calibrated
-extrinsics, exposure timing, smoothing/prediction and seamless pocket recovery
-remain subsequent work.
+extrinsics, complete headset exposure timing and trusted marker-free pocket
+relocalization remain subsequent work. Screen-off detaches the paused phone
+anchor; unlocking recreates it and requests a fresh optical alignment. A lost
+offscreen GL context is rebuilt and camera textures rebound without dropping
+the authenticated connection. Displayed
+markers are detected even while ARCore is resuming; detection is not gated on
+ARCore readiness or renderer availability. Display geometry changes restart the
+optical session without blocking the paired link.
 
 ## CPU use and diagnostics
 
@@ -89,15 +97,43 @@ the cameras, avoiding duplicate detection. Camera broker capture remains active;
 this does not claim to turn off camera hardware. Views remain a diagnostic aid,
 not a continually processed overlay during ARCore handoff.
 
-The native renderer reads bounded, atomically replaced `phone-pose.json` and
-`vr-pose.json`; its `arcore-state.json` heartbeat controls the dashboard's gate
-and phone acknowledgment. A missing/failed renderer cannot acknowledge a handoff.
-Raw phone sensors remain available. Opt-in recordings include ARCore frames,
-clock exchanges and optical observations without pairing credentials.
+A latest-only publisher delivers validated poses directly from the network
+state to `phone-pose.json` at up to 90 Hz, independently of Tk callbacks. The
+renderer runs at the reported headset display rate (60–144 Hz, 90 Hz fallback)
+and caches unchanged metadata. During tracking, publications contain just two
+ARCore poses and a bounded recent gyro history; acquisition retains a longer
+pose history. Paused packets omit unused gyro data. No queue of stale poses
+builds up, and publication never refreshes capture/receive timestamps.
+
+Between ARCore frames the renderer predicts rotation using bias-corrected gyro
+samples after the verified camera exposure time. Missing/old samples, unknown
+clock epochs or gaps disable this correction. Integration is capped at 80 ms
+and 0.35 radians; it restarts from an ARCore measurement on every render. Position
+uses recent ARCore velocity for at most 60 ms and 4 cm. Accelerometer-only
+position integration is not used. Predicted values never feed registration or
+become subsequent measurements. The 250 ms stale-data cutoff still hides the
+surface rather than continuing to drift.
+
+The dashboard shows estimated phone-published pose rate, received pose rate,
+actual render cadence, approximate pose age and prediction duration.
+`arcore-state.json` also exposes camera-processing and delivery age estimates,
+and whether gyro prediction was active. Missing camera metadata means age uses
+update time instead of exposure time. Rate, freshness and prediction duration
+are separate measurements; a faster render loop does not imply faster ARCore.
+The phone requests a supported 60 FPS camera configuration when available;
+actual camera/pose rate still depends on the device and lighting.
+
+`vr-pose.json` remains the raw optical channel. The renderer's state heartbeat
+controls the acquisition gate and acknowledgment. Raw phone sensors remain
+available, and opt-in recordings include ARCore/capture timestamps, clock
+exchanges and optical observations without pairing credentials. Transient LAN
+loss after authentication retries the saved pinned endpoint with 1–5 second
+backoff. Manual Disconnect/Forget cancels retries; identity/protocol failures
+stop them. Reconnect never enrolls a new device.
 
 Relevant code: Android `tracking/ArPoseService.kt` and `ArPoseState.kt`, desktop
-`phone_link.py` and `fiducial_panel.py`, native `arcore_handoff.hpp` and
-`overlay_main.cpp`. Native registration tests run without SteamVR; synthetic
+`phone_link.py`, `pose_stream.py` and `fiducial_panel.py`, native
+`arcore_handoff.hpp`, `pose_prediction.hpp` and `overlay_main.cpp`. Native registration tests run without SteamVR; synthetic
 GUI tests check the acknowledgment/gate lifecycle. Neither establishes physical
 accuracy or actual Android background-camera behavior.
 
@@ -106,3 +142,5 @@ See also [coordinates](COORDINATE_SYSTEMS.md), [VR display](VR_DISPLAY.md) and
 the [companion session plan](../../docs/COMPANION_SESSION_PLAN.md).
 
 Android overlay access uses the standard [Settings permission](https://developer.android.com/reference/android/provider/Settings#canDrawOverlays). No accessibility service or background activity launch is used.
+
+Timing references: [Camera2 REALTIME clock](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME), [ARCore capture metadata](https://developers.google.com/ar/reference/java/com/google/ar/core/ImageMetadata).

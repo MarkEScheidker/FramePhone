@@ -5,9 +5,10 @@ connects, a screen-width AprilTag appears over the current app. Frame accepts a
 stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
 ARCore then supplies anchored motion over the existing secure LAN connection.
 
-Tracking recovery shows the overlay again automatically. The setup activity can
-stay closed. This is a prototype: background camera behavior, metric calibration
-and timing still need validation on the actual devices.
+Tracking recovery shows the overlay again automatically; screen-off recreates
+the paused anchor on resume without requiring a network reconnect. The setup activity can
+stay closed. This is a prototype: sleep recovery, metric calibration
+and motion timing still need validation on the actual devices.
 
 ## Build
 
@@ -50,3 +51,7 @@ Gyro/accelerometer and magnetometer diagnostics remain available. Screen capture
 Bluetooth transport and remote input are not implemented. See
 [handoff behavior and limits](../frame/docs/ARCORE_HANDOFF.md) and
 [the LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
+
+The camera session requests 60 FPS where supported. Verified Camera2 exposure
+metadata lets the headset use recent gyro data between ARCore frames; unknown
+camera clocks disable gyro prediction. Actual rates depend on hardware/lighting.

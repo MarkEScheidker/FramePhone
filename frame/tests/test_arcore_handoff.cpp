@@ -127,6 +127,15 @@ int main() {
         }
         check(slow_acquired,
               "350 ms detector cadence must not reset stationary acquisition at render timeout");
+        ArcoreHandoff minimum;
+        for (unsigned i = 0; i < 3; ++i) {
+            time = 1'000'000'000ULL + i * 250'000'000ULL;
+            minimum.head(time, identity());
+            const auto found = minimum.update(phone(time), optical(time, anchor), time);
+            check(
+                bool(found) == (i == 2),
+                "three stereo observations across 500 ms should initialize without extra waiting");
+        }
         ArcoreHandoff walking;
         auto walk_anchor = identity();
         walk_anchor[11] = -.6;

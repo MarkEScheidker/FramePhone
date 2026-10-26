@@ -1,8 +1,9 @@
 # LAN pairing and phone sensor link v1
 
 Implemented in Android `link/` and desktop `phone_link.py` / `phone_panel.py`.
-This is a telemetry diagnostic, not a pose estimator. Android sends observations;
-the headset will own optical estimation and fusion in a later stage.
+Android sends raw sensor observations and anchored ARCore poses. The headset
+registers them optically, renders the screen surface and applies bounded motion
+prediction; raw diagnostic telemetry remains independently available.
 
 ## Using the apps
 
@@ -20,8 +21,10 @@ Pairing is open for 90 seconds; confirmation waits are bounded.
 
 After a failed automatic attempt, use **Connection → Reconnect**. A manual IP is
 available when broadcasts are blocked. **Disconnect** or **Forget phone** cancels
-pending automatic connection attempts. Established connection loss is reported;
-there is no perpetual reconnect loop. The phone must already be serving its
+pending automatic connection attempts and transport retries. After a successful
+authenticated connection, transient transport failures retry the saved pinned
+endpoint with capped 1–5 second backoff. Identity and protocol failures stop
+retries; no new enrollment occurs. The phone must already be serving its
 connection; the headset does not wake or start the Android app.
 
 Gyro, accelerometer and magnetometer values, received rates, approximate ages,
@@ -112,7 +115,10 @@ monotonic `seq`, `state` (`tracking`, `paused`, `error`, `stopped`) and
 `quaternion_xyzw`, expressing `T_AD` (anchor-relative natural-device sensor pose).
 `t_ns` uses `update_elapsed_realtime_ns`, sampled after session update;
 `frame_timestamp_ns` retains ARCore's original unspecified-epoch frame clock.
-Neither timestamp is presented as calibrated optical exposure time.
+Optional `capture_t_ns` with `capture_time_source:camera2_realtime_center_exposure`
+is accepted only for verified Camera2 REALTIME clocks with exposure metadata and
+a plausible capture-to-update interval. Unknown epochs keep the update-time
+fallback; they never enable raw gyro prediction.
 
 Frame bounds pose history to 90 entries, validates transforms and ordering, and
 maps update timestamps with the existing clock exchange. The handoff requires a
@@ -220,3 +226,10 @@ phone arms its camera foreground service from the visible Connect action, opens
 ARCore only after authentication, and controls a TYPE_APPLICATION_OVERLAY window.
 Lock/disconnect/loss fence acquisition IDs. Successful acknowledgment requires
 native `visible:true` after the OpenVR update succeeds. See the handoff guide.
+
+Renderer publication is independent of Tk. Live compact packets contain the
+latest two poses and up to 64 bias-corrected natural-device gyro samples; an
+acquiring packet retains up to 90 poses for history matching. Sensor and camera
+clocks map through the same validated exchange. A detected clock discontinuity
+clears both histories. Raw sensor/ARCore recordings retain original timestamps.
+See the handoff guide for prediction bounds and rate/age diagnostics.

@@ -28,7 +28,7 @@ def evidence_message(message):
             result["fiducial"] = select(message["fiducial"], ("family", "id", "black_edge_m", "origin", "axes", "size_source", "screen_width_px", "screen_height_px", "black_edge_px"))
     elif kind == "arcore_pose":
         result = select(message, ("type", "session", "generation", "acquisition", "seq", "t_ns",
-                                  "frame_timestamp_ns", "time_source", "state", "transform", "marker_required",
+                                  "frame_timestamp_ns", "time_source", "capture_t_ns", "capture_time_source", "state", "transform", "marker_required",
                                   "translation_m", "quaternion_xyzw", "reason"))
     else:
         raise ValueError("Only validated sensor and clock evidence may be recorded")

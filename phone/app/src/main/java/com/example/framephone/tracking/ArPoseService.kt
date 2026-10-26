@@ -6,6 +6,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.opengl.EGL14
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
@@ -21,10 +23,14 @@ import com.example.framephone.MainActivity
 import com.example.framephone.link.TelemetryService
 import com.google.ar.core.Anchor
 import com.google.ar.core.Config
+import com.google.ar.core.CameraConfig
+import com.google.ar.core.CameraConfigFilter
+import com.google.ar.core.ImageMetadata
 import com.google.ar.core.Session
 import com.google.ar.core.TrackingState
 import com.google.ar.core.exceptions.CameraNotAvailableException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.EnumSet
 import kotlin.concurrent.thread
 
 /** Armed while the activity is visible; camera work starts only for an authenticated peer. */
@@ -92,6 +98,7 @@ class ArPoseService : Service() {
         var newGeneration = true
         var previousTimestamp = 0L
         var lastFresh = SystemClock.elapsedRealtime()
+        var realtimeCamera = false
         try {
             gl = OffscreenGl()
             while (!stopped.get()) {
@@ -99,6 +106,12 @@ class ArPoseService : Service() {
                     if (resumed) {
                         session?.pause()
                         resumed = false
+                        // A paused anchor can remain PAUSED after screen-off on
+                        // some devices. Keep the session's map, recreate its anchor
+                        // and fence the resumed optical registration separately.
+                        anchor?.detach()
+                        anchor = null
+                        newGeneration = true
                         ArPoseState.publish("paused", reason = if (ArPoseState.connected) "screen_locked" else "disconnected")
                     }
                     if (!ArPoseState.connected && session != null) {
@@ -112,8 +125,29 @@ class ArPoseService : Service() {
                     continue
                 }
                 try {
+                    if (!resumed && gl?.makeCurrent() != true) {
+                        // Recover a driver-discarded offscreen context without
+                        // dropping the authenticated phone/headset connection.
+                        ArPoseState.publish("paused", reason = "graphics_restarting")
+                        runCatching { anchor?.detach() }
+                        runCatching { session?.close() }
+                        anchor = null
+                        session = null
+                        gl?.close()
+                        gl = OffscreenGl()
+                        newGeneration = true
+                    }
+                    val activeGl = gl ?: break
                     val current = session ?: Session(this).also {
                         session = it
+                        val fast = it.getSupportedCameraConfigs(CameraConfigFilter(it)
+                            .setTargetFps(EnumSet.of(CameraConfig.TargetFps.TARGET_FPS_60))
+                            .setDepthSensorUsage(EnumSet.of(CameraConfig.DepthSensorUsage.DO_NOT_USE)))
+                        fast.minByOrNull { c -> c.imageSize.width.toLong()*c.imageSize.height }?.let { c -> it.cameraConfig = c }
+                        realtimeCamera = runCatching {
+                            getSystemService(CameraManager::class.java).getCameraCharacteristics(it.cameraConfig.cameraId)
+                                .get(CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE) == CameraCharacteristics.SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME
+                        }.getOrDefault(false)
                         it.configure(Config(it).apply {
                             planeFindingMode = Config.PlaneFindingMode.DISABLED
                             lightEstimationMode = Config.LightEstimationMode.DISABLED
@@ -122,9 +156,10 @@ class ArPoseService : Service() {
                             updateMode = Config.UpdateMode.BLOCKING
                         })
                         it.setDisplayGeometry(0, 1, 1)
-                        it.setCameraTextureNames(intArrayOf(gl.texture))
+                        it.setCameraTextureNames(intArrayOf(activeGl.texture))
                     }
                     if (!resumed) {
+                        current.setCameraTextureNames(intArrayOf(activeGl.texture))
                         current.resume()
                         resumed = true
                         if (stopped.get()) break
@@ -154,7 +189,15 @@ class ArPoseService : Service() {
                         val reference = anchor ?: current.createAnchor(frame.androidSensorPose).also { anchor = it }
                         if (reference.trackingState == TrackingState.TRACKING) {
                             val relative = reference.pose.inverse().compose(frame.androidSensorPose)
-                            ArPoseState.publish("tracking", relative.translation, relative.rotationQuaternion, frame.timestamp)
+                            val updated = SystemClock.elapsedRealtimeNanos()
+                            val captured = if (realtimeCamera) runCatching {
+                                val metadata = frame.imageMetadata
+                                PoseTiming.captureCenter(true, metadata.getLong(ImageMetadata.SENSOR_TIMESTAMP),
+                                    metadata.getLong(ImageMetadata.SENSOR_EXPOSURE_TIME),
+                                    metadata.getLong(ImageMetadata.SENSOR_ROLLING_SHUTTER_SKEW), updated)
+                            }.getOrNull() else null
+                            ArPoseState.publish("tracking", relative.translation, relative.rotationQuaternion, frame.timestamp,
+                                updatedAtNs = updated, captureAtNs = captured)
                         } else ArPoseState.publish("paused", reason = "anchor_not_tracking")
                     } else ArPoseState.publish("paused", reason = camera.trackingFailureReason.name)
                 } catch (_: CameraNotAvailableException) {
@@ -223,6 +266,8 @@ private class OffscreenGl : AutoCloseable {
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
         } catch (error: Exception) { close(); throw error }
     }
+    fun makeCurrent(): Boolean = display != EGL14.EGL_NO_DISPLAY &&
+        EGL14.eglMakeCurrent(display, surface, surface, context)
     override fun close() {
         if (display == EGL14.EGL_NO_DISPLAY) return
         if (texture != 0) GLES20.glDeleteTextures(1, intArrayOf(texture), 0)

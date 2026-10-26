@@ -218,6 +218,7 @@ class Telemetry:
         self.arcore_enabled = profile.get("arcore_pose_v1") is True
         self.arcore_poses = deque(maxlen=90)
         self.arcore_received_ns = 0
+        self.gyro_history = deque(maxlen=96)
 
     def clock_reply(self, message, h3, pending):
         h0, p1, p2 = (integer(message[k]) for k in ("h0", "p1", "p2"))
@@ -232,6 +233,8 @@ class Telemetry:
         # Discard old diagnostic offsets rather than displaying an obsolete age.
         if self.offset_ns is not None and abs(offset - self.offset_ns) > 50_000_000:
             self.probes.clear()
+            self.arcore_poses.clear()
+            self.gyro_history.clear()
         self.probes.append((h3, rtt, offset))
         recent = [p for p in self.probes if h3 - p[0] <= 10_000_000_000]
         _, self.rtt_ns, self.offset_ns = min(recent, key=lambda p: p[1])
@@ -263,6 +266,12 @@ class Telemetry:
             keys = ("generation", "acquisition", "seq", "t_ns", "frame_timestamp_ns", "state", "marker_required")
             pose = {key: message[key] for key in keys}
             pose["reason"] = reason
+            if "capture_t_ns" in message:
+                capture = integer(message["capture_t_ns"])
+                if (message.get("capture_time_source") != "camera2_realtime_center_exposure" or
+                        not 0 <= stamp-capture <= 200_000_000):
+                    raise ValueError("Invalid ARCore capture clock")
+                pose["capture_t_ns"] = capture
             if message["state"] == "tracking":
                 translation = vector(message.get("translation_m"))
                 rotation = message.get("quaternion_xyzw")
@@ -316,7 +325,45 @@ class Telemetry:
             while len(times) > 1 and timestamp - times[0] > 2_000_000_000:
                 times.popleft()
             self.arrivals[name] = now
+            if name == "gyro":
+                cap = self.capabilities[name]
+                if not cap.get("uncalibrated") or "bias" in sample:
+                    bias = sample.get("bias", [0, 0, 0]) if cap.get("uncalibrated") else [0, 0, 0]
+                    w = [a-b for a, b in zip(sample["v"], bias)]
+                    if all(math.isfinite(x) for x in w) and math.hypot(*w) <= 35:
+                        self.gyro_history.append({"t_ns": timestamp, "w_rad_s": w})
             self.count += 1
+
+    def pose_packet(self, now, compact=False):
+        if not self.arcore_enabled:
+            return None
+        poses = list(self.arcore_poses)
+        if compact and poses:
+            if poses[-1]["state"] != "tracking":
+                poses = poses[-1:]
+            elif not poses[-1]["marker_required"]:
+                poses = poses[-2:]
+        mapped = []
+        if self.offset_ns is not None:
+            for sample in poses:
+                value = dict(sample, host_t_ns=round(sample["t_ns"]-self.offset_ns))
+                value["pose_host_t_ns"] = round(sample.get("capture_t_ns", sample["t_ns"])-self.offset_ns)
+                mapped.append(value)
+        latest = self.arcore_poses[-1] if self.arcore_poses else None
+        recent = [p for p in self.arcore_poses if p["state"] == "tracking" and
+                  p["generation"] == latest["generation"] and p["acquisition"] == latest["acquisition"]]
+        span = recent[-1]["t_ns"]-recent[0]["t_ns"] if len(recent)>1 else 0
+        return {"schema": "framephone-arcore-v1", "session": self.session,
+                "clock_valid": bool(self.probes and 0 <= now-self.probes[-1][0] <= 10_000_000_000
+                                    and self.rtt_ns <= 40_000_000),
+                "received_host_monotonic_ns": self.arcore_received_ns,
+                "pose_hz": (len(recent)-1)*1e9/span if span else 0,
+                "source_hz": (recent[-1]["seq"]-recent[0]["seq"])*1e9/span if span else 0,
+                "poses": mapped,
+                "gyro": [dict(host_t_ns=round(p["t_ns"]-self.offset_ns), w_rad_s=list(p["w_rad_s"]))
+                         for p in list(self.gyro_history)[-64:]]
+                        if (self.offset_ns is not None and latest and latest["state"] == "tracking"
+                            and not latest["marker_required"] and "capture_t_ns" in latest) else []}
 
     def snapshot(self, now):
         rows = {}
@@ -334,13 +381,7 @@ class Telemetry:
                 "automatic_marker": self.automatic_marker,
                 "marker_displayed": self.marker_displayed,
                 "marker_state_fresh": self.marker_state_ns is not None and now-self.marker_state_ns < 1_000_000_000,
-                "arcore": {"schema": "framephone-arcore-v1", "session": self.session,
-                           "clock_valid": bool(self.probes and now-self.probes[-1][0] <= 10_000_000_000
-                                               and self.rtt_ns <= 40_000_000),
-                           "received_host_monotonic_ns": self.arcore_received_ns,
-                           "poses": [dict(p, host_t_ns=round(p["t_ns"]-self.offset_ns))
-                                     for p in self.arcore_poses] if self.offset_ns is not None else []}
-                          if self.arcore_enabled else None,
+                "arcore": self.pose_packet(now),
                 "rtt_ms": None if self.rtt_ns is None else self.rtt_ns / 1e6}
 
 
@@ -355,6 +396,7 @@ class PhoneLink:
         self.profile_received_ns = None
         self.recording = None
         self.commands = queue.Queue(maxsize=8)
+        self.retryable = False
 
     def alignment_command(self, kind, generation, acquisition):
         if kind not in ("alignment_accepted", "alignment_lost"):
@@ -402,6 +444,10 @@ class PhoneLink:
                 return None
             result = self.telemetry.snapshot(time.monotonic_ns())
             return result
+
+    def pose_packet(self):
+        with self.lock:
+            return self.telemetry.pose_packet(time.monotonic_ns(), compact=True) if self.telemetry else None
 
     def run(self, host, pair=False, port=PORT):
         phase = "connection setup"
@@ -494,6 +540,8 @@ class PhoneLink:
                             if self.recording:
                                 self.recording.submit(message, now)
         except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
+            self.retryable = not self.stopped.is_set() and (
+                (isinstance(error, OSError) and not isinstance(error, ssl.SSLError)) or isinstance(error, ssl.SSLEOFError))
             if not self.stopped.is_set():
                 # Never include arbitrary peer-controlled messages or credentials in logs.
                 if isinstance(error, ssl.SSLError):

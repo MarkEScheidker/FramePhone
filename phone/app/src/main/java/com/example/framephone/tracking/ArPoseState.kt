@@ -63,7 +63,7 @@ object ArPoseState {
 
     @Synchronized fun publish(state: String, translation: FloatArray? = null, quaternion: FloatArray? = null,
                               frameTimestamp: Long = 0, reason: String = "",
-                              updatedAtNs: Long = SystemClock.elapsedRealtimeNanos()) {
+                              updatedAtNs: Long = SystemClock.elapsedRealtimeNanos(), captureAtNs: Long? = null) {
         val usable = state == "tracking"
         if (tracking && !usable) requestMarker()
         tracking = usable
@@ -80,6 +80,10 @@ object ArPoseState {
             require(translation?.size == 3 && quaternion?.size == 4)
             message.put("translation_m", JSONArray(translation!!.map { it.toDouble() }))
                 .put("quaternion_xyzw", JSONArray(quaternion!!.map { it.toDouble() }))
+            captureAtNs?.let {
+                require(updatedAtNs-it in 0..200_000_000L)
+                message.put("capture_t_ns", it).put("capture_time_source", "camera2_realtime_center_exposure")
+            }
         }
         latest = message.toString()
         status = when {

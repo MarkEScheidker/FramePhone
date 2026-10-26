@@ -19,6 +19,9 @@ class PhonePanel:
         self.auto_connecting = False
         self.auto_hosts = []
         self.auto_error = ""
+        self.retry_enabled = False
+        self.retry_delay = 1
+        self.retry_timer = None
         self.store = PairingStore(config_dir / "phone-pairing.json")
         self.host = tk.StringVar()
         self.status = tk.StringVar(value="On your phone, save dimensions and start pairing. Use the same LAN.")
@@ -112,6 +115,7 @@ class PhonePanel:
         self.settings.pack(fill="x", pady=4, before=self.telemetry_panel)
 
     def startup(self):
+        self.cancel_retry()
         if self.closed or (self.worker and self.worker.is_alive()):
             return
         try:
@@ -129,6 +133,8 @@ class PhonePanel:
         if self.worker and self.worker.is_alive():
             self.status.set("Disconnect before searching for another phone.")
             return
+        if not auto:
+            self.cancel_retry(disable=True)
         self.auto_search = auto
         self.searching = True
         self.find_button.configure(state="disabled")
@@ -149,6 +155,7 @@ class PhonePanel:
         if not self.auto_hosts:
             self.auto_connecting = False
             self.status.set("Saved phone unavailable. "+(self.auto_error or "Start the phone connection and try Reconnect."))
+            self.schedule_retry()
             return
         self.host.set(self.auto_hosts.pop(0))
         self.connect(automatic=True)
@@ -163,6 +170,7 @@ class PhonePanel:
             self.status.set("Disconnect the current phone before connecting again.")
             return
         if not automatic:
+            self.cancel_retry(disable=pair)
             self.auto_search = False
             self.auto_connecting = False
             self.auto_hosts = []
@@ -176,6 +184,7 @@ class PhonePanel:
         self.connect_button.configure(state="disabled")
 
     def disconnect(self):
+        self.cancel_retry(disable=True)
         self.auto_search = False
         self.auto_connecting = False
         self.auto_hosts = []
@@ -183,6 +192,46 @@ class PhonePanel:
         if self.link:
             self.link.stop()
         self.status.set("Disconnected")
+
+    def cancel_retry(self, disable=False):
+        if self.retry_timer is not None:
+            self.parent.after_cancel(self.retry_timer)
+            self.retry_timer = None
+        if disable:
+            self.retry_enabled = False
+
+    def schedule_retry(self):
+        if self.closed or not self.retry_enabled or self.retry_timer is not None:
+            return
+        if self.link is None or self.link.stopped.is_set():
+            self.retry_enabled = False
+            return
+        if not getattr(self.link, "retryable", False):
+            self.retry_enabled = False
+            return
+        delay = self.retry_delay
+        self.retry_delay = min(5, delay*2)
+        self.status.set(f"Phone offline — reconnecting in {delay} s…")
+        self.retry_timer = self.parent.after(int(delay*1000), self.retry_saved)
+
+    def retry_saved(self):
+        self.retry_timer = None
+        if self.closed or not self.retry_enabled:
+            return
+        if self.worker and self.worker.is_alive():
+            self.retry_timer = self.parent.after(100, self.retry_saved)
+            return
+        try:
+            saved = self.store.load()
+        except (OSError, ValueError) as error:
+            self.retry_enabled = False
+            self.status.set(str(error))
+            return
+        if not saved or not saved.get("host"):
+            self.retry_enabled = False
+            return
+        self.host.set(saved["host"])
+        self.connect(automatic=True)
 
     def forget(self):
         # Wait for pending enrollment to finish/cancel before deleting credentials.
@@ -194,6 +243,7 @@ class PhonePanel:
         self.forget_saved()
 
     def forget_saved(self):
+        self.cancel_retry(disable=True)
         self.auto_search = False
         self.auto_connecting = False
         self.auto_hosts = []
@@ -215,6 +265,11 @@ class PhonePanel:
                 if kind == "error":
                     self.auto_error = value
             elif kind == "connected":
+                if self.link is None or self.link.stopped.is_set():
+                    continue
+                self.cancel_retry()
+                self.retry_enabled = True
+                self.retry_delay = 1
                 self.auto_hosts = []
                 self.auto_search = False
                 self.auto_connecting = False
@@ -260,6 +315,8 @@ class PhonePanel:
                 self.connect_button.configure(state="normal")
                 if self.auto_connecting and not self.forget_pending:
                     self.parent.after(50, self.connect_next)
+                elif not self.forget_pending:
+                    self.schedule_retry()
         snapshot = self.link.snapshot() if self.link else None
         if snapshot:
             self.geometry.set("Phone body / case: %.1f × %.1f mm" % tuple(x * 1000 for x in snapshot["dimensions"][:2]))

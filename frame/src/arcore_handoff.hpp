@@ -6,6 +6,9 @@
 #include <utility>
 
 namespace framephone::surface {
+inline std::int64_t pose_time_ns(const nlohmann::json &sample) {
+    return sample.value("pose_host_t_ns", sample.at("host_t_ns").get<std::int64_t>());
+}
 inline Matrix identity() {
     return {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0};
 }
@@ -97,7 +100,7 @@ class ArcoreHandoff {
             state["acquisition"] = latest.at("acquisition");
         }
         const auto arrival = phone.at("received_host_monotonic_ns").get<std::uint64_t>();
-        const auto stamp = latest.at("host_t_ns").get<std::int64_t>();
+        const auto stamp = pose_time_ns(latest);
         if (latest.at("state") != "tracking" || arrival > now || now - arrival > 250'000'000 ||
             stamp < 0 || stamp > std::int64_t(now) + 20'000'000 ||
             std::int64_t(now) - stamp > 250'000'000 || heads_.empty()) {
@@ -137,12 +140,11 @@ class ArcoreHandoff {
             if (sample.at("state") == "tracking" &&
                 sample.at("generation") == latest.at("generation") &&
                 sample.at("acquisition") == latest.at("acquisition") &&
-                (!matched ||
-                 difference(sample.at("host_t_ns").get<std::int64_t>(), observed) <
-                     difference(matched->at("host_t_ns").get<std::int64_t>(), observed)))
+                (!matched || difference(pose_time_ns(sample), observed) <
+                                 difference(pose_time_ns(*matched), observed)))
                 matched = &sample;
         if (difference(h->first, observed) > 40'000'000 || !matched ||
-            difference(matched->at("host_t_ns").get<std::int64_t>(), observed) > 60'000'000) {
+            difference(pose_time_ns(*matched), observed) > 60'000'000) {
             reset("waiting for matching phone/headset pose history");
             return {};
         }
@@ -181,7 +183,7 @@ class ArcoreHandoff {
         }
         state["reason"] =
             "keep phone within 2 cm for 500 ms: " + std::to_string(count_) + " good frames";
-        if (!unstable && count_ >= 4 && observed - first_ >= 500'000'000) {
+        if (!unstable && count_ >= 3 && observed - first_ >= 500'000'000) {
             world_anchor_ = candidate;
             state["state"] = "tracking";
             state["reason"] = "ARCore pose; optical detection paused";
