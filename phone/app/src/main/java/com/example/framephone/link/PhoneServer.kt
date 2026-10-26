@@ -198,6 +198,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("clock", "android_elapsed_realtime_ns").put("axes", "android_natural_device")
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
+                .put("headset_presence_v1", true)
                 .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
                 .put("automatic_marker_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
@@ -216,6 +217,10 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                             "ping" -> Protocol.write(output, JSONObject().put("type", "pong").put("session", session)
                                 .put("h0", message.getLong("h0")).put("p1", received)
                                 .put("p2", SystemClock.elapsedRealtimeNanos()))
+                            "headset_presence" -> {
+                                require(message.getString("session") == session && message.get("worn") is Boolean)
+                                ArPoseState.headsetPresence(message.getBoolean("worn"))
+                            }
                             "alignment_accepted" -> {
                                 require(hello.optBoolean("arcore_pose_v1") && message.getString("session") == session)
                                 ArPoseState.acknowledge(message)

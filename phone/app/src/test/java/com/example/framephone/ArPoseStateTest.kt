@@ -7,7 +7,7 @@ import org.junit.Before
 import org.junit.Test
 
 class ArPoseStateTest {
-    @Before fun begin() { ArPoseState.setConnected(false); ArPoseState.setUnlocked(true); ArPoseState.beginSession() }
+    @Before fun begin() { ArPoseState.setConnected(false); ArPoseState.setUnlocked(false); ArPoseState.setUnlocked(true); ArPoseState.beginSession() }
     private fun pose(time: Long = 1_000_000_000L) {
         ArPoseState.publish("tracking", floatArrayOf(0f, 0f, 0f), floatArrayOf(0f, 0f, 0f, 1f), updatedAtNs = time)
     }
@@ -67,5 +67,42 @@ class ArPoseStateTest {
         ArPoseState.setConnected(false)
         assertNull(ArPoseState.message("old-connection"))
         assertFalse(ArPoseState.acknowledge(old, 1_050_000_000L))
+    }
+    @Test fun navigationDismissalSurvivesReacquisitionAndReconnectUntilUnlock() {
+        ArPoseState.setConnected(true)
+        pose()
+        val old = acknowledgment()
+        ArPoseState.dismissMarker()
+        assertTrue(ArPoseState.dismissed)
+        assertFalse(ArPoseState.acknowledge(old, 1_010_000_000L))
+        assertEquals("paused", ArPoseState.message("connection-1")!!.getString("state"))
+        ArPoseState.requestMarker()
+        ArPoseState.setConnected(false)
+        ArPoseState.setConnected(true)
+        ArPoseState.beginSession()
+        pose()
+        assertTrue(ArPoseState.dismissed)
+        assertFalse(ArPoseState.acknowledge(acknowledgment(), 1_010_000_000L))
+        ArPoseState.setUnlocked(true) // Repeated refresh is not a screen cycle.
+        assertTrue(ArPoseState.dismissed)
+        ArPoseState.setUnlocked(false)
+        ArPoseState.setUnlocked(true)
+        assertFalse(ArPoseState.dismissed)
+    }
+    @Test fun onlyFreshPositiveWearerHeartbeatsEnableTracking() {
+        ArPoseState.setConnected(true)
+        assertFalse(ArPoseState.headsetPresent(100))
+        ArPoseState.headsetPresence(true, 100)
+        assertTrue(ArPoseState.headsetPresent(101))
+        assertFalse(ArPoseState.headsetPresent(99))
+        assertFalse(ArPoseState.headsetPresent(1601))
+        val old = ArPoseState.acquisitionId()
+        ArPoseState.headsetPresence(false, 1700)
+        assertFalse(ArPoseState.headsetPresent(1700))
+        assertNotEquals(old, ArPoseState.acquisitionId())
+        ArPoseState.headsetPresence(true, 1800)
+        ArPoseState.setConnected(false)
+        ArPoseState.setConnected(true)
+        assertFalse(ArPoseState.headsetPresent(1801))
     }
 }

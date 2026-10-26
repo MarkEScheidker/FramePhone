@@ -1,0 +1,8 @@
+{
+  "name": "FramePhone wearer presence",
+  "controller_type": "generic_hmd",
+  "bindings": {
+    "/actions/presence": {"sources": [{"path": "/user/head/proximity", "mode": "button",
+      "inputs": {"click": {"output": "/actions/presence/in/worn"}}}]}
+  }
+}

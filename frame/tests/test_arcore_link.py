@@ -21,6 +21,21 @@ class ArcoreLinkTests(unittest.TestCase):
     def telemetry(self):
         return Telemetry(dict(profile(), arcore_pose_v1=True))
 
+    def test_wearer_presence_is_negotiated_and_expires(self):
+        state = self.telemetry()
+        link = PhoneLink(None, None, None)
+        link.telemetry = state
+        link.profile = dict(profile(), headset_presence_v1=True)
+        link.headset_presence(True, 1_000_000_000)
+        self.assertEqual(link.presence_message(1_010_000_000),
+                         {"type": "headset_presence", "session": "test-session", "worn": True})
+        self.assertFalse(link.presence_message(2_000_000_001)["worn"])
+        self.assertFalse(link.presence_message(999_999_999)["worn"])
+        link.headset_presence(False, 2_000_000_000)
+        self.assertFalse(link.presence_message(2_000_000_001)["worn"])
+        link.profile = profile()
+        self.assertIsNone(link.presence_message(2_000_000_001))
+
     def test_clock_mapping_history_limit_reset_and_loss(self):
         state = self.telemetry()
         state.clock_reply({"session": "test-session", "h0": 1_900_000_000,

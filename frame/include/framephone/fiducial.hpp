@@ -34,7 +34,7 @@ class FiducialTracker {
     }
 
   private:
-    TagDetector detector_;
+    std::array<TagDetector, 2> detectors_;
     PlanarPoseEstimator estimator_;
 };
 } // namespace framephone

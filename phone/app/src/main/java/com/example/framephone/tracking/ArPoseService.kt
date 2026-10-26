@@ -47,6 +47,8 @@ class ArPoseService : Service() {
                 overlay?.update()
                 val text = when {
                     !Settings.canDrawOverlays(this@ArPoseService) -> "Overlay access required"
+                    ArPoseState.dismissed -> "Paused until next unlock"
+                    !ArPoseState.headsetPresent() -> "Waiting for headset to be worn"
                     ArPoseState.overlayTimedOut -> "Alignment timed out — tap Retry"
                     else -> ArPoseState.status
                 }
@@ -54,7 +56,7 @@ class ArPoseService : Service() {
                     getSystemService(NotificationManager::class.java).notify(2, notification(text))
                     previousNotice = text
                 }
-                main.postDelayed(this, 100)
+                main.postDelayed(this, 50)
             } catch (error: Exception) {
                 stopped.set(true)
                 ArPoseState.publish("error", reason = "Overlay: ${error.javaClass.simpleName}")
@@ -102,7 +104,8 @@ class ArPoseService : Service() {
         try {
             gl = OffscreenGl()
             while (!stopped.get()) {
-                if (!ArPoseState.connected || !ArPoseState.unlocked) {
+                if (!ArPoseState.connected || !ArPoseState.unlocked || ArPoseState.dismissed ||
+                    !ArPoseState.headsetPresent()) {
                     if (resumed) {
                         session?.pause()
                         resumed = false
@@ -112,7 +115,12 @@ class ArPoseService : Service() {
                         anchor?.detach()
                         anchor = null
                         newGeneration = true
-                        ArPoseState.publish("paused", reason = if (ArPoseState.connected) "screen_locked" else "disconnected")
+                        ArPoseState.publish("paused", reason = when {
+                            !ArPoseState.connected -> "disconnected"
+                            !ArPoseState.unlocked -> "screen_locked"
+                            ArPoseState.dismissed -> "user_dismissed"
+                            else -> "headset_not_worn"
+                        })
                     }
                     if (!ArPoseState.connected && session != null) {
                         anchor?.detach()

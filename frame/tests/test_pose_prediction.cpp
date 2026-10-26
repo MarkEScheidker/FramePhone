@@ -1,4 +1,4 @@
-#include "../src/pose_prediction.hpp"
+#include "../src/pose_smoothing.hpp"
 #include <iostream>
 
 using namespace framephone::surface;
@@ -67,6 +67,40 @@ int main() {
             g["w_rad_s"] = {10, 0, 0};
         check(!predict_pose(world, data, stamp + 80'000'000).gyro,
               "angular displacement must be bounded");
+        // Stationary +/-3mm and +/-0.01rad noise must be attenuated at each
+        // headset cadence, without corrupting the rigid rotation matrix.
+        for (const unsigned hz : {60, 90, 120}) {
+            PoseSmoothing filter;
+            Matrix target = identity();
+            auto t = stamp;
+            filter.update(target, t);
+            double error = 0;
+            for (unsigned i = 0; i < hz; ++i) {
+                target = angular_step({0, 0, (i % 2 ? 1. : -1.)}, .01);
+                target[3] = i % 2 ? .003 : -.003;
+                t += 1'000'000'000 / hz;
+                const auto smoothed = filter.update(target, t);
+                error += std::abs(smoothed[3]);
+                check(std::abs(compose(inverse(smoothed), smoothed)[0] - 1) < 1e-10,
+                      "smoothing must preserve rigid rotation");
+            }
+            check(error / hz < .0015, "stationary jitter should be reduced");
+            filter.reset();
+            target = identity();
+            filter.update(target, t);
+            for (unsigned i = 0; i < hz; ++i) {
+                target[3] += 1. / hz;
+                t += 1'000'000'000 / hz;
+                const auto smoothed = filter.update(target, t);
+                check(target[3] - smoothed[3] < .015, "smoothing must retain responsive motion");
+            }
+            filter.reset();
+            target[3] = 10;
+            check(filter.update(target, t)[3] == 10,
+                  "reacquisition must not blend retired alignment");
+            target[3] = 20;
+            check(filter.update(target, t + 200'000'000)[3] == 20, "pause must reset smoothing");
+        }
         std::cout << "Timestamped body gyro, world velocity, bounded horizons, gaps and reset "
                      "checks passed.\n";
         return 0;

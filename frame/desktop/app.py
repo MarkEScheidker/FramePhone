@@ -60,6 +60,8 @@ class Window:
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
+        self.presence = {"worn": False, "available": False, "updated_host_monotonic_ns": 0}
+        self.presence_retry = 0
         self.factories = {}
         self.self_test_result = None
         self.config = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "framephone/settings.json"
@@ -136,6 +138,27 @@ class Window:
         if not self.closing:
             self.enable_cameras()
             self.phone_panel.startup()
+            self.update_presence()
+
+    def update_presence(self):
+        if self.closing:
+            return
+        now = time.monotonic_ns()
+        if "presence" not in self.processes and now >= self.presence_retry:
+            self.presence_retry = now + 3_000_000_000
+            manifest = self.runtime.root / "opt/framephone/share/framephone/vr/actions.json"
+            self.spawn("presence", self.runtime.command("overlay", "--presence", manifest))
+        link = self.phone_panel.link
+        if link:
+            fresh = 0 <= now-self.presence["updated_host_monotonic_ns"] <= 1_000_000_000
+            link.headset_presence(self.presence["worn"] and self.presence["available"],
+                                  self.presence["updated_host_monotonic_ns"])
+            if not self.tracking_panel.busy:
+                if not fresh or not self.presence["available"]:
+                    self.tracking_panel.vr_status.set("Headset wear sensor unavailable — check SteamVR.")
+                elif not self.presence["worn"]:
+                    self.tracking_panel.vr_status.set("Put on the headset to begin tracking.")
+        self.root.after(100, self.update_presence)
 
     def toggle_log(self):
         if self.log_panel.winfo_manager():
@@ -235,6 +258,17 @@ class Window:
                 kind, name, value = self.events.get_nowait()
             except queue.Empty:
                 break
+            if kind == "line" and name == "presence" and value.startswith("{"):
+                try:
+                    message = json.loads(value)
+                    if (message.get("schema") != "framephone-headset-presence-v1" or
+                            type(message.get("worn")) is not bool or type(message.get("available")) is not bool or
+                            type(message.get("updated_host_monotonic_ns")) is not int):
+                        raise ValueError("Invalid wearer presence")
+                    self.presence = message
+                except (ValueError, TypeError):
+                    self.presence = {"worn": False, "available": False, "updated_host_monotonic_ns": 0}
+                continue
             if kind == "line":
                 self.log(f"[{name}] {value}")
                 if name == "overlay":
@@ -297,7 +331,7 @@ class Window:
             except (ValueError, tk.TclError) as exc:
                 self.tracking_panel.camera_preview(index, None, str(exc))
         if not self.closing:
-            self.root.after(100, self.update_previews)
+            self.root.after(50, self.update_previews)
 
     def open_folder(self, folder):
         folder.mkdir(parents=True, exist_ok=True)

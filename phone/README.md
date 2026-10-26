@@ -1,7 +1,7 @@
 # Android companion
 
 Enter the phone's width and height, then tap **Connect**. After the headset
-connects, a screen-width AprilTag appears over the current app. Frame accepts a
+connects and is worn, a screen-width AprilTag appears over the current app. Frame accepts a
 stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
 ARCore then supplies anchored motion over the existing secure LAN connection.
 
@@ -37,6 +37,12 @@ Android 12+; application ID `com.example.framephone`. See
    with the marker visible in both front cameras. Moving both devices together
    is allowed. The overlay disappears only after a successful visible VR handoff.
 
+**Back**, **Home**, opening recent apps or tapping the marker dismisses it and
+pauses tracking until the phone screen is turned off and unlocked again. Retry,
+reconnecting or an ARCore restart does not override that dismissal. Taking off
+the headset hides the marker and pauses ARCore; putting it on permits a new
+alignment. If the wearer signal is unavailable or stale, the marker stays hidden.
+
 Keep the rear camera uncovered while tracking. **Disconnect** stops networking,
 tracking and the overlay. The notification provides **Retry** and **Disconnect**;
 **Details** contains network diagnostics and pairing management. If alignment
@@ -45,7 +51,7 @@ available. A timeout does not accept a pose.
 
 Width/height preferences and existing pairing survive this update; obsolete
 saved thickness is discarded when dimensions are saved. Rebuild both apps:
-older headset versions do not support automatic marker sessions.
+older headset versions do not send the wearer heartbeat required by this phone app.
 
 Gyro/accelerometer and magnetometer diagnostics remain available. Screen capture,
 Bluetooth transport and remote input are not implemented. See

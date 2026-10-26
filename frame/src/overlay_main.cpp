@@ -1,4 +1,4 @@
-#include "pose_prediction.hpp"
+#include "pose_smoothing.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -81,6 +81,7 @@ struct Client {
     void (*shutdown)() = nullptr;
     vr::IVROverlay *overlay = nullptr;
     vr::IVRSystem *system = nullptr;
+    vr::IVRInput *input = nullptr;
     bool initialized = false;
     template <typename T> T symbol(const char *name) {
         auto value = dlsym(library, name);
@@ -88,7 +89,7 @@ struct Client {
             throw std::runtime_error(std::string("SteamVR missing client symbol: ") + name);
         return reinterpret_cast<T>(value);
     }
-    void open() {
+    void open(vr::EVRApplicationType type = vr::VRApplication_Overlay) {
         auto path = client_library();
         library = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
         if (!library)
@@ -102,7 +103,7 @@ struct Client {
         auto description =
             symbol<const char *(*)(vr::EVRInitError)>("VR_GetVRInitErrorAsEnglishDescription");
         vr::EVRInitError error = vr::VRInitError_None;
-        init(&error, vr::VRApplication_Overlay, nullptr);
+        init(&error, type, nullptr);
         if (error != vr::VRInitError_None)
             throw std::runtime_error(std::string("SteamVR overlay initialization failed: ") +
                                      description(error));
@@ -113,6 +114,7 @@ struct Client {
         system = static_cast<vr::IVRSystem *>(interface(vr::IVRSystem_Version, &error));
         if (!system || error != vr::VRInitError_None)
             throw std::runtime_error("SteamVR system interface unavailable");
+        input = static_cast<vr::IVRInput *>(interface(vr::IVRInput_Version, &error));
     }
     ~Client() {
         if (initialized)
@@ -164,6 +166,84 @@ struct Display {
         }
     }
 };
+struct TemporaryDirectory {
+    std::filesystem::path path;
+    TemporaryDirectory() {
+        char name[] = "/tmp/framephone-presence-XXXXXX";
+        auto result = mkdtemp(name);
+        if (!result)
+            throw std::runtime_error("cannot create private presence bindings");
+        path = result;
+    }
+    ~TemporaryDirectory() {
+        std::error_code ignored;
+        std::filesystem::remove_all(path, ignored);
+    }
+};
+// Separate from the screen renderer: presence must work before any phone marker
+// exists. Only the actual HMD proximity input grants permission, never motion.
+void presence(const std::filesystem::path &manifest) {
+    Client client;
+    client.open(vr::VRApplication_Background);
+    // HMDs have device-specific controller types. Bind the reported type rather
+    // than assuming every headset inherits the legacy generic_hmd profile.
+    vr::ETrackedPropertyError error{};
+    char controller[128]{};
+    client.system->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
+                                                  vr::Prop_ControllerType_String, controller,
+                                                  sizeof(controller), &error);
+    if (error != vr::TrackedProp_Success || !controller[0])
+        throw std::runtime_error("Headset input profile unavailable; waiting for SteamVR");
+    auto actions = read(manifest), binding = read(manifest.parent_path() / "headset.json");
+    actions["default_bindings"][0]["controller_type"] = controller;
+    binding["controller_type"] = controller;
+    TemporaryDirectory files;
+    const auto active_manifest = files.path / "actions.json";
+    for (const auto &item : {std::make_pair(active_manifest, actions),
+                             std::make_pair(files.path / "headset.json", binding)}) {
+        std::ofstream file(item.first);
+        file << item.second.dump() << '\n';
+        file.close();
+        if (!file)
+            throw std::runtime_error("cannot write headset presence bindings");
+    }
+    std::cout << "Headset proximity input profile: " << controller << '\n';
+    vr::VRActionSetHandle_t set = vr::k_ulInvalidActionSetHandle;
+    vr::VRActionHandle_t action = vr::k_ulInvalidActionHandle;
+    bool bound =
+        client.input &&
+        client.input->SetActionManifestPath(active_manifest.c_str()) == vr::VRInputError_None &&
+        client.input->GetActionSetHandle("/actions/presence", &set) == vr::VRInputError_None &&
+        client.input->GetActionHandle("/actions/presence/in/worn", &action) ==
+            vr::VRInputError_None;
+    if (!bound)
+        throw std::runtime_error(
+            "Headset proximity input unavailable; marker acquisition disabled");
+    while (!stopped) {
+        vr::VREvent_t event{};
+        while (client.system->PollNextEvent(&event, sizeof(event)))
+            if (event.eventType == vr::VREvent_Quit)
+                stopped = 1;
+        vr::InputDigitalActionData_t data{};
+        vr::VRActiveActionSet_t active{};
+        active.ulActionSet = set;
+        const bool available =
+            !stopped && bound &&
+            client.system->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd) &&
+            client.input->UpdateActionState(&active, sizeof(active), 1) == vr::VRInputError_None &&
+            client.input->GetDigitalActionData(action, &data, sizeof(data),
+                                               vr::k_ulInvalidInputValueHandle) ==
+                vr::VRInputError_None &&
+            data.bActive;
+        std::cout << Json{{"schema", "framephone-headset-presence-v1"},
+                          {"available", available},
+                          {"worn", available && data.bState},
+                          {"updated_host_monotonic_ns", now_ns()}}
+                         .dump()
+                  << '\n';
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+}
 void self_test() {
     Json message{{"schema", "framephone-fiducial-pose-v1"},
                  {"transform", "T_HM"},
@@ -227,13 +307,23 @@ void self_test() {
 int main(int argc, char **argv) {
     std::cout.setf(std::ios::unitbuf);
     try {
+        if (argc == 3 && std::string(argv[1]) == "--presence") {
+            const auto parent = getppid();
+            prctl(PR_SET_PDEATHSIG, SIGTERM);
+            if (getppid() != parent)
+                return 1;
+            std::signal(SIGTERM, stop);
+            std::signal(SIGINT, stop);
+            presence(argv[2]);
+            return 0;
+        }
         if (argc == 2 && std::string(argv[1]) == "--self-test") {
             self_test();
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--help") {
             std::cout << "FramePhone head-relative VR screen rectangle\n  --session DIRECTORY\n "
-                         " --self-test\n";
+                         " --self-test\n  --presence ACTION_MANIFEST (wearer heartbeat)\n";
             return 0;
         }
         if (argc != 3 || std::string(argv[1]) != "--session")
@@ -249,6 +339,8 @@ int main(int argc, char **argv) {
         auto geometry = Geometry::from_session(config);
         const bool arcore = config.value("arcore_handoff", false);
         ArcoreHandoff handoff;
+        PoseSmoothing smoothing;
+        std::string smoothing_key;
         std::uint64_t last_state_write = 0;
         Client client;
         client.open();
@@ -307,7 +399,14 @@ int main(int argc, char **argv) {
                     current = handoff.update(phone, optical, now);
                     if (current) {
                         const auto predicted = predict_pose(*current, phone, now);
-                        current = predicted.pose;
+                        const auto &latest = phone.at("poses").back();
+                        const auto key = latest.at("generation").get<std::string>() + ":" +
+                                         latest.at("acquisition").get<std::string>();
+                        if (key != smoothing_key) {
+                            smoothing.reset();
+                            smoothing_key = key;
+                        }
+                        current = smoothing.update(predicted.pose, now);
                         prediction_ms = predicted.milliseconds;
                         gyro_prediction = predicted.gyro;
                         pose_age_ms =
@@ -315,7 +414,6 @@ int main(int argc, char **argv) {
                             1e6;
                         pose_hz = phone.value("pose_hz", 0.);
                         source_hz = phone.value("source_hz", pose_hz);
-                        const auto &latest = phone.at("poses").back();
                         if (latest.contains("capture_t_ns"))
                             capture_delay_ms = (latest.at("t_ns").get<std::int64_t>() -
                                                 latest.at("capture_t_ns").get<std::int64_t>()) /
@@ -344,6 +442,8 @@ int main(int argc, char **argv) {
                 state = "hidden: headset tracking unavailable";
                 handoff.reset(state);
             }
+            if (!current)
+                smoothing.reset();
             display.update(current, arcore);
             if (current) {
                 rendered.push_back(now);
@@ -351,7 +451,7 @@ int main(int argc, char **argv) {
                     rendered.pop_front();
             } else
                 rendered.clear();
-            if (arcore && now - last_state_write >= 100'000'000) {
+            if (arcore && (now - last_state_write >= 100'000'000 || state != previous_state)) {
                 auto status = handoff.state;
                 status["visible"] =
                     current.has_value() && client.overlay->IsOverlayVisible(display.handle);

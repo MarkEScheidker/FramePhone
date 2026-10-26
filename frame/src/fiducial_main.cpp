@@ -3,6 +3,7 @@
 #include "framephone/frametop_ring.hpp"
 #include "framephone/stereo_recording.hpp"
 #include <csignal>
+#include <deque>
 #include <iostream>
 #include <opencv2/imgproc.hpp>
 #include <sstream>
@@ -152,10 +153,37 @@ std::string waiting_status(const std::array<std::uint64_t, 2> &counts,
                               : "either camera");
     return out.str();
 }
+// Sequence deltas count published camera frames even when the detector skips
+// directly to the latest one. Processing rate counts completed detections.
+class FrameRates {
+  public:
+    Json add(std::uint64_t sequence, std::uint64_t capture) {
+        const auto now = std::chrono::steady_clock::now();
+        samples.push_back({sequence, capture, now});
+        while (samples.size() > 120 ||
+               (samples.size() > 2 && now - samples.front().completed > std::chrono::seconds(1)))
+            samples.pop_front();
+        const auto &first = samples.front();
+        const auto elapsed = std::chrono::duration<double>(now - first.completed).count();
+        return {
+            {"capture_hz", sequence > first.sequence && capture > first.capture
+                               ? (sequence - first.sequence) * 1e9 / double(capture - first.capture)
+                               : 0.},
+            {"detection_hz", elapsed > 0 ? (samples.size() - 1) / elapsed : 0.}};
+    }
+
+  private:
+    struct Sample {
+        std::uint64_t sequence, capture;
+        std::chrono::steady_clock::time_point completed;
+    };
+    std::deque<Sample> samples;
+};
 void camera_preview(const std::filesystem::path &path, const std::string &camera) {
     std::cout.unsetf(std::ios::unitbuf);
     FrametopRing ring({path, camera, "camera-preview", "steam-frame-mono-v4l2"});
     TagDetector detector;
+    FrameRates rates;
     auto last_frame = std::chrono::steady_clock::now();
     auto last_notice = last_frame;
     while (!stopped) {
@@ -220,6 +248,7 @@ void camera_preview(const std::filesystem::path &path, const std::string &camera
                           {"capture_timestamp_ns", image.capture_time_ns},
                           {"publish_monotonic_ns", frame->publish_monotonic_ns},
                           {"image_bytes", pgm.size() + std::size_t(image.width) * image.height},
+                          {"rates", rates.add(frame->frame_number, image.capture_time_ns)},
                           {"detections", detections}}
                          .dump()
                   << '\n';
@@ -229,7 +258,6 @@ void camera_preview(const std::filesystem::path &path, const std::string &camera
                                                            std::size_t(y) * image.stride_bytes),
                             image.width);
         std::cout.flush();
-        std::this_thread::sleep_for(std::chrono::milliseconds(150));
     }
 }
 } // namespace
@@ -330,6 +358,7 @@ int main(int argc, char **argv) {
         auto last_pair = std::chrono::steady_clock::now();
         auto last_status = last_pair;
         std::array<std::uint64_t, 2> received{}, captures{};
+        std::array<FrameRates, 2> rates;
         while (!stopped && index < std::uint64_t(max_pairs)) {
             if (!replay && config.value("arcore_handoff", false) &&
                 std::filesystem::exists(session / "optical-paused")) {
@@ -379,6 +408,11 @@ int main(int argc, char **argv) {
             }
             const auto result = tracker.update(*pair);
             auto message = result_json(*pair, estimator, result.pose, edge * .5);
+            for (std::size_t v = 0; v < 2; ++v) {
+                const auto &f = pair->frames[v];
+                message["frames"][v]["rates"] = rates[v].add(
+                    f.ring_transport ? f.ring_transport->frame_number : index, f.capture_time_ns);
+            }
             message["fiducial"] = target;
             message["scale_status"] = "phone_reported_unverified";
             message["detections"] = Json::array();

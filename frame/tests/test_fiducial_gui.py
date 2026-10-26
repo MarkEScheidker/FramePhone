@@ -67,9 +67,13 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
     class TestRuntime(Runtime):
         overlay_command = None
         def __init__(self):
+            self.root = temporary / "runtime"
             self.ring = ring
             self.factory_root = fixture / "factory"
         def command(self, tool, *args):
+            if tool == "overlay" and args[0] == "--presence":
+                return [sys.executable, "-u", "-c", "import json,time;" +
+                        "\nwhile True: print(json.dumps(dict(schema='framephone-headset-presence-v1',worn=True,available=True,updated_host_monotonic_ns=time.monotonic_ns())),flush=True);time.sleep(.1)"]
             if tool == "overlay" and self.overlay_command:
                 return [*self.overlay_command, *map(str, args)]
             return [str(binary / f"framephone-{tool}"), *map(str, args)]
@@ -89,6 +93,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         ar_state = "tracking"
         acquisition = "scan-1"
         commands = []
+        def headset_presence(self, worn, updated_host_ns):
+            self.worn = worn
         def pose_packet(self):
             return self.snapshot()["arcore"]
         def alignment_command(self, kind, generation, acquisition):
@@ -160,6 +166,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         until(lambda: window.status.get().startswith("Front cameras ready"))
         assert "camera" in window.processes, "startup did not enable cameras"
         assert phone_startups == [True], "startup did not initiate phone discovery"
+        until(lambda: getattr(phone, "worn", False))
+        assert "presence" in window.processes, "startup did not monitor headset proximity"
         def widgets(parent):
             return [child for direct in parent.winfo_children() for child in [direct, *widgets(direct)]]
         assert not any(w.winfo_class() == "TCombobox" for w in widgets(panel.parent)), "camera selection remains editable"
@@ -265,7 +273,11 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
         assert "latest skew" in panel.status.get() and "limit 3 ms" in panel.status.get()
         # Preview workers restart after the tracker relinquishes the cameras.
         until(lambda: all(panel.preview_images) and len(window.preview_reader.workers) == 2)
-        assert all(c.winfo_height() > 40 for c in panel.canvases), "status text pushed camera data out of view"
+        root.update_idletasks()
+        assert all(c.winfo_height() > 40 for c in panel.canvases), repr({
+            "camera_heights": [c.winfo_height() for c in panel.canvases],
+            "captions": [v.get() for v in panel.camera_status], "status": panel.status.get(),
+            "vr": panel.vr_status.get(), "window": root.winfo_height()})
         assert not any(c.find_withtag("pose-axis") for c in panel.canvases)
         skewed.clear()
         time.sleep(.1)

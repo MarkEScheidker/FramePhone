@@ -11,7 +11,7 @@ this test uses the existing authenticated LAN connection.
 1. Rebuild/install both apps and leave SteamVR running on the headset.
 2. Enter phone width/height and tap **Connect**. Grant camera, notification and
    **display over other apps** access; install/update ARCore when requested.
-3. Connect or pair on Frame as usual. Authentication triggers the overlay, and
+3. Connect or pair on Frame as usual and put on the headset. Authentication plus a fresh positive wearer signal enables the overlay, and
    Frame automatically starts ARCore handoff and enables the VR rectangle.
 4. Keep the complete tag visible to both front cameras. Its position relative
    to the headset must stay within 2 cm over at least 500 ms, with at least three
@@ -23,6 +23,22 @@ this test uses the existing authenticated LAN connection.
    acquisition automatically. A failed 20-second acquisition closes the overlay;
    **Retry tracking** in the phone UI or **Retry** in the notification starts a new
    attempt. Timeout never accepts or restores an alignment.
+
+Back, Home, recent apps or a tap on the marker cancel tracking for the current
+screen-on session. This suppression survives reconnect, Retry and session/anchor
+changes; a real screen-off/unlock cycle clears it. The temporary overlay receives
+Back input (including Android's predictive-back callback); system navigation and
+focus loss dismiss it without launching an activity. A screen lock is not user
+cancellation.
+
+An independent `framephone-overlay --presence ACTION_MANIFEST` client runs before
+acquisition. Its hidden OpenVR action set binds only `/user/head/proximity` through
+the headset's reported input profile (using private, temporary binding files); movement/activity is never substituted for wear detection.
+The desktop forwards a session-scoped wearer heartbeat over the existing TLS link.
+Absent, inactive, disconnected or stale inputs fail closed. The phone pauses its
+ARCore camera and hides the marker when the headset is not worn; resuming requests
+a fresh generation and alignment. SteamVR/input failure is visible in Frame's
+status/log. The binding and navigation paths require validation on the devices.
 
 **Disconnect** stops the link, camera service and overlay. Android requires one
 special-access approval for drawing over other apps. The overlay is hidden on
@@ -90,6 +106,15 @@ optical session without blocking the paired link.
 
 ## CPU use and diagnostics
 
+Active detector workers process the latest available camera frame/pair immediately,
+without a per-frame delay or backlog. Both eyes use independent full-resolution
+AprilTag detectors in parallel; corner refinement and pose rejection thresholds
+are unchanged. Optical poses publish before the UI draws them. Alignment changes
+and acknowledgments bypass the periodic diagnostic heartbeat, retaining the
+three-observation, 500 ms, 2 cm stability requirement. Camera captions distinguish
+published capture rate (sequence/capture-time deltas) from completed detection/
+solve rate. These are sliding estimates; preview repaint rate is separate.
+
 After acceptance the native stereo worker sleeps behind an acquisition gate:
 no AprilTag detection, pose solve or image/log publication runs in that state.
 Independent annotated preview workers also stop while a tracker session owns
@@ -114,6 +139,13 @@ position integration is not used. Predicted values never feed registration or
 become subsequent measurements. The 250 ms stale-data cutoff still hides the
 surface rather than continuing to drift.
 
+A visual-only rigid-transform average follows prediction. It uses a 35 ms resting
+time constant and adapts down to 8 ms during motion, filtering rotation on SO(3)
+rather than averaging matrix entries. Small millimeter/degree changes retain the
+resting response. Missing poses, long render gaps, large corrections and new
+acquisitions reset the filter. Neither smoothing nor prediction changes the raw
+alignment/history, and smoothing does not correct accumulated ARCore/world drift.
+
 The dashboard shows estimated phone-published pose rate, received pose rate,
 actual render cadence, approximate pose age and prediction duration.
 `arcore-state.json` also exposes camera-processing and delivery age estimates,
@@ -133,7 +165,7 @@ stop them. Reconnect never enrolls a new device.
 
 Relevant code: Android `tracking/ArPoseService.kt` and `ArPoseState.kt`, desktop
 `phone_link.py`, `pose_stream.py` and `fiducial_panel.py`, native
-`arcore_handoff.hpp`, `pose_prediction.hpp` and `overlay_main.cpp`. Native registration tests run without SteamVR; synthetic
+`arcore_handoff.hpp`, `pose_prediction.hpp`, `pose_smoothing.hpp` and `overlay_main.cpp`. Native registration tests run without SteamVR; synthetic
 GUI tests check the acknowledgment/gate lifecycle. Neither establishes physical
 accuracy or actual Android background-camera behavior.
 
@@ -142,5 +174,7 @@ See also [coordinates](COORDINATE_SYSTEMS.md), [VR display](VR_DISPLAY.md) and
 the [companion session plan](../../docs/COMPANION_SESSION_PLAN.md).
 
 Android overlay access uses the standard [Settings permission](https://developer.android.com/reference/android/provider/Settings#canDrawOverlays). No accessibility service or background activity launch is used.
+
+Wearer input: [Valve headset action and binding manifest](https://github.com/ValveSoftware/steamvr_unity_plugin/blob/master/Assets/SteamVR/Input/ExampleJSON/actions.json).
 
 Timing references: [Camera2 REALTIME clock](https://developer.android.com/reference/android/hardware/camera2/CameraCharacteristics#SENSOR_INFO_TIMESTAMP_SOURCE_REALTIME), [ARCore capture metadata](https://developers.google.com/ar/reference/java/com/google/ar/core/ImageMetadata).

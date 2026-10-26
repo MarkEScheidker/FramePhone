@@ -76,6 +76,7 @@ class FiducialPanel:
         from tkinter import ttk
         self.parent, self.app = parent, app
         self.process_lock = threading.Lock()
+        self.vr_write_lock = threading.Lock()
         self.process = None
         self.cancelled = threading.Event()
         self.events = queue.SimpleQueue()
@@ -95,6 +96,7 @@ class FiducialPanel:
         self.arcore_enabled = tk.BooleanVar(value=False)
         self.handoff_active = False
         self.last_arcore_command = 0
+        self.last_arcore_command_key = None
         self.auto_blocked_session = None
         self.auto_last_attempt = 0
         self.renderer_acquisition = None
@@ -217,6 +219,7 @@ class FiducialPanel:
                     for line in process.stdout:
                         if line.startswith("{"):
                             message = json.loads(line)
+                            self.write_vr(message)
                             images = preview_pair(output, message)
                             try:
                                 self.latest.get_nowait()
@@ -248,7 +251,8 @@ class FiducialPanel:
                 self.events.put(("exit", (code, error)))
         threading.Thread(target=run, daemon=True).start()
 
-    def publish_vr(self, result):
+    def write_vr(self, result):
+        """Atomic pose publication used directly by the tracker reader thread."""
         if self.session is None:
             return
         message = {"status": "lost"}
@@ -258,10 +262,17 @@ class FiducialPanel:
             if "observed_host_monotonic_ns" in result:
                 message["observed_host_monotonic_ns"] = result["observed_host_monotonic_ns"]
                 message["candidates"][0]["rms_px"] = result["candidates"][0]["rms_px"]
-        try:
+        # UI stop and a final detector result can overlap. Serialize replacement.
+        with self.vr_write_lock:
             temporary = self.session / "vr-pose.json.tmp"
             temporary.write_text(json.dumps(message, allow_nan=False) + "\n")
             temporary.replace(self.session / "vr-pose.json")
+
+    def publish_vr(self, result):
+        if self.session is None:
+            return
+        try:
+            self.write_vr(result)
         except (OSError, ValueError, KeyError) as error:
             self.vr_status.set("Cannot publish VR pose: " + str(error))
             self.app.terminate("overlay")
@@ -320,6 +331,12 @@ class FiducialPanel:
         else:
             self.image_panel.pack_forget()
 
+    @staticmethod
+    def rate_caption(metadata):
+        rates = metadata.get("rates", {})
+        return (f" · camera {rates['capture_hz']:.0f} / detect {rates['detection_hz']:.0f} Hz"
+                if rates.get("capture_hz", 0) > 0 else "")
+
     def camera_preview(self, view, current, error):
         side = ("Front left", "Front right")[view]
         if current:
@@ -328,7 +345,7 @@ class FiducialPanel:
             self.preview_detections[view] = metadata.get("detections", [])
             self.preview_updated[view] = time.monotonic()
             count = sum(tag["id"] == 0 for tag in self.preview_detections[view])
-            self.camera_status[view].set(f"{side} · {width}×{height} · ID 0 markers: {count}")
+            self.camera_status[view].set(f"{side} · {width}×{height} · ID 0: {count}" + self.rate_caption(metadata))
         else:
             self.preview_images[view] = None
             self.preview_detections[view] = []
@@ -338,11 +355,10 @@ class FiducialPanel:
 
     def show_result(self, result):
         self.result = result
-        self.publish_vr(result)
         counts = [sum(t["id"] == 0 for t in view) for view in result["detections"]]
         for view, frame in enumerate(result["frames"]):
             side = ("Front left", "Front right")[view]
-            self.camera_status[view].set(f"{side} · {frame['width']}×{frame['height']} · ID 0 markers: {counts[view]}")
+            self.camera_status[view].set(f"{side} · {frame['width']}×{frame['height']} · ID 0: {counts[view]}" + self.rate_caption(frame))
         self.status.set(f"ID 0 markers: left {counts[0]} · right {counts[1]}")
         if result["status"] == "measured":
             best = result["candidates"][0]
@@ -423,11 +439,14 @@ class FiducialPanel:
                 gate.touch()
             elif not paused:
                 gate.unlink(missing_ok=True)
-            if latest and time.monotonic()-self.last_arcore_command >= .5:
-                kind = ("alignment_accepted" if accepted and latest.get("marker_required") else
-                        "alignment_lost" if not accepted and not latest.get("marker_required") else None)
-                if kind and link.alignment_command(kind, latest["generation"], latest["acquisition"]):
+            kind = ("alignment_accepted" if accepted and latest.get("marker_required") else
+                    "alignment_lost" if not accepted and not latest.get("marker_required") else None)
+            command_key = (kind, *acquisition)
+            if latest and kind and (command_key != self.last_arcore_command_key or
+                                    time.monotonic()-self.last_arcore_command >= .5):
+                if link.alignment_command(kind, latest["generation"], latest["acquisition"]):
                     self.last_arcore_command = time.monotonic()
+                    self.last_arcore_command_key = command_key
             if accepted != self.handoff_active:
                 self.handoff_active = accepted
                 self.result = self.images = None
@@ -443,6 +462,10 @@ class FiducialPanel:
                            if "pose_hz" in state else "ARCore world pose · optical detection paused")
                 self.pose.set(metrics)
                 self.status.set("Tracking from phone. Optical detection paused.")
+            elif latest.get("reason") in ("user_dismissed", "headset_not_worn"):
+                self.pose.set("Tracking paused")
+                self.status.set("Paused until next phone unlock." if latest["reason"] == "user_dismissed"
+                                else "Put on the headset to resume tracking.")
             elif latest.get("state") in ("error", "stopped"):
                 self.pose.set("ARCore unavailable — no current VR pose")
                 self.status.set("Open the phone app and restart ARCore. " + latest.get("reason", ""))
@@ -525,7 +548,8 @@ class FiducialPanel:
             self.pose.set("Stopped — no current pose")
             if code and not self.cancelled.is_set():
                 self.failed_acquisition = acquisition
-                self.status.set(f"Tracker failed (exit {code}): {error.strip()} · See tracker.log in Open results.")
+                detail = error.strip().splitlines()[-1] if error.strip() else "No error details"
+                self.status.set(f"Tracker failed (exit {code}): {detail} · See tracker.log in Open results.")
             elif not self.cancelled.is_set():
                 self.status.set(f"Tracker finished (status {code}). Start tracking to retry.")
             self.start_button.configure(state="normal")

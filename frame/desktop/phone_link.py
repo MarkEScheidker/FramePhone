@@ -397,6 +397,20 @@ class PhoneLink:
         self.recording = None
         self.commands = queue.Queue(maxsize=8)
         self.retryable = False
+        self.headset = (False, 0)
+
+    def headset_presence(self, worn, updated_host_ns):
+        """Latest-only wearer state. A frozen UI/monitor cannot renew its timestamp."""
+        with self.lock:
+            self.headset = (bool(worn), updated_host_ns)
+
+    def presence_message(self, now):
+        with self.lock:
+            if not self.profile or not self.profile.get("headset_presence_v1") or not self.telemetry:
+                return None
+            worn, stamp = self.headset
+            return {"type": "headset_presence", "session": self.telemetry.session,
+                    "worn": worn and 0 <= now-stamp <= 1_000_000_000}
 
     def alignment_command(self, kind, generation, acquisition):
         if kind not in ("alignment_accepted", "alignment_lost"):
@@ -516,6 +530,7 @@ class PhoneLink:
                     self.notify("status", "Connected — receiving phone sensors")
                     phase = "sensor streaming"
                     pending, next_ping = set(), 0
+                    presence_at, previous_presence = 0, None
                     while not self.stopped.is_set():
                         for _ in range(8):
                             try:
@@ -524,6 +539,10 @@ class PhoneLink:
                                 break
                             write_message(sock, command)
                         now = time.monotonic_ns()
+                        presence = self.presence_message(now)
+                        if presence is not None and (presence != previous_presence or now-presence_at >= 500_000_000):
+                            write_message(sock, presence)
+                            previous_presence, presence_at = presence, now
                         if now >= next_ping:
                             if pending:
                                 raise ConnectionError("Phone clock/heartbeat reply timed out")

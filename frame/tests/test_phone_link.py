@@ -157,7 +157,7 @@ class TLSTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False, arcore=False):
+    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False, arcore=False, presence=False):
         errors, received, notices = [], [], []
         ready = threading.Event()
         control_received = threading.Event()
@@ -206,7 +206,12 @@ class TLSTests(unittest.TestCase):
                         capabilities = profile()
                         if arcore:
                             capabilities["arcore_pose_v1"] = True
+                        if presence:
+                            capabilities["headset_presence_v1"] = True
                         write_message(conn, capabilities)
+                        if presence:
+                            self.assertEqual(read_message(conn), {"type": "headset_presence",
+                                             "session": "test-session", "worn": False})
                         ping = read_message(conn)
                         phone_time = time.monotonic_ns() + 1_000_000_000
                         write_message(conn, {"type": "pong", "session": "test-session", "h0": ping["h0"],
@@ -218,6 +223,12 @@ class TLSTests(unittest.TestCase):
                                     "origin": "black_square_center", "axes": "right_up_front", "size_source": "android_display_dpi",
                                     "screen_width_px": 1080, "screen_height_px": 2400, "black_edge_px": 864}})
                         ready.set()
+                        if presence:
+                            time.sleep(.1)
+                            write_message(conn, batch(2, time.monotonic_ns()+1_000_000_000))
+                            self.assertEqual(read_message(conn), {"type": "headset_presence",
+                                             "session": "test-session", "worn": True})
+                            control_received.set()
                         if arcore:
                             from test_arcore_link import pose_message
                             for seq in range(1, 21):
@@ -255,6 +266,9 @@ class TLSTests(unittest.TestCase):
                     self.assertTrue(snapshot["marker_displayed"])
                     self.assertTrue(snapshot["marker_state_fresh"])
                     self.assertEqual(snapshot["fiducial"]["black_edge_px"], 864)
+                if presence:
+                    client.headset_presence(True, time.monotonic_ns())
+                    self.assertTrue(control_received.wait(3))
                 if arcore:
                     self.assertTrue(client.alignment_command("alignment_accepted", "anchor-1", "scan-1"))
                     self.assertTrue(control_received.wait(3))
@@ -283,6 +297,9 @@ class TLSTests(unittest.TestCase):
 
     def test_arcore_poses_alignment_command_and_recording(self):
         self.exercise(pair=False, arcore=True, record=True)
+
+    def test_authenticated_wearer_presence_defaults_off_then_follows_monitor(self):
+        self.exercise(pair=False, presence=True)
 
     def test_pinned_reconnect(self):
         self.exercise(pair=False)

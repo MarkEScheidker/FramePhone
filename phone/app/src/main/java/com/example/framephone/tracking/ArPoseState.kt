@@ -13,6 +13,10 @@ object ArPoseState {
     private var required = true
     private var tracking = false
     private var latest: String? = null
+    @Volatile var dismissed = false
+        private set
+    private var headsetWorn = false
+    private var headsetAtMs: Long? = null
     @Volatile var status = "Ready"
         private set
     @Volatile var detail = ""
@@ -31,6 +35,8 @@ object ArPoseState {
     @Synchronized fun setConnected(value: Boolean) {
         if (connected == value) return
         connected = value
+        headsetWorn = false
+        headsetAtMs = null
         tracking = false
         latest = null
         requestMarker()
@@ -39,7 +45,24 @@ object ArPoseState {
 
     @Synchronized fun setUnlocked(value: Boolean) {
         if (unlocked && !value) requestMarker()
+        if (!unlocked && value) dismissed = false
         unlocked = value
+    }
+
+    @Synchronized fun headsetPresence(worn: Boolean, nowMs: Long = SystemClock.elapsedRealtime()) {
+        if (headsetWorn && !worn) requestMarker()
+        headsetWorn = worn
+        headsetAtMs = nowMs
+    }
+
+    @Synchronized fun headsetPresent(nowMs: Long = SystemClock.elapsedRealtime()): Boolean =
+        headsetWorn && headsetAtMs?.let { nowMs-it in 0..1_500L } == true
+
+    @Synchronized fun dismissMarker() {
+        if (dismissed) return
+        dismissed = true
+        requestMarker() // Fence an acknowledgment already in flight.
+        status = "Paused until next unlock"
     }
 
     @Synchronized fun acquisitionId() = acquisition
@@ -96,6 +119,8 @@ object ArPoseState {
                 "EXCESSIVE_MOTION" -> "Hold still"
                 "camera_in_use" -> "Camera in use"
                 "screen_locked" -> "Phone locked"
+                "user_dismissed" -> "Paused until next unlock"
+                "headset_not_worn" -> "Waiting for headset to be worn"
                 else -> "Starting tracking"
             }
             required -> "Hold still"
@@ -104,11 +129,13 @@ object ArPoseState {
     }
 
     @Synchronized fun message(session: String): JSONObject? = latest?.let {
-        JSONObject(it).put("session", session).put("marker_required", required)
+        JSONObject(it).put("session", session).put("marker_required", required).apply {
+            if (dismissed) put("state", "paused").put("reason", "user_dismissed")
+        }
     }
 
     @Synchronized fun acknowledge(message: JSONObject, nowNs: Long = SystemClock.elapsedRealtimeNanos()): Boolean {
-        if (!tracking || !required || message.optString("generation") != generation ||
+        if (dismissed || !tracking || !required || message.optString("generation") != generation ||
             message.optString("acquisition") != acquisition) return false
         val sample = latest?.let { JSONObject(it) } ?: return false
         if (sample.getString("generation") != generation || sample.getString("acquisition") != acquisition ||

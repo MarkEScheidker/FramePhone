@@ -1,6 +1,7 @@
 #include "framephone/fiducial.hpp"
 #include <apriltag.h>
 #include <cmath>
+#include <future>
 #include <tag36h11.h>
 
 namespace framephone {
@@ -93,8 +94,11 @@ FiducialResult FiducialTracker::update(const StereoPair &pair) {
     result.pose.reason = "tag0_not_visible_in_both_front_cameras";
     PlanarObservation observation;
     bool ready = true;
+    auto right =
+        std::async(std::launch::async, [&] { return detectors_[1].detect(pair.frames[1]); });
+    result.detections[0] = detectors_[0].detect(pair.frames[0]);
+    result.detections[1] = right.get();
     for (std::size_t v = 0; v < 2; ++v) {
-        result.detections[v] = detector_.detect(pair.frames[v]);
         int count = 0;
         for (const auto &tag : result.detections[v])
             if (tag.id == 0 && tag.hamming == 0 && std::isfinite(tag.margin) && tag.margin >= 15) {

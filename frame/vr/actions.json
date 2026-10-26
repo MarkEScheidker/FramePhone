@@ -1,0 +1,5 @@
+{
+  "actions": [{"name": "/actions/presence/in/worn", "type": "boolean", "requirement": "optional"}],
+  "action_sets": [{"name": "/actions/presence", "usage": "hidden"}],
+  "default_bindings": [{"controller_type": "generic_hmd", "binding_url": "headset.json"}]
+}

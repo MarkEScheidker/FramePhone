@@ -102,6 +102,18 @@ screen size, physical IMU location or a camera pose. Single-tag pose uses the se
 orientation. Its initial scale is from unverified Android display DPI; body size
 is not substituted for marker size.
 
+## Wearer presence
+
+A phone profile with `headset_presence_v1:true` accepts `headset_presence` commands
+containing the authenticated connection `session` and Boolean `worn`. Frame sends
+changes immediately and renews the value every 500 ms. The network worker forces
+`false` if the original OpenVR report is older than one second; forwarding the
+same report does not renew its timestamp. The phone requires a positive receipt
+within 1.5 seconds before showing its marker or running ARCore. Disconnect clears
+this permission. The updated phone defaults to disabled until a fresh positive
+command; rebuild both applications together. This is presence control on the
+existing pinned TLS link, not a new pairing or wakeup transport.
+
 ## Optional ARCore extension
 
 Frame advertises `arcore_pose_v1:true` in `hello`; the updated phone echoes it

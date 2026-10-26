@@ -1,8 +1,10 @@
 # Architecture
 
-The phone keeps a single width-filling AprilTag visible. Frame measures its pose
-in the two front grayscale cameras. IMU data is diagnostic; neither IMU integration
-nor ARCore supplies motion in this milestone.
+The phone briefly displays a width-filling AprilTag. Frame measures its pose in
+two front grayscale cameras, registers anchored ARCore motion to SteamVR standing
+space, then renders a screen rectangle with bounded prediction and visual smoothing.
+An independent headset-proximity monitor enables acquisition only while worn.
+Raw IMU telemetry remains available alongside the tracking path.
 
 ```mermaid
 flowchart LR
@@ -11,7 +13,10 @@ flowchart LR
     Calibration[Factory KB4 calibration] --> Pose[Joint stereo pose]
     Tags --> Pose
     Pose --> UI[Desktop diagnostics and recording]
-    UI --> VR[SteamVR screen rectangle]
+    Pose --> VR[SteamVR screen rectangle]
+    ARCore[Anchored phone pose and gyro] --> Predict[Bounded prediction and smoothing]
+    Predict --> VR
+    Wearer[OpenVR headset proximity] --> TLS
     Phone --> TLS[Paired TLS: sensors and marker geometry/state]
     TLS --> UI
 ```
@@ -25,7 +30,7 @@ flowchart LR
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
 | camera_previews.py / fiducial --preview-ring | Per-camera detection and annotated Gray8 previews with one-frame queues. |
-| framephone-overlay | One screen-sized OpenVR quad driven by the latest fiducial pose; hides stale/lost data. |
+| framephone-overlay | OpenVR quad, raw registration, bounded prediction and smoothing; separate presence mode reads wearer input before acquisition. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
 Only status `measured` supplies a current pose. Ambiguous hypotheses remain
@@ -70,7 +75,7 @@ adding cross-layer dependencies.
 
 The desktop uses one dashboard. Its fixed front pair is declared in
 front_cameras.py; saved camera assignments are not loaded and no camera selectors
-are exposed. Startup launches camera authorization and phone discovery. Saved
+are exposed. Startup launches wearer monitoring, camera authorization and phone discovery. Saved
 phone candidates are bounded and checked with the existing certificate pin;
 first-time pairing remains an explicit, fingerprint-approved action. Connection
 controls and the activity log expand inline. Raw sensor telemetry and recording
