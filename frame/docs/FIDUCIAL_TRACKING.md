@@ -51,8 +51,8 @@ against an independent reference. The negotiated marker-state messages refresh t
 ## Pose and quality
 
 AprilTag 3 detects the native Gray8 image with two CPU threads, decimation 1 and
-edge refinement. Only ID 0, no corrected bits, and decision margin at least 15
-can support pose. A margin is a detector quality metric, not a percentage.
+edge refinement. ID 0 supports pose with at most two corrected data cells;
+minimum margin is 15 for intact codes and 25 for corrected codes. A margin is a detector quality metric, not a percentage.
 Duplicate ID 0s in either view prevent pose; other tag IDs are drawn but ignored.
 Keep the black border and white margin visible; a finger covering the only tag
 can lose tracking. Angled tags are supported within visibility/calibration limits.
@@ -75,6 +75,16 @@ is cleared. Decode continues and reacquires automatically. If one camera sees
 a marker the counts still show it, but this stereo path requires both for pose.
 No monocular fallback is silently accepted. Stopped/stale/disconnected states
 also clear current pose.
+
+## Partial image damage
+
+The decoder permits up to two corrected data cells using AprilTag's upstream
+error-correction facility. Corrected codes need margin >=25; intact codes need
+margin >=15. Both views must still supply ID 0 and pass the joint stereo gates.
+This can recover small interior damage; it does not reconstruct a covered border
+or corner, nor does it use a stale pose as a fresh observation. See
+[tracking research](TRACKING_RESEARCH.md) for the bounded optical-flow and board
+alternatives considered for more substantial occlusion.
 
 ## Local recording and replay
 

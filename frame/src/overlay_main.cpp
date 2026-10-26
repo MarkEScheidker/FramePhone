@@ -397,10 +397,10 @@ int main(int argc, char **argv) {
         std::deque<std::uint64_t> rendered;
         Metadata phone_metadata{session / "phone-pose.json"},
             optical_metadata{session / "vr-pose.json"};
-        std::cout
-            << (arcore ? "VR screen ready: ARCore handoff; keep phone steady relative to headset.\n"
-                       : "VR screen ready: fiducial-driven rectangle; headset alignment and "
-                         "motion timing are provisional.\n");
+        std::cout << (arcore ? "VR screen ready: ARCore handoff; briefly show the marker to both "
+                               "front cameras.\n"
+                             : "VR screen ready: fiducial-driven rectangle; headset alignment and "
+                               "motion timing are provisional.\n");
         std::string previous_state;
         while (!stopped) {
             vr::VREvent_t event{};

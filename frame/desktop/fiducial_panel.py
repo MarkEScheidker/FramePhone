@@ -53,7 +53,7 @@ def create_session(directory, snapshot, factory_root, selections, ring, record, 
               "clock_alignment": "unverified_no_imu_fusion", "record": bool(record)}
     if arcore_handoff:
         config["arcore_handoff"] = True
-        config["clock_alignment"] = "stationary_update_time_prototype"
+        config["clock_alignment"] = "history_matched_update_time_prototype"
     (directory / "session.json").write_text(json.dumps(config, indent=2) + "\n")
     return config
 

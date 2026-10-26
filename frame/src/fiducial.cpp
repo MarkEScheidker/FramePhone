@@ -11,7 +11,8 @@ struct TagDetector::Impl {
     Impl() {
         if (!family || !detector)
             throw std::runtime_error("cannot create AprilTag detector");
-        apriltag_detector_add_family_bits(detector, family, 0);
+        // Upstream default: tolerate two corrupted data cells, not a broken border.
+        apriltag_detector_add_family_bits(detector, family, 2);
         detector->nthreads = 2;
         detector->quad_decimate = 1;
         detector->refine_edges = true;
@@ -101,7 +102,8 @@ FiducialResult FiducialTracker::update(const StereoPair &pair) {
     for (std::size_t v = 0; v < 2; ++v) {
         int count = 0;
         for (const auto &tag : result.detections[v])
-            if (tag.id == 0 && tag.hamming == 0 && std::isfinite(tag.margin) && tag.margin >= 15) {
+            if (tag.id == 0 && tag.hamming >= 0 && tag.hamming <= 2 && std::isfinite(tag.margin) &&
+                tag.margin >= (tag.hamming ? 25 : 15)) {
                 observation.corners[v] = tag.corners;
                 ++count;
             }

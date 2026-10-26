@@ -36,14 +36,14 @@ Json optical(std::uint64_t time, const Matrix &value) {
 }
 std::uint64_t acquire(ArcoreHandoff &handoff, Matrix world_anchor, Matrix head = identity(),
                       std::uint64_t start = 1'000'000'000) {
-    for (unsigned i = 0; i <= 5; ++i) {
+    for (unsigned i = 0; i <= 1; ++i) {
         auto time = start + i * 100'000'000ULL;
         handoff.head(time, head);
         auto found =
             handoff.update(phone(time), optical(time, compose(inverse(head), world_anchor)), time);
-        check(bool(found) == (i == 5), "must acquire only after 500 ms of relative stability");
+        check(bool(found) == (i == 1), "two consistent observations should acquire after 80 ms");
     }
-    return start + 500'000'000;
+    return start + 100'000'000;
 }
 } // namespace
 int main() {
@@ -99,11 +99,11 @@ int main() {
         for (unsigned i = 0; i < 20; ++i) {
             time = 1'000'000'000ULL + i * 100'000'000ULL;
             auto device_pose = identity();
-            device_pose[3] = .02 * i;
+            device_pose[3] = .12 * i;
             moving.head(time, identity());
             check(!moving.update(phone(time, device_pose),
                                  optical(time, compose(anchor, device_pose)), time),
-                  "motion must not pass the fixed stationary gate");
+                  "excessive relative motion must not pass the relaxed gate");
         }
         ArcoreHandoff repeated;
         time = 1'000'000'000;
@@ -129,17 +129,16 @@ int main() {
               "350 ms detector cadence must not reset stationary acquisition at render timeout");
         ArcoreHandoff minimum;
         for (unsigned i = 0; i < 3; ++i) {
-            time = 1'000'000'000ULL + i * 250'000'000ULL;
+            time = 1'000'000'000ULL + i * 40'000'000ULL;
             minimum.head(time, identity());
             const auto found = minimum.update(phone(time), optical(time, anchor), time);
-            check(
-                bool(found) == (i == 2),
-                "three stereo observations across 500 ms should initialize without extra waiting");
+            check(bool(found) == (i == 2),
+                  "distinct stereo observations spanning 80 ms should acquire promptly");
         }
         ArcoreHandoff walking;
         auto walk_anchor = identity();
         walk_anchor[11] = -.6;
-        for (unsigned i = 0; i <= 5; ++i) {
+        for (unsigned i = 0; i <= 1; ++i) {
             time = 1'000'000'000ULL + i * 100'000'000ULL;
             auto moving_head = identity(), moving_device = identity();
             moving_head[3] = moving_device[3] = .04 * i;
@@ -147,22 +146,44 @@ int main() {
             const auto relative =
                 compose(inverse(moving_head), compose(walk_anchor, moving_device));
             auto found = walking.update(phone(time, moving_device), optical(time, relative), time);
-            check(bool(found) == (i == 5),
+            check(bool(found) == (i == 1),
                   "common world movement must not prevent relative acquisition");
         }
-        for (double amplitude : {.009, .015}) {
+        for (double amplitude : {.03, .05}) {
             ArcoreHandoff jitter;
-            for (unsigned i = 0; i <= 5; ++i) {
+            for (unsigned i = 0; i <= 1; ++i) {
                 time = 1'000'000'000ULL + i * 100'000'000ULL;
                 auto device_pose = identity();
                 device_pose[3] = i % 2 ? amplitude : -amplitude;
                 jitter.head(time, identity());
                 auto found = jitter.update(phone(time, device_pose),
                                            optical(time, compose(walk_anchor, device_pose)), time);
-                check(bool(found) == (i == 5 && amplitude < .01),
-                      "relative position spread must remain within 2 cm");
+                check(bool(found) == (i == 1 && amplitude < .04),
+                      "relative position spread must remain within 8 cm");
             }
         }
+        ArcoreHandoff natural_motion;
+        for (unsigned i = 0; i < 2; ++i) {
+            time = 1'000'000'000ULL + i * 100'000'000ULL;
+            auto device_pose = identity();
+            device_pose[3] = .04 * i;
+            natural_motion.head(time, identity());
+            const auto found = natural_motion.update(
+                phone(time, device_pose), optical(time, compose(walk_anchor, device_pose)), time);
+            check(bool(found) == (i == 1),
+                  "normal movement should not require a fixed phone position");
+        }
+        ArcoreHandoff inconsistent;
+        time = 1'000'000'000;
+        inconsistent.head(time, identity());
+        check(!inconsistent.update(phone(time), optical(time, anchor), time),
+              "first frame must not acquire");
+        time += 100'000'000;
+        inconsistent.head(time, identity());
+        auto outlier = anchor;
+        outlier[3] += .2;
+        check(!inconsistent.update(phone(time), optical(time, outlier), time),
+              "registration disagreement still rejects an outlier");
         auto bad = phone(time);
         bad["poses"][0]["quaternion_xyzw"] = {0, 0, 0, 0};
         bool rejected = false;

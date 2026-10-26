@@ -240,7 +240,7 @@ Lock/disconnect/loss fence acquisition IDs. Successful acknowledgment requires
 native `visible:true` after the OpenVR update succeeds. See the handoff guide.
 
 Renderer publication is independent of Tk. Live compact packets contain the
-latest two poses and up to 64 bias-corrected natural-device gyro samples; an
+latest six measured poses and up to 64 bias-corrected natural-device gyro samples; an
 acquiring packet retains up to 90 poses for history matching. Sensor and camera
 clocks map through the same validated exchange. A detected clock discontinuity
 clears both histories. Raw sensor/ARCore recordings retain original timestamps.

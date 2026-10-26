@@ -35,7 +35,8 @@ The app uses the headset's installed SteamVR for its automatic VR display.
    pairing, expand **Connection**, select the phone and choose **Pair new phone**.
    Compare and approve matching codes on both devices.
 3. The marker overlay and headset tracking start automatically. Keep the phone
-   within 2 cm of its headset-relative position for 500 ms. When the VR rectangle
+   roughly in view for a brief alignment (two stereo observations spanning at
+   least 80 ms, allowing up to 8 cm relative movement). When the VR rectangle
    is visible and alignment is accepted, the marker disappears and ARCore takes
    over. Recovery displays the overlay again. **Disconnect** stops the session.
 
@@ -74,6 +75,7 @@ have been removed. The supported build and UI use the same single-marker path.
 - [Tracking and replay](frame/docs/FIDUCIAL_TRACKING.md)
 - [VR test display](frame/docs/VR_DISPLAY.md)
 - [Brief-marker ARCore test](frame/docs/ARCORE_HANDOFF.md)
+- [Tracking research and decisions](frame/docs/TRACKING_RESEARCH.md)
 - [Pairing and telemetry](frame/docs/PAIRING_AND_IMU.md)
 - [Architecture](frame/docs/ARCHITECTURE.md), [coordinates](frame/docs/COORDINATE_SYSTEMS.md)
 - [Calibration](frame/docs/CALIBRATION.md), [validation](frame/docs/TRACKING_VALIDATION.md)

@@ -340,11 +340,16 @@ while True:
         until(lambda: panel.result is not None and panel.result['status']=='measured' and
               not (panel.session/'optical-paused').exists())
         assert not panel.handoff_active and phone.displayed, 'ARCore resume must not gate optical detection or accept early'
-        window.terminate('overlay')
-        until(lambda: 'overlay' not in window.processes)
-        until(lambda: panel.result is not None and panel.result['status']=='measured' and
-              not (panel.session/'optical-paused').exists())
-        assert phone.displayed and not panel.handoff_active, 'renderer shutdown incorrectly suppressed detection'
+        # Simulate a genuinely unavailable renderer; the utility otherwise
+        # automatically replaces a deliberately terminated helper.
+        spawn = window.spawn
+        with patch.object(window, 'spawn', side_effect=lambda name, *args, **kw:
+                          False if name == 'overlay' else spawn(name, *args, **kw)):
+            window.terminate('overlay')
+            until(lambda: 'overlay' not in window.processes)
+            until(lambda: panel.result is not None and panel.result['status']=='measured' and
+                  not (panel.session/'optical-paused').exists())
+            assert phone.displayed and not panel.handoff_active, 'renderer shutdown incorrectly suppressed detection'
         phone.acquisition='scan-2-ready'
         phone.ar_state='tracking'
         until(lambda: panel.handoff_active and not phone.displayed)

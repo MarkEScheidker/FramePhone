@@ -33,9 +33,9 @@ Android 12+; application ID `com.example.framephone`. See
 3. Launch FramePhone on the headset. Saved pairing reconnects automatically.
    For a new pairing, use **Connection → Pair new phone** on Frame and confirm
    matching codes on both devices.
-4. Keep the phone's position relative to the headset within 2 cm for 500 ms,
-   with the marker visible in both front cameras. Moving both devices together
-   is allowed. The overlay disappears only after a successful visible VR handoff.
+4. Briefly present the marker to both front cameras. Two accepted stereo
+   observations spanning at least 80 ms can align, allowing up to 8 cm of
+   relative movement. Startup and processing may add time. The overlay disappears only after a successful visible VR handoff.
 
 **Back**, **Home**, opening recent apps or tapping the marker dismisses it and
 pauses tracking until the phone screen is turned off and unlocked again. Retry,

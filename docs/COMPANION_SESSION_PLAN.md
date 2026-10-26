@@ -33,7 +33,7 @@ Normal use:
    permits. The practical baseline is a notification action followed by the
    system screen-sharing approval when required.
 4. The running phone session starts ARCore and shows its marker overlay. Aim
-   for relative movement within 2 cm over 500 ms once ARCore is ready. Hide it only after the
+   for two consistent stereo observations spanning at least 80 ms, allowing up to 8 cm relative movement once ARCore is ready. Hide it only after the
    headset acknowledges a valid alignment from several observations.
 5. Return to Home or another app. ARCore poses travel over Bluetooth; the entire
    display travels over Wi-Fi into the existing SteamVR screen surface.

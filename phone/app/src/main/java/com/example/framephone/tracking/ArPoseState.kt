@@ -123,7 +123,7 @@ object ArPoseState {
                 "headset_not_worn" -> "Waiting for headset to be worn"
                 else -> "Starting tracking"
             }
-            required -> "Hold still"
+            required -> "Aligning"
             else -> "Tracking"
         }
     }

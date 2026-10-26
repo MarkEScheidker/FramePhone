@@ -10,7 +10,8 @@
    there are no Start/Stop, ARCore mode or VR visibility switches.
 4. The dashboard shows compact telemetry and both front camera previews. Point
    the complete marker at both cameras and keep its headset-relative position
-   within 2 cm for at least 500 ms. ID 0 counts, outlines and pose axes show
+   roughly in view for two accepted stereo observations spanning at least 80 ms
+   (up to 8 cm relative movement is allowed). ID 0 counts, outlines and pose axes show
    optical acquisition. Amber outlines can remain when a stereo pose is rejected.
 5. A screen-sized VR rectangle appears automatically. After stable alignment,
    the phone marker hides and ARCore supplies motion. Optical detection pauses;

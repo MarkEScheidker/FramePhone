@@ -13,9 +13,11 @@ this test uses the existing authenticated LAN connection.
    **display over other apps** access; install/update ARCore when requested.
 3. Connect or pair on Frame as usual and put on the headset. Authentication plus a fresh positive wearer signal enables the overlay, and
    Frame automatically starts ARCore handoff and enables the VR rectangle.
-4. Keep the complete tag visible to both front cameras. Its position relative
-   to the headset must stay within 2 cm over at least 500 ms, with at least three
-   distinct accepted observations. The devices may move together in the room.
+4. Briefly show the complete tag to both front cameras. Two distinct accepted
+   stereo observations spanning at least 80 ms can align, with up to 8 cm of
+   headset-relative movement. The candidate world offsets must also agree within
+   5 cm/0.12 rad. Camera/ARCore startup and processing add time. This faster gate
+   deliberately accepts more initial alignment uncertainty.
 5. The renderer confirms a visible rectangle before Frame acknowledges alignment.
    The overlay then closes without changing the foreground app. ARCore continues
    while Home or another app is visible.
@@ -86,8 +88,9 @@ IMU prediction is disabled. ARCore's original frame timestamp is recorded
 separately; its unspecified epoch is never assumed to match the sensor clock.
 Headset camera exposure timing and factory/runtime extrinsics remain unverified.
 
-Stability is a maximum 2 cm spread in headset-relative marker position over a
-minimum 500 ms batch, rather than separate limits on absolute phone/head motion.
+Acquisition permits up to 8 cm of headset-relative marker position spread over
+two or more distinct observations spanning at least 80 ms. It does not require
+separate absolute-phone/head stillness.
 Current ARCore/headset poses also check relative movement during detector work.
 The gate validates registration consistency, optical RMS, distinct observations,
 history proximity and interruptions. Acquisition tolerates detector intervals
@@ -131,7 +134,7 @@ without a per-frame delay or backlog. Both eyes use independent full-resolution
 AprilTag detectors in parallel; corner refinement and pose rejection thresholds
 are unchanged. Optical poses publish before the UI draws them. Alignment changes
 and acknowledgments bypass the periodic diagnostic heartbeat, retaining the
-three-observation, 500 ms, 2 cm stability requirement. Camera captions distinguish
+two-observation, 80 ms, 8 cm acquisition requirement. Camera captions distinguish
 published capture rate (sequence/capture-time deltas) from completed detection/
 solve rate. These are sliding estimates; preview repaint rate is separate.
 
@@ -145,7 +148,7 @@ not a continually processed overlay during ARCore handoff.
 A latest-only publisher delivers validated poses directly from the network
 state to `phone-pose.json` at up to 90 Hz, independently of Tk callbacks. The
 renderer runs at the reported headset display rate (60–144 Hz, 90 Hz fallback)
-and caches unchanged metadata. During tracking, publications contain just two
+and caches unchanged metadata. During tracking, publications contain up to six measured
 ARCore poses and a bounded recent gyro history; acquisition retains a longer
 pose history. Paused packets omit unused gyro data. No queue of stale poses
 builds up, and publication never refreshes capture/receive timestamps.
@@ -154,15 +157,18 @@ Between ARCore frames the renderer predicts rotation using bias-corrected gyro
 samples after the verified camera exposure time. Missing/old samples, unknown
 clock epochs or gaps disable this correction. Integration is capped at 80 ms
 and 0.35 radians; it restarts from an ARCore measurement on every render. Position
-uses recent ARCore velocity for at most 60 ms and 4 cm. Accelerometer-only
+uses a least-squares fit to up to six measured ARCore poses within 100 ms,
+requiring three samples, at least 20 ms span and fit RMS at most 1 cm. Prediction
+stops at 40 ms/2 cm. Accelerometer-only
 position integration is not used. Predicted values never feed registration or
 become subsequent measurements. The 250 ms stale-data cutoff still hides the
 surface rather than continuing to drift.
 
-A visual-only rigid-transform average follows prediction. It uses a 35 ms resting
-time constant and adapts down to 8 ms during motion, filtering rotation on SO(3)
-rather than averaging matrix entries. Small millimeter/degree changes retain the
-resting response. Missing poses, long render gaps, large corrections and new
+A visual-only speed-adaptive filter follows prediction, based on the 1 Euro
+principle of smoothing the derivative before adjusting the cutoff. Resting
+cutoffs are 1.5 Hz for position and 1.2 Hz for rotation, rising to at most 4 Hz
+during motion (roughly 40–133 ms filter time constants). Rotation stays on SO(3).
+This deliberately prioritizes steadiness over minimal added lag. Missing poses, long render gaps, large corrections and new
 acquisitions reset the filter. Neither smoothing nor prediction changes the raw
 alignment/history, and smoothing does not correct accumulated ARCore/world drift.
 
@@ -188,6 +194,9 @@ Relevant code: Android `tracking/ArPoseService.kt` and `ArPoseState.kt`, desktop
 `arcore_handoff.hpp`, `pose_prediction.hpp`, `pose_smoothing.hpp` and `overlay_main.cpp`. Native registration tests run without SteamVR; synthetic
 GUI tests check the acknowledgment/gate lifecycle. Neither establishes physical
 accuracy or actual Android background-camera behavior.
+
+See [tracking research and decisions](TRACKING_RESEARCH.md) for source evidence,
+tuning rationale, damaged-cell recovery and the limits of partial occlusion.
 
 ARCore reference: [sensor pose and frame timestamp](https://developers.google.com/ar/reference/java/com/google/ar/core/Frame).
 See also [coordinates](COORDINATE_SYSTEMS.md), [VR display](VR_DISPLAY.md) and

@@ -134,7 +134,7 @@ private class TagView(context: Context, private val dismiss: () -> Unit) : View(
     }
     override fun performClick(): Boolean { super.performClick(); return true }
 
-    var hintText = "Hold phone steady"
+    var hintText = "Aligning"
         set(value) { if (field != value) { field = value; invalidate() } }
     private val paint = Paint().apply { color = Color.BLACK; isAntiAlias = false }
     private val hint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -156,14 +156,14 @@ class ArcoreHandoff {
             compose(inverse(heads_.back().second), compose(candidate, current));
         const std::array<double, 3> position{(*measured)[3], (*measured)[7], (*measured)[11]};
         const auto moved = [](const auto &a, const auto &b) {
-            return std::hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > .02;
+            return std::hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > .08;
         };
         const std::array<double, 3> current_position{relative_now[3], relative_now[7],
                                                      relative_now[11]};
         bool unstable = moved(current_position, position);
         for (const auto &previous : relative_positions_)
             unstable = unstable || moved(previous, position) || moved(previous, current_position);
-        if (!count_ || unstable || !near(base_alignment_, candidate, .04, .08)) {
+        if (!count_ || unstable || !near(base_alignment_, candidate, .05, .12)) {
             count_ = 1;
             first_ = observed;
             last_ = observed;
@@ -182,8 +182,9 @@ class ArcoreHandoff {
                 relative_positions_.pop_front();
         }
         state["reason"] =
-            "keep phone within 2 cm for 500 ms: " + std::to_string(count_) + " good frames";
-        if (!unstable && count_ >= 3 && observed - first_ >= 500'000'000) {
+            "aligning phone (brief 8 cm motion allowance): " + std::to_string(count_) +
+            " good frames";
+        if (!unstable && count_ >= 2 && observed - first_ >= 80'000'000) {
             world_anchor_ = candidate;
             state["state"] = "tracking";
             state["reason"] = "ARCore pose; optical detection paused";

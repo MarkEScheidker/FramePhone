@@ -1,5 +1,6 @@
 #pragma once
 #include "arcore_handoff.hpp"
+#include <vector>
 
 namespace framephone::surface {
 struct PredictedPose {
@@ -24,6 +25,59 @@ inline Matrix angular_step(const std::array<double, 3> &w, double seconds) {
     return rotation;
 }
 
+/** Least-squares velocity from a short measured history, rather than a noisy
+ * two-frame difference. No predicted or smoothed values enter this fit. */
+inline std::optional<std::array<double, 3>> measured_velocity(const nlohmann::json &poses) {
+    const auto &latest = poses.back();
+    const auto base = pose_time_ns(latest);
+    struct Point {
+        double t;
+        std::array<double, 3> p;
+    };
+    std::vector<Point> points;
+    points.reserve(6);
+    for (std::size_t i = poses.size() > 6 ? poses.size() - 6 : 0; i < poses.size(); ++i) {
+        const auto &sample = poses[i];
+        const auto age = base - pose_time_ns(sample);
+        if (sample.at("state") != "tracking" ||
+            sample.at("generation") != latest.at("generation") ||
+            sample.at("acquisition") != latest.at("acquisition") || age < 0 || age > 100'000'000)
+            continue;
+        const auto m = phone_pose(sample);
+        points.push_back({-double(age) / 1e9, {m[3], m[7], m[11]}});
+    }
+    if (points.size() < 3 || points.back().t - points.front().t < .02)
+        return {};
+    double mean_t = 0;
+    std::array<double, 3> mean{}, velocity{};
+    for (const auto &point : points) {
+        mean_t += point.t / points.size();
+        for (int k = 0; k < 3; ++k)
+            mean[k] += point.p[k] / points.size();
+    }
+    double denominator = 0;
+    for (const auto &point : points) {
+        const double dt = point.t - mean_t;
+        denominator += dt * dt;
+        for (int k = 0; k < 3; ++k)
+            velocity[k] += dt * (point.p[k] - mean[k]);
+    }
+    if (denominator < 1e-10)
+        return {};
+    for (auto &v : velocity)
+        v /= denominator;
+    double error = 0;
+    for (const auto &point : points)
+        for (int k = 0; k < 3; ++k) {
+            const double residual = point.p[k] - mean[k] - velocity[k] * (point.t - mean_t);
+            error += residual * residual;
+        }
+    if (std::hypot(velocity[0], velocity[1], velocity[2]) > 3 ||
+        std::sqrt(error / points.size()) > .01)
+        return {};
+    return velocity;
+}
+
 /** Recompute from an ARCore measurement on every render. Predicted values never
  * feed registration or become the next measurement; no unbounded integration. */
 inline PredictedPose predict_pose(const Matrix &world, const nlohmann::json &phone,
@@ -35,30 +89,15 @@ inline PredictedPose predict_pose(const Matrix &world, const nlohmann::json &pho
     if (base < 0 || std::int64_t(now) <= base || std::int64_t(now) - base > 250'000'000)
         return out;
     const auto age = std::int64_t(now) - base;
-    if (poses.size() >= 2) {
-        const auto &previous = poses[poses.size() - 2];
-        const auto dt = base - pose_time_ns(previous);
-        if (previous.at("state") == "tracking" &&
-            previous.at("generation") == latest.at("generation") &&
-            previous.at("acquisition") == latest.at("acquisition") && dt >= 5'000'000 &&
-            dt <= 200'000'000) {
-            const auto current_device = phone_pose(latest), previous_device = phone_pose(previous);
-            std::array<double, 3> velocity{};
+    if (const auto velocity = measured_velocity(poses)) {
+        const auto world_anchor = compose(world, inverse(phone_pose(latest)));
+        const double speed = std::hypot((*velocity)[0], (*velocity)[1], (*velocity)[2]);
+        const double seconds = std::min(age, std::int64_t(40'000'000)) / 1e9;
+        const double scale = speed * seconds > .02 ? .02 / (speed * seconds) : 1;
+        for (int r = 0; r < 3; ++r)
             for (int k = 0; k < 3; ++k)
-                velocity[k] =
-                    (current_device[k * 4 + 3] - previous_device[k * 4 + 3]) / (double(dt) / 1e9);
-            const double speed = std::hypot(velocity[0], velocity[1], velocity[2]);
-            if (speed <= 3) {
-                const auto world_anchor = compose(world, inverse(current_device));
-                const double seconds = std::min(age, std::int64_t(60'000'000)) / 1e9;
-                const double scale = speed * seconds > .04 ? .04 / (speed * seconds) : 1;
-                for (int r = 0; r < 3; ++r)
-                    for (int k = 0; k < 3; ++k)
-                        out.pose[r * 4 + 3] +=
-                            world_anchor[r * 4 + k] * velocity[k] * seconds * scale;
-                out.milliseconds = seconds * 1000;
-            }
-        }
+                out.pose[r * 4 + 3] += world_anchor[r * 4 + k] * (*velocity)[k] * seconds * scale;
+        out.milliseconds = seconds * 1000;
     }
     // Raw IMU rotation requires a verified camera/IMU epoch, not ARCore's
     // unspecified frame timestamp or the later update-completion timestamp.

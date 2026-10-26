@@ -342,7 +342,7 @@ class Telemetry:
             if poses[-1]["state"] != "tracking":
                 poses = poses[-1:]
             elif not poses[-1]["marker_required"]:
-                poses = poses[-2:]
+                poses = poses[-6:]
         mapped = []
         if self.offset_ns is not None:
             for sample in poses:

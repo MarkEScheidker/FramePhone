@@ -16,7 +16,8 @@ Json sample(std::uint64_t time, double x) {
 }
 Json packet(std::uint64_t time, double previous_x = 0, double current_x = 0,
             unsigned span_ms = 20) {
-    Json p{{"poses", Json::array({sample(time - 10'000'000, previous_x), sample(time, current_x)})},
+    Json p{{"poses", Json::array({sample(time - 20'000'000, 2 * previous_x - current_x),
+                                  sample(time - 10'000'000, previous_x), sample(time, current_x)})},
            {"gyro", Json::array()}};
     for (unsigned i = 0; i <= span_ms / 5; ++i)
         p["gyro"].push_back({{"host_t_ns", time + i * 5'000'000ULL}, {"w_rad_s", {1, 0, 0}}});
@@ -40,13 +41,13 @@ int main() {
               "anchor velocity must rotate into world space");
         data = packet(stamp, 0, .01, 100);
         auto later = predict_pose(world, data, stamp + 100'000'000);
-        check(std::abs(later.pose[7] - .14) < 1e-10 && later.milliseconds <= 80,
-              "translation must stop at 4 cm and rotation at 80 ms");
+        check(std::abs(later.pose[7] - .12) < 1e-10 && later.milliseconds <= 80,
+              "translation must stop at 2 cm and rotation at 80 ms");
         for (int i = 0; i < 100; ++i)
             check(
                 near(predict_pose(world, data, stamp + 100'000'000).pose, later.pose, 1e-10, 1e-7),
                 "prediction must never feed itself and drift with repeated render calls");
-        data["poses"][1].erase("capture_t_ns");
+        data["poses"][2].erase("capture_t_ns");
         check(!predict_pose(world, data, stamp + 20'000'000).gyro,
               "unknown capture clock must disable gyro prediction");
         data = packet(stamp, 0, 0, 60);
@@ -85,7 +86,7 @@ int main() {
                 check(std::abs(compose(inverse(smoothed), smoothed)[0] - 1) < 1e-10,
                       "smoothing must preserve rigid rotation");
             }
-            check(error / hz < .0015, "stationary jitter should be reduced");
+            check(error / hz < .0005, "stationary jitter should be reduced");
             filter.reset();
             target = identity();
             filter.update(target, t);
@@ -93,7 +94,8 @@ int main() {
                 target[3] += 1. / hz;
                 t += 1'000'000'000 / hz;
                 const auto smoothed = filter.update(target, t);
-                check(target[3] - smoothed[3] < .015, "smoothing must retain responsive motion");
+                check(target[3] - smoothed[3] < .085,
+                      "motion lag must stay bounded despite stronger smoothing");
             }
             filter.reset();
             target[3] = 10;
@@ -102,6 +104,37 @@ int main() {
             target[3] = 20;
             check(filter.update(target, t + 200'000'000)[3] == 20, "pause must reset smoothing");
         }
+        // Hold each measured target between sparse ARCore arrivals; filtering
+        // must still reduce jitter when the source is slower than rendering.
+        for (unsigned source_hz : {10, 30}) {
+            PoseSmoothing filter;
+            auto target = identity();
+            auto t = stamp;
+            filter.update(target, t);
+            double jitter = 0;
+            for (unsigned tick = 0; tick < 180; ++tick) {
+                target[3] = (tick * source_hz / 90) % 2 ? .003 : -.003;
+                t += 1'000'000'000 / 90;
+                const auto smoothed = filter.update(target, t);
+                if (tick >= 90)
+                    jitter += std::abs(smoothed[3]);
+            }
+            check(jitter / 90 < .0013, "sparse pose arrivals must not bypass smoothing");
+        }
+        data = packet(stamp, 0, 0);
+        data["poses"] = Json::array();
+        for (unsigned i = 0; i < 6; ++i)
+            data["poses"].push_back(
+                sample(stamp - 50'000'000 + i * 10'000'000, i % 2 ? .003 : -.003));
+        const auto fitted = measured_velocity(data["poses"]);
+        check(fitted && std::abs((*fitted)[0]) < .06,
+              "history regression must suppress alternating position noise");
+        data["poses"].back()["translation_m"][0] = .15;
+        check(!measured_velocity(data["poses"]), "large history residual must disable prediction");
+        data = packet(stamp, 0, .01);
+        data["poses"].erase(data["poses"].begin());
+        check(!measured_velocity(data["poses"]),
+              "two samples must not amplify noisy position differences");
         HeadsetPresence presence;
         check(!presence.update(stamp, false, true, true).available,
               "disconnected headset cannot enable marker");

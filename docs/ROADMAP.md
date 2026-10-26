@@ -8,7 +8,7 @@ motion timing before adding Bluetooth and screen video.
 
 - Automatic screen-width marker overlay, width/height setup and pinned LAN pairing.
 - Native AprilTag detection, factory KB4 calibration, stereo pose and replay.
-- Marker-to-ARCore world registration with a 2 cm / 500 ms relative stability gate.
+- Marker-to-ARCore world registration with two observations spanning 80 ms with up to 8 cm relative movement.
 - A latest-only renderer channel, bounded gyro/velocity prediction and rate/age diagnostics.
 - Camera access as a standalone module, a bundled broker and one desktop executable.
 - Optional bounded recordings of camera, sensor, ARCore and clock evidence.

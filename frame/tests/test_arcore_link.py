@@ -66,19 +66,19 @@ class ArcoreLinkTests(unittest.TestCase):
         state = self.telemetry()
         state.clock_reply({"session": "test-session", "h0": 1_900_000_000,
                            "p1": 900_500_000, "p2": 900_500_000}, 1_901_000_000, {1_900_000_000})
-        for i in range(4):
+        for i in range(8):
             pose = dict(pose_message(i+1, 1_000_000_000+i*10_000_000), marker_required=False,
                         capture_t_ns=980_000_000+i*10_000_000,
                         capture_time_source="camera2_realtime_center_exposure")
             state.receive(pose, 2_000_000_000+i*10_000_000)
         gyro = batch()
         gyro["samples"][0].update(v=[.1, .2, .3], bias=[.01, .02, .03])
-        state.receive(gyro, 2_040_000_000)
-        packet = state.pose_packet(2_040_000_000, compact=True)
-        self.assertEqual(len(packet["poses"]), 2)
-        self.assertEqual(len(state.arcore_poses), 4)
-        self.assertEqual(packet["poses"][-1]["pose_host_t_ns"], 2_010_000_000)
-        self.assertEqual(packet["poses"][-1]["host_t_ns"], 2_030_000_000)
+        state.receive(gyro, 2_080_000_000)
+        packet = state.pose_packet(2_080_000_000, compact=True)
+        self.assertEqual(len(packet["poses"]), 6)
+        self.assertEqual(len(state.arcore_poses), 8)
+        self.assertEqual(packet["poses"][-1]["pose_host_t_ns"], 2_050_000_000)
+        self.assertEqual(packet["poses"][-1]["host_t_ns"], 2_070_000_000)
         for actual, expected in zip(packet["gyro"][0]["w_rad_s"], [.09, .18, .27]):
             self.assertAlmostEqual(actual, expected)
         self.assertEqual(packet["pose_hz"], 100)

@@ -32,7 +32,8 @@ cv::Vec3d origin(std::size_t v) {
 cv::Matx33d intrinsic(const CameraCalibration &k) {
     return {k.fx, 0, k.cx, 0, k.fy, k.cy, 0, 0, 1};
 }
-StereoPair render(const StereoRig &rig, cv::Matx33d hm, cv::Vec3d t, std::uint64_t time) {
+StereoPair render(const StereoRig &rig, cv::Matx33d hm, cv::Vec3d t, std::uint64_t time,
+                  unsigned damaged_cells = 0) {
     StereoPair pair;
     for (std::size_t v = 0; v < 2; ++v) {
         const auto &k = rig.cameras[v].calibration;
@@ -61,8 +62,12 @@ StereoPair render(const StereoRig &rig, cv::Matx33d hm, cv::Vec3d t, std::uint64
             if (distance > 0 && std::abs(p[0]) < .0375 && std::abs(p[1]) < .0375) {
                 const auto x = std::size_t((p[0] + .0375) / .0075),
                            y = std::size_t((.0375 - p[1]) / .0075);
-                if (x < 10 && y < 10)
-                    f.pixels[i] = bitmap[y][x] == '1' ? 0 : 255;
+                if (x < 10 && y < 10) {
+                    bool black = bitmap[y][x] == '1';
+                    if (y == 2 && x >= 2 && x < 2 + damaged_cells)
+                        black = !black;
+                    f.pixels[i] = black ? 0 : 255;
+                }
             }
         }
     }
@@ -135,6 +140,30 @@ int main(int argc, char **argv) {
                              tags[0].corners[i].y - expected[i].y) < 2,
                   "decoded physical corner order");
         check(detector.detect(render_tag(1)).at(0).id == 1, "wrong ID fixture");
+        for (unsigned errors = 1; errors <= 3; ++errors) {
+            auto damaged = raster;
+            for (unsigned cell = 0; cell < errors; ++cell)
+                for (unsigned y = 64; y < 96; ++y)
+                    for (unsigned x = (cell + 2) * 32; x < (cell + 3) * 32; ++x)
+                        damaged.pixels[y * damaged.stride_bytes + x] ^= 255;
+            const auto decoded = detector.detect(damaged);
+            if (errors <= 2)
+                check(decoded.size() == 1 && decoded[0].id == 0 &&
+                          decoded[0].hamming == int(errors),
+                      "one/two corrupted data cells must be corrected");
+            else
+                check(decoded.empty(), "beyond two corrected cells must not decode");
+        }
+        for (unsigned errors = 1; errors <= 2; ++errors) {
+            cv::Matx33d tilted;
+            cv::Rodrigues(cv::Vec3d(.2, -.3, .1), tilted);
+            const auto damaged = render(rig, tilted, {0, 0, -.6}, 1'000'000'000, errors);
+            FiducialTracker corrected(.06, rig);
+            const auto found = corrected.update(damaged);
+            accuracy(found.pose, tilted, {0, 0, -.6}, .012, .07);
+            check(found.detections[0].at(0).hamming == int(errors),
+                  "stereo must accept bounded corrected codes");
+        }
         auto pair = render(rig, cv::Matx33d::eye(), {0, 0, -.6}, 1'000'000'000);
         StereoFramePairer pairer(rig);
         pair.frames[1].capture_time_ns = 1'003'000'000;
