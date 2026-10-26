@@ -104,6 +104,8 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
                 self.required = False
             else:
                 self.required = True
+                if self.ar_state == "tracking":
+                    self.displayed = True
             return True
         def snapshot(self):
             now = time.monotonic_ns()
@@ -153,7 +155,7 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
                       "    if state!=previous: log.write(state+'\\n'); previous=state\n"
                       "    time.sleep(.01)\n")
     runtime.overlay_command = [sys.executable, "-B", str(helper)]
-    panel.vr_enabled.set(True)
+    assert not hasattr(panel, "vr_enabled"), "VR rendering must be automatic"
     def until(predicate, timeout=10):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -319,7 +321,7 @@ while True:
         (panel.session/'allow-visible').touch()
         until(lambda: panel.handoff_active and not phone.displayed)
         assert panel.busy and panel.config['arcore_handoff'] and 'overlay' in window.processes
-        assert not panel.arcore_toggle.winfo_ismapped()
+        assert not hasattr(panel, 'arcore_toggle') and not hasattr(panel, 'start_button')
         assert 'alignment_accepted' in phone.commands
         until(lambda: not window.preview_reader.workers)
         assert (panel.session/'optical-paused').exists()
@@ -357,17 +359,41 @@ while True:
         assert panel.config['fiducial']['screen_height_px']==target['screen_height_px']
         (panel.session/'allow-visible').touch()
         until(lambda: panel.handoff_active and not phone.displayed)
-        panel.stop(manual=True)
-        until(lambda: not panel.busy and 'overlay' not in window.processes)
+        previous_session = panel.session
         phone.acquisition='scan-4'
         phone.required=True
         phone.displayed=True
-        deadline=time.monotonic()+.4
-        until(lambda: time.monotonic()>=deadline)
-        assert not panel.busy, 'deliberate Stop restarted automatically'
+        # Simulate a transient native worker failure. Keep the same phone
+        # acquisition and require an automatic restart.
+        with panel.process_lock:
+            panel.process.kill()
+        until(lambda: panel.busy and panel.session != previous_session)
+        assert panel.config['phone_session'] == phone.session_id
+        (panel.session/'allow-visible').touch()
+        until(lambda: panel.handoff_active and not phone.displayed)
+        previous_renderer = window.processes['overlay']
+        previous_renderer.kill()
+        until(lambda: window.processes.get('overlay') is not None and
+              window.processes['overlay'] != previous_renderer and panel.handoff_active)
+        # Failure after accepted handoff must request a marker automatically;
+        # otherwise a hidden marker would prevent every subsequent restart.
+        previous_session = panel.session
+        phone.commands.clear()
+        with panel.process_lock:
+            panel.process.kill()
+        until(lambda: 'alignment_lost' in phone.commands and panel.busy and panel.session != previous_session)
+        (panel.session/'allow-visible').touch()
+        until(lambda: panel.handoff_active and not phone.displayed)
+        # A connected but marker-hidden (locked/dismissed) phone must not run
+        # optical acquisition or start a new session in a loop.
+        phone.ar_state='paused'
+        phone.required=True
+        phone.displayed=False
+        until(lambda: not panel.handoff_active and (panel.session/'optical-paused').exists())
+        assert panel.busy
         window.phone_panel.link=None
         assert not panel.handoff_active
-        print('Tk ARCore acknowledgment, detector suspension, reacquisition, layout recovery and manual Stop passed')
+        print('Tk automatic VR, ARCore handoff, detector suspension, layout recovery and same-acquisition worker/renderer retries passed')
     finally:
         stop.set()
         writer.join(timeout=2)

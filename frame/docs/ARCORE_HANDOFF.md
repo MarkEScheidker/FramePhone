@@ -33,9 +33,17 @@ cancellation.
 
 An independent `framephone-overlay --presence ACTION_MANIFEST` client runs before
 acquisition. Its hidden OpenVR action set binds only `/user/head/proximity` through
-the headset's reported input profile (using private, temporary binding files); movement/activity is never substituted for wear detection.
+the headset's reported input profile (using private, temporary binding files).
+If the driver does not expose that action, the monitor falls back to OpenVR's
+HMD activity state, as used by [Frametop's power service](https://github.com/Frametop/frametop/blob/adebd7d6cfc938477bf8e42a8bcb1c41a32a6f9c/power/ft-powerd.cpp).
+UserInteraction/Timeout counts as active, Idle/Idle_Timeout/Standby as inactive,
+with a 500 ms debounce. Unknown state and disconnect remain unavailable.
+Direct proximity takes precedence, including a negative reading. Activity is
+an approximation: movement can keep an unworn headset active, and inactivity
+can take time to register. The activity log identifies the signal in use.
+Missing proximity alone never blocks a known active headset.
 The desktop forwards a session-scoped wearer heartbeat over the existing TLS link.
-Absent, inactive, disconnected or stale inputs fail closed. The phone pauses its
+Unknown, disconnected or stale signals fail closed. The phone pauses its
 ARCore camera and hides the marker when the headset is not worn; resuming requests
 a fresh generation and alignment. SteamVR/input failure is visible in Frame's
 status/log. The binding and navigation paths require validation on the devices.
@@ -103,6 +111,18 @@ the authenticated connection. Displayed
 markers are detected even while ARCore is resuming; detection is not gated on
 ARCore readiness or renderer availability. Display geometry changes restart the
 optical session without blocking the paired link.
+
+## Automatic lifecycle
+
+The dashboard has no Start/Stop, VR visibility or ARCore mode switches. A connected
+phone showing its marker starts the native tracker and VR renderer automatically.
+Optical acquisition pauses after handoff or while the marker is hidden; valid
+ARCore poses continue to render. Disconnect, lock, wearer state and deliberate
+Back/Home dismissal still control phone-side availability. Worker or renderer
+failure retries with a capped backoff; failure after handoff requests a fresh
+phone marker so recovery cannot wait on a hidden target. Retry does not override
+phone-side dismissal. A replacement renderer must publish its own visibility
+heartbeat before alignment is acknowledged.
 
 ## CPU use and diagnostics
 

@@ -233,7 +233,7 @@ Android currently targets SDK 36; future target-37 builds must account for
 
 Updated phones also report `automatic_marker_v1:true`. Frame selects ARCore
 handoff automatically and starts when the authenticated marker state becomes
-visible. Deliberate Stop suppresses automatic restart for that connection. The
+visible. Tracking and VR rendering are automatic, with capped retries after native failures. Phone-side Back/Home dismissal remains suppressed until the next unlock. The
 phone arms its camera foreground service from the visible Connect action, opens
 ARCore only after authentication, and controls a TYPE_APPLICATION_OVERLAY window.
 Lock/disconnect/loss fence acquisition IDs. Successful acknowledgment requires

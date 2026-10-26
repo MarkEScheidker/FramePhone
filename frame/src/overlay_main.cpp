@@ -1,3 +1,4 @@
+#include "headset_presence.hpp"
 #include "pose_smoothing.hpp"
 #include <chrono>
 #include <csignal>
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <openvr.h>
 #include <sys/prctl.h>
 #include <thread>
@@ -180,65 +182,100 @@ struct TemporaryDirectory {
         std::filesystem::remove_all(path, ignored);
     }
 };
-// Separate from the screen renderer: presence must work before any phone marker
-// exists. Only the actual HMD proximity input grants permission, never motion.
+// Presence must be observable before a phone marker or screen renderer exists.
 void presence(const std::filesystem::path &manifest) {
     Client client;
     client.open(vr::VRApplication_Background);
-    // HMDs have device-specific controller types. Bind the reported type rather
-    // than assuming every headset inherits the legacy generic_hmd profile.
-    vr::ETrackedPropertyError error{};
-    char controller[128]{};
-    client.system->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
-                                                  vr::Prop_ControllerType_String, controller,
-                                                  sizeof(controller), &error);
-    if (error != vr::TrackedProp_Success || !controller[0])
-        throw std::runtime_error("Headset input profile unavailable; waiting for SteamVR");
-    auto actions = read(manifest), binding = read(manifest.parent_path() / "headset.json");
-    actions["default_bindings"][0]["controller_type"] = controller;
-    binding["controller_type"] = controller;
-    TemporaryDirectory files;
-    const auto active_manifest = files.path / "actions.json";
-    for (const auto &item : {std::make_pair(active_manifest, actions),
-                             std::make_pair(files.path / "headset.json", binding)}) {
-        std::ofstream file(item.first);
-        file << item.second.dump() << '\n';
-        file.close();
-        if (!file)
-            throw std::runtime_error("cannot write headset presence bindings");
-    }
-    std::cout << "Headset proximity input profile: " << controller << '\n';
     vr::VRActionSetHandle_t set = vr::k_ulInvalidActionSetHandle;
     vr::VRActionHandle_t action = vr::k_ulInvalidActionHandle;
-    bool bound =
-        client.input &&
-        client.input->SetActionManifestPath(active_manifest.c_str()) == vr::VRInputError_None &&
-        client.input->GetActionSetHandle("/actions/presence", &set) == vr::VRInputError_None &&
-        client.input->GetActionHandle("/actions/presence/in/worn", &action) ==
-            vr::VRInputError_None;
-    if (!bound)
-        throw std::runtime_error(
-            "Headset proximity input unavailable; marker acquisition disabled");
+    std::unique_ptr<TemporaryDirectory> files;
+    bool bound = false;
+    try {
+        if (!client.input)
+            throw std::runtime_error("SteamVR input interface unavailable");
+        vr::ETrackedPropertyError error{};
+        char controller[128]{};
+        client.system->GetStringTrackedDeviceProperty(vr::k_unTrackedDeviceIndex_Hmd,
+                                                      vr::Prop_ControllerType_String, controller,
+                                                      sizeof(controller), &error);
+        // Some HMD drivers do not expose a controller type. It is not a condition
+        // for using their system-level activity state.
+        const std::string type =
+            error == vr::TrackedProp_Success && controller[0] ? controller : "generic_hmd";
+        auto actions = read(manifest), binding = read(manifest.parent_path() / "headset.json");
+        actions["default_bindings"][0]["controller_type"] = type;
+        binding["controller_type"] = type;
+        files = std::make_unique<TemporaryDirectory>();
+        const auto active_manifest = files->path / "actions.json";
+        for (const auto &item : {std::make_pair(active_manifest, actions),
+                                 std::make_pair(files->path / "headset.json", binding)}) {
+            std::ofstream file(item.first);
+            file << item.second.dump() << '\n';
+            file.close();
+            if (!file)
+                throw std::runtime_error("cannot write proximity binding");
+        }
+        bound =
+            client.input->SetActionManifestPath(active_manifest.c_str()) == vr::VRInputError_None &&
+            client.input->GetActionSetHandle("/actions/presence", &set) == vr::VRInputError_None &&
+            client.input->GetActionHandle("/actions/presence/in/worn", &action) ==
+                vr::VRInputError_None;
+    } catch (const std::exception &error) {
+        std::cout << "Proximity binding unavailable: " << error.what()
+                  << "; using SteamVR activity.\n";
+    }
+    HeadsetPresence policy;
+    std::string previous_source;
     while (!stopped) {
         vr::VREvent_t event{};
         while (client.system->PollNextEvent(&event, sizeof(event)))
             if (event.eventType == vr::VREvent_Quit)
                 stopped = 1;
+        const bool connected =
+            !stopped && client.system->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd);
         vr::InputDigitalActionData_t data{};
-        vr::VRActiveActionSet_t active{};
-        active.ulActionSet = set;
-        const bool available =
-            !stopped && bound &&
-            client.system->IsTrackedDeviceConnected(vr::k_unTrackedDeviceIndex_Hmd) &&
-            client.input->UpdateActionState(&active, sizeof(active), 1) == vr::VRInputError_None &&
+        vr::VRActiveActionSet_t active_set{};
+        active_set.ulActionSet = set;
+        std::optional<bool> proximity, active;
+        if (connected && bound &&
+            client.input->UpdateActionState(&active_set, sizeof(active_set), 1) ==
+                vr::VRInputError_None &&
             client.input->GetDigitalActionData(action, &data, sizeof(data),
                                                vr::k_ulInvalidInputValueHandle) ==
                 vr::VRInputError_None &&
-            data.bActive;
+            data.bActive)
+            proximity = data.bState;
+        if (connected) {
+            const auto activity =
+                client.system->GetTrackedDeviceActivityLevel(vr::k_unTrackedDeviceIndex_Hmd);
+            switch (activity) {
+            case vr::k_EDeviceActivityLevel_UserInteraction:
+            case vr::k_EDeviceActivityLevel_UserInteraction_Timeout:
+                active = true;
+                break;
+            case vr::k_EDeviceActivityLevel_Idle:
+            case vr::k_EDeviceActivityLevel_Idle_Timeout:
+            case vr::k_EDeviceActivityLevel_Standby:
+                active = false;
+                break;
+            default:
+                break;
+            }
+        }
+        const auto now = now_ns();
+        const auto state = policy.update(now, connected, proximity, active);
+        const std::string source = state.proximity   ? "proximity"
+                                   : state.available ? "steamvr_activity"
+                                                     : "unavailable";
+        if (source != previous_source) {
+            std::cout << "Headset presence source: " << source << '\n';
+            previous_source = source;
+        }
         std::cout << Json{{"schema", "framephone-headset-presence-v1"},
-                          {"available", available},
-                          {"worn", available && data.bState},
-                          {"updated_host_monotonic_ns", now_ns()}}
+                          {"available", state.available},
+                          {"worn", state.worn},
+                          {"source", source},
+                          {"updated_host_monotonic_ns", now}}
                          .dump()
                   << '\n';
         std::this_thread::sleep_for(std::chrono::milliseconds(100));

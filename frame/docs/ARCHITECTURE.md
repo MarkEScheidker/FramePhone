@@ -3,7 +3,7 @@
 The phone briefly displays a width-filling AprilTag. Frame measures its pose in
 two front grayscale cameras, registers anchored ARCore motion to SteamVR standing
 space, then renders a screen rectangle with bounded prediction and visual smoothing.
-An independent headset-proximity monitor enables acquisition only while worn.
+An independent monitor uses headset proximity, with SteamVR activity as a fallback, to gate acquisition.
 Raw IMU telemetry remains available alongside the tracking path.
 
 ```mermaid
@@ -16,7 +16,7 @@ flowchart LR
     Pose --> VR[SteamVR screen rectangle]
     ARCore[Anchored phone pose and gyro] --> Predict[Bounded prediction and smoothing]
     Predict --> VR
-    Wearer[OpenVR headset proximity] --> TLS
+    Wearer[OpenVR proximity or HMD activity] --> TLS
     Phone --> TLS[Paired TLS: sensors and marker geometry/state]
     TLS --> UI
 ```
@@ -78,7 +78,7 @@ front_cameras.py; saved camera assignments are not loaded and no camera selector
 are exposed. Startup launches wearer monitoring, camera authorization and phone discovery. Saved
 phone candidates are bounded and checked with the existing certificate pin;
 first-time pairing remains an explicit, fingerprint-approved action. Connection
-controls and the activity log expand inline. Raw sensor telemetry and recording
+controls and the activity log expand inline. Tracking, ARCore selection and the VR rectangle are automatic; native failures retry without a manual Start/Stop state. Raw sensor telemetry and recording
 remain independent from optical pose estimation.
 
 `pose_stream.py` owns bounded renderer publication rather than the Tk timer.

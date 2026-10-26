@@ -6,21 +6,24 @@
    and searches for the saved phone. Approve the desktop camera authorization
    prompt if shown. For first pairing, use **Connection → Pair new phone** and
    verify the fingerprint on both devices.
-3. On the phone tap **Show fullscreen tracking marker**. Keep it displayed.
-4. The single dashboard shows compact telemetry and both front camera previews.
-   Tag outlines appear before tracking starts. Use **Retry cameras** after a
-   startup failure, and **Connection → Reconnect** to retry the saved phone.
-5. Click **Start tracking**. Look for left/right ID 0 counts, marker outlines,
-   XYZ, distance, angles and reprojection RMS. Tilt and move the phone slowly.
-   Red/green/blue axes on the matched camera frames show the accepted 3D pose.
-   Amber tag outlines can remain when a stereo pose is rejected.
-6. Enable **Show rectangle in VR (SteamVR)**. With SteamVR active, a translucent
-   screen-sized rectangle with a green outline should follow the marker. This renderer needs hardware
-   validation; its head alignment and motion timing are provisional. Details
-   appear under **Activity log** if loading fails.
-7. Cover the marker: pose and VR object must disappear. Reveal it: they should
-   return automatically. Leaving the marker Activity stops the test; show it and
-   Start tracking again. Stop/disconnect must clear the pose and VR display.
+3. Put on the headset and unlock the phone. The marker appears automatically;
+   there are no Start/Stop, ARCore mode or VR visibility switches.
+4. The dashboard shows compact telemetry and both front camera previews. Point
+   the complete marker at both cameras and keep its headset-relative position
+   within 2 cm for at least 500 ms. ID 0 counts, outlines and pose axes show
+   optical acquisition. Amber outlines can remain when a stereo pose is rejected.
+5. A screen-sized VR rectangle appears automatically. After stable alignment,
+   the phone marker hides and ARCore supplies motion. Optical detection pauses;
+   the rectangle should keep following the phone. Preview capture/detection
+   rates and ARCore/render rates measure different stages.
+6. Lock/unlock the phone to test reacquisition. Back/Home, recent apps or tapping
+   the visible marker cancels tracking until the next screen-off/unlock cycle.
+   Taking off the headset disables acquisition when proximity or the fallback
+   activity state reports inactive. The activity log identifies the source.
+7. Disconnect the phone: current pose and VR display must clear. Reconnect and
+   unlock to resume automatically. Native tracker/renderer failures retry without
+   pressing a tracking button. If the wear sensor is reported unavailable, keep
+   SteamVR running and include the presence-source/error lines from Activity log.
 
 The application uses the confirmed video3/slam_left and video0/slam_right
 pair. Saved camera mappings are ignored; there are no camera/calibration
@@ -33,14 +36,15 @@ positions at several distances and angles. Scale comes from Android's reported
 physical DPI; fullscreen sizing alone does not prove millimeter accuracy. The
 rectangle is centered at the marker, not a measured case/body origin.
 
-For debugging, enable **Record cameras + telemetry** before
-Start. Stop, then use **Open results** and copy the newest complete `tag-*` trial.
-Include `tracker.log`, `session.json`, factory data and `run/poses.jsonl`; enable
-recording for replayable images. No screen capture or ARCore is involved.
+For debugging, enable **Record cameras + telemetry** before connecting the
+phone (disconnect/reconnect to begin a new recorded session). Use **Open results**
+and copy the newest complete `tag-*` trial after disconnecting. Include
+`tracker.log`, `session.json`, factory data and `run/poses.jsonl`; recording adds
+replayable images and phone telemetry, without screen capture.
 
-For "no synchronized pair", read `tracker.log`: it now includes left/right frame
-counts and the latest capture skew versus the 3 ms gate. Camera previews continue
-even after this failure; boxes in those views are per-camera 2D detections.
+For "no synchronized pair", read `tracker.log` for left/right frame counts and
+the latest capture skew versus the 3 ms gate. Native acquisition retries while
+the phone marker is available. Per-camera boxes alone are 2D detections.
 
 Camera startup and process errors appear in **Activity log** and `desktop.log`.
 Close the previous FramePhone window before opening a rebuilt executable, so startup creates a fresh camera session.

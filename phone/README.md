@@ -41,7 +41,10 @@ Android 12+; application ID `com.example.framephone`. See
 pauses tracking until the phone screen is turned off and unlocked again. Retry,
 reconnecting or an ARCore restart does not override that dismissal. Taking off
 the headset hides the marker and pauses ARCore; putting it on permits a new
-alignment. If the wearer signal is unavailable or stale, the marker stays hidden.
+alignment. Proximity is preferred; if that input is unavailable, Frame uses
+SteamVR's active/idle state. This fallback can remain active with movement and
+may take time to register removal. Unknown or stale wearer signals keep the
+marker hidden.
 
 Keep the rear camera uncovered while tracking. **Disconnect** stops networking,
 tracking and the overlay. The notification provides **Retry** and **Disconnect**;

@@ -1,3 +1,4 @@
+#include "../src/headset_presence.hpp"
 #include "../src/pose_smoothing.hpp"
 #include <iostream>
 
@@ -101,6 +102,26 @@ int main() {
             target[3] = 20;
             check(filter.update(target, t + 200'000'000)[3] == 20, "pause must reset smoothing");
         }
+        HeadsetPresence presence;
+        check(!presence.update(stamp, false, true, true).available,
+              "disconnected headset cannot enable marker");
+        check(!presence.update(stamp, true, {}, {}).available,
+              "unknown runtime state must remain unavailable");
+        check(!presence.update(stamp, true, {}, false).worn, "initial idle must not enable marker");
+        check(!presence.update(stamp + 100'000'000, true, {}, true).worn,
+              "activity fallback must debounce startup");
+        auto fallback = presence.update(stamp + 600'000'000, true, {}, true);
+        check(fallback.available && fallback.worn && !fallback.proximity,
+              "missing proximity binding must not block a stable active headset");
+        check(!presence.update(stamp + 700'000'000, true, false, true).worn,
+              "explicit unworn proximity must override active fallback");
+        check(presence.update(stamp + 800'000'000, true, true, false).worn,
+              "explicit worn proximity must override idle fallback");
+        presence.update(stamp + 900'000'000, true, {}, false);
+        check(!presence.update(stamp + 1'400'000'000, true, {}, false).worn,
+              "stable idle must disable acquisition");
+        check(!presence.update(stamp + 1'500'000'000, true, {}, {}).worn,
+              "losing both signals must clear previous permission");
         std::cout << "Timestamped body gyro, world velocity, bounded horizons, gaps and reset "
                      "checks passed.\n";
         return 0;

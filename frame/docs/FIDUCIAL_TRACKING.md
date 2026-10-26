@@ -7,15 +7,15 @@ is required. One tag is sufficient; the same tag is observed in both front camer
 ## Try it
 
 1. Install the updated Android APK. Save phone/case dimensions and start/reconnect.
-2. Tap **Show fullscreen tracking marker**. It opens a white portrait surface with a
-   single sharp, centered marker. Tap anywhere or use Back to return. Telemetry
-   continues while the marker is shown.
+2. While the phone is unlocked and the headset is active, a white overlay with
+   one centered marker appears automatically. Back/Home or a tap dismisses it
+   and pauses tracking until the next screen-off/unlock cycle.
 3. Build Frame using `bash frame/build.sh`, open the new ARM64 executable and
    let startup discover and reconnect the saved phone. Use **Connection** for
    first-time pairing or a manual retry.
 4. Approve camera authorization if prompted. The confirmed front camera pair
    starts automatically; selectors are not exposed.
-5. Click **Start tracking** and point the marker at the front cameras. The UI
+5. Point the marker at the front cameras. Tracking and the VR rectangle start automatically. The UI
    reports ID 0 counts for left/right, processing time and pose quality. Tilt and
    move slowly, then hide/reveal the marker to test loss and automatic reacquisition.
 
@@ -27,7 +27,7 @@ Images fit and center within their panes, preserving aspect ratio; pose overlays
 use the same display transform. Hide the views to stop preview processing while
 tracking continues.
 
-During tracking the second tab also displays current headset-relative XYZ,
+During optical acquisition the dashboard displays current headset-relative XYZ,
 distance, Z/Y/X rotation and RMS. Accepted poses add red X, green Y and blue Z
 axes projected through each camera's KB4 model onto the exact tracking frame.
 Raw preview frames never borrow pose axes from a different frame. If a rotating

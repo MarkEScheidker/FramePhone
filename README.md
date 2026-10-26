@@ -26,7 +26,7 @@ bash frame/build.sh
 Open **`frame/build/dist/FramePhone-arm64.run`** on Frame after enabling execution
 in file Properties. Runtime libraries, desktop controls and the camera broker are
 bundled. Docker/Podman is required only for building; Frametop is not required.
-The app uses the headset's installed SteamVR for the optional VR display.
+The app uses the headset's installed SteamVR for its automatic VR display.
 
 1. Enter width and height on Android and tap **Connect**. Grant camera and
    **display over other apps** access; install ARCore if requested.
