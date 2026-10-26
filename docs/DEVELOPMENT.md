@@ -22,13 +22,14 @@ to exercise the camera module independently of the full application.
 Requirements: C++20 compiler, CMake >=3.20, AprilTag 3, OpenCV 4 (`core`,
 `calib3d`, `imgproc`), and nlohmann JSON headers. Python 3 runs CLI
 tests. Python/Tk and Pillow provide the desktop UI and camera preview resizing. Native libraries are installed by
-the container build or local package manager.
+the container build or local package manager. The Bluetooth desktop bridge also
+uses dbus-next and the host BlueZ daemon; the single executable bundles dbus-next.
 
 Ubuntu 24.04:
 
 ```bash
 sudo apt-get update
-sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk python3-pil
+sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev python3-tk python3-pil python3-dbus-next
 ```
 
 Fedora:

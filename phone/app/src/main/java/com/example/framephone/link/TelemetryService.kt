@@ -1,5 +1,7 @@
 package com.example.framephone.link
 
+import com.example.framephone.bluetooth.BluetoothPose
+import com.example.framephone.bluetooth.CompanionSetup
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -30,6 +32,9 @@ class TelemetryService : Service() {
         val store = SettingsStore(this)
         when (intent?.action) {
             "stop", "forget" -> {
+                store.enableConnection(false)
+                BluetoothPose.close()
+                if (intent.action == "forget") runCatching { CompanionSetup.forget(this) }
                 ArPoseState.setConnected(false)
                 stopService(Intent(this, ArPoseService::class.java))
                 server?.close()
@@ -45,6 +50,9 @@ class TelemetryService : Service() {
                 return START_NOT_STICKY
             }
         }
+        if (intent?.action == "wake" && !store.connectionEnabled()) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.action != "wake") store.enableConnection(true)
+        runCatching { BluetoothPose.start(this, ArPoseState::message) }
         if (server != null) {
             if (intent?.action == "pair") server?.openPairing()
             return START_NOT_STICKY
@@ -65,7 +73,9 @@ class TelemetryService : Service() {
             main.post {
                 if (server === instance) {
                     TelemetryState.status = status
+                    val newlyConnected = status.connected && !ArPoseState.connected
                     ArPoseState.setConnected(status.connected)
+                    if (newlyConnected) CompanionSetup.resumeCamera(this)
                     if (!status.running) {
                         stopService(Intent(this, ArPoseService::class.java))
                         server = null
@@ -80,6 +90,7 @@ class TelemetryService : Service() {
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        BluetoothPose.close()
         ArPoseState.setConnected(false)
         stopService(Intent(this, ArPoseService::class.java))
         server?.close()

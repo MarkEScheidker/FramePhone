@@ -46,3 +46,7 @@ copyright and license are retained beside AppRun. This is aggregation with the
 MIT application, not a replacement of any dependency's license. The static
 broker is built from the included C sources with Ubuntu's libc toolchain.
 
+
+Bluetooth integration uses Ubuntu's python3-dbus-next (MIT) to access the host
+BlueZ service. Its copyright file remains in the bundled runtime's /usr/share/doc;
+BlueZ itself is supplied by SteamOS and is not replaced or bundled.

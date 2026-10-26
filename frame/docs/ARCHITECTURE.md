@@ -86,3 +86,12 @@ remain independent from optical pose estimation.
 validated post-exposure gyro samples affect rotation, and recent ARCore velocity
 affects translation. Predictions never enter the optical registration/history.
 The renderer measures cadence and age independently from UI refresh.
+
+## Bluetooth companion transport
+
+The BlueZ integration lives in bluetooth_link.py and bluetooth_protocol.py;
+it owns an asyncio thread and only passes validated poses to PhoneLink's mailbox.
+Android bluetooth/ owns association/presence, GATT lifecycle and the shared binary
+contract. ArPoseService remains the producer; SensorFeed retains raw diagnostics.
+BLE authenticates and bootstraps the pinned LAN route before normal Wi-Fi connection.
+Video is a future separate path. See [Bluetooth contract](BLUETOOTH.md).

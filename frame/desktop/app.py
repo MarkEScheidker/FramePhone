@@ -96,7 +96,11 @@ class Window:
         tracking_area = ttk.Frame(dashboard)
         tracking_area.grid(row=1, column=0, sticky="nsew")
         from phone_panel import PhonePanel
-        self.phone_panel = PhonePanel(phone_area, self.config.parent)
+        from bluetooth_link import BluetoothLink
+        from phone_link import PairingStore
+        self.bluetooth = BluetoothLink(PairingStore(self.config.parent / "phone-pairing.json"),
+                                       lambda kind, value: self.phone_panel.notify(kind, value))
+        self.phone_panel = PhonePanel(phone_area, self.config.parent, bluetooth=self.bluetooth)
         from fiducial_panel import FiducialPanel
         self.tracking_panel = FiducialPanel(tracking_area, self)
         self.log_panel = ttk.LabelFrame(dashboard, text="Activity log", padding=6)
@@ -136,6 +140,7 @@ class Window:
 
     def startup(self):
         if not self.closing:
+            self.bluetooth.start()
             self.enable_cameras()
             self.phone_panel.startup()
             self.update_presence()
@@ -345,6 +350,7 @@ class Window:
         if self.closing:
             return
         self.closing = True
+        self.bluetooth.close()
         self.preview_reader.close()
         self.tracking_panel.close()
         self.phone_panel.close()

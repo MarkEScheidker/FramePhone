@@ -71,7 +71,15 @@ class ArPoseService : Service() {
         if (worker != null) return START_NOT_STICKY
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel("tracking", "Phone tracking", NotificationManager.IMPORTANCE_LOW))
-        startForeground(2, notification("Waiting for headset"))
+        try {
+            startForeground(2, notification("Waiting for headset"))
+        } catch (error: RuntimeException) {
+            if (error !is SecurityException && error !is android.app.ForegroundServiceStartNotAllowedException) throw error
+            com.example.framephone.bluetooth.CompanionSetup.trackingAction(this)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        getSystemService(NotificationManager::class.java).cancel(20)
         ArPoseState.running = true
         ArPoseState.beginSession()
         overlay = MarkerOverlay(this)

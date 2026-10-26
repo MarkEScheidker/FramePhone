@@ -46,13 +46,15 @@ class TelemetryRecording:
         self.thread = threading.Thread(target=self._write, daemon=True)
         self.thread.start()
 
-    def submit(self, message, host_time_ns):
+    def submit(self, message, host_time_ns, transport=None):
         if self.closed.is_set():
             return
         # Caller supplies only validated profile/samples/pong; no enrollment
         # credentials, TLS material, IP address, or arbitrary peer messages.
         item = {"schema": "framephone-telemetry-record-v1",
                 "received_host_monotonic_ns": host_time_ns, "message": evidence_message(message)}
+        if transport in ('bluetooth', 'wifi'):
+            item['transport'] = transport
         try:
             self.queue.put_nowait(item)
         except queue.Full:

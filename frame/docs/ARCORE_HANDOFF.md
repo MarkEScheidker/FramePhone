@@ -3,8 +3,9 @@
 An automatic tracking prototype: acquire a marker while the phone/headset relative position is stable,
 establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
-mode remains available. Bluetooth and screen streaming are separate future work;
-this test uses the existing authenticated LAN connection.
+mode remains available for phones without ARCore. Poses use the
+[Bluetooth companion path](BLUETOOTH.md) with pinned Wi-Fi control and backup;
+explicit Wi-Fi-only connections are retained. Screen streaming is future work.
 
 ## Run the test
 

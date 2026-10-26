@@ -3,7 +3,7 @@
 Enter the phone's width and height, then tap **Connect**. After the headset
 connects and is worn, a screen-width AprilTag appears over the current app. Frame accepts a
 stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
-ARCore then supplies anchored motion over the existing secure LAN connection.
+ARCore then supplies anchored motion over BLE, with pinned Wi-Fi control and fallback.
 
 Tracking recovery shows the overlay again automatically; screen-off recreates
 the paused anchor on resume without requiring a network reconnect. The setup activity can
@@ -23,10 +23,27 @@ Windows uses `gradlew.bat`. Install `app/build/outputs/apk/debug/app-debug.apk`.
 Android 12+; application ID `com.example.framephone`. See
 [development notes](../docs/DEVELOPMENT.md).
 
-## Connect
+## Bluetooth connection
+
+Run FramePhone on Frame with Bluetooth enabled before tapping Connect on Android.
+After the initial permissions, select FramePhone in the system companion picker
+and approve the Bluetooth bond on both devices. Trust and the Wi-Fi endpoint
+travel over authenticated BLE. Existing Wi-Fi pairings migrate using their verifier;
+a new pair no longer needs a separate LAN fingerprint enrollment.
+
+The associated Frame can wake the connection service with setup closed. Android
+may still require the Resume tracking notification action for a cold camera
+start. Disconnect disables automatic wake until Connect is used again; Forget
+also removes the companion association. Force-stop is not bypassed.
+
+Details → Connect using Wi-Fi preserves the previous diagnostic connection path.
+[Bluetooth protocol and validation](../frame/docs/BLUETOOTH.md) explains fallback,
+permissions and testing. Rebuild both applications for this milestone.
+
+## Wi-Fi-only fallback
 
 1. Put the phone and headset on the same LAN. Enter outside phone/case width and
-   height in millimeters and tap **Connect**.
+   height in millimeters, then use **Details → Connect using Wi-Fi**.
 2. Grant camera, notification and **display over other apps** access. Install or
    update Google Play Services for AR when prompted. These are setup steps;
    normal connections do not need a separate ARCore or marker button.
@@ -57,7 +74,7 @@ saved thickness is discarded when dimensions are saved. Rebuild both apps:
 older headset versions do not send the wearer heartbeat required by this phone app.
 
 Gyro/accelerometer and magnetometer diagnostics remain available. Screen capture,
-Bluetooth transport and remote input are not implemented. See
+remote input and video streaming are not implemented. See
 [handoff behavior and limits](../frame/docs/ARCORE_HANDOFF.md) and
 [the LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
 

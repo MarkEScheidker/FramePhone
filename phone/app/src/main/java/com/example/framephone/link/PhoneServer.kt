@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import com.example.framephone.Fiducial
 import com.example.framephone.tracking.ArPoseState
+import com.example.framephone.bluetooth.BluetoothPose
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
@@ -88,9 +89,16 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             else update("Ready. On Frame choose Connect saved phone.")
             startDiscovery()
             while (running) {
+                // Refresh the BLE route while waiting for TLS, so a Wi-Fi
+                // reconnect/IP change does not require restarting either app.
+                val endpoint = NetworkInterface.getNetworkInterfaces().toList()
+                    .sortedBy { if (it.name.startsWith("wlan")) 0 else 1 }
+                    .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
+                    ?.hostAddress.orEmpty()
+                BluetoothPose.identity(identity.pin, endpoint)
                 if (pairUntil != 0L && SystemClock.elapsedRealtime() >= pairUntil) {
                     pairUntil = 0
-                    update("Pairing window expired. Tap Pair new headset to try again.")
+                    update("Pairing window expired. Use Details → Pair using Wi-Fi to try again.")
                 }
                 val socket = try { listener.accept() as SSLSocket } catch (_: SocketTimeoutException) { continue }
                 client = socket
@@ -199,10 +207,12 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
                 .put("headset_presence_v1", true)
+                .put("bluetooth_pose_v1", true)
                 .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
                 .put("automatic_marker_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
+            BluetoothPose.session(session)
             update("Connected", peer = peer, connected = true)
             stage = "sensor streaming"
             socket.soTimeout = 8000
@@ -246,12 +256,23 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 var stateAt = -500L
                 var lastDisplayed: Boolean? = null
                 var lastPose = ""
+                var wifiPoseAt = 0L
+                var wifiState = ""
                 while (running && alive.get()) {
                     Protocol.write(output, feed.batch(session))
                     lastWrite.set(SystemClock.elapsedRealtime())
                     if (hello.optBoolean("arcore_pose_v1")) ArPoseState.message(session)?.let { pose ->
                         val identity = "${pose.getString("generation")}:${pose.getLong("seq")}"
-                        if (identity != lastPose) { Protocol.write(output, pose); lastPose = identity }
+                        if (identity != lastPose) {
+                            val bluetooth = BluetoothPose.isBound()
+                            val state = "${pose.getString("generation")}:${pose.getString("acquisition")}:${pose.getString("state")}"
+                            val nowPose = SystemClock.elapsedRealtime()
+                            if (!bluetooth || state != wifiState || nowPose-wifiPoseAt >= 200) {
+                                Protocol.write(output, pose)
+                                wifiPoseAt = nowPose; wifiState = state
+                            }
+                            lastPose = identity
+                        }
                     }
                     val now = SystemClock.elapsedRealtime()
                     val displayed = Fiducial.displayed
@@ -270,7 +291,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 reader.join(1000)
                 watchdog.join(1000)
             }
-        } finally { feed.close() }
+        } finally { BluetoothPose.session(null); feed.close() }
     }
     fun close() {
         synchronized(this) { running = false }

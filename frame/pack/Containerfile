@@ -20,7 +20,7 @@ RUN cp -a /src/frame/desktop /opt/framephone/desktop
 FROM docker.io/library/ubuntu:24.04 AS runtime
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libapriltag3t64 libopencv-calib3d406t64 python3-tk python3-pil ca-certificates \
+    libapriltag3t64 libopencv-calib3d406t64 python3-tk python3-pil python3-dbus-next ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /opt/framephone /opt/framephone
 RUN dpkg-query -W -f='${binary:Package}\t${Version}\t${Architecture}\n' \

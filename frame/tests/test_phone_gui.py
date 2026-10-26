@@ -104,7 +104,7 @@ def automatic_reconnect():
         panel.host.set("127.0.0.10")
         attempts = []
         class Link:
-            def __init__(self, store, notify, confirm):
+            def __init__(self, store, notify, confirm, bluetooth=None):
                 self.notify = notify
                 self.stopped = threading.Event()
             def snapshot(self):
@@ -175,7 +175,7 @@ def transport_recovery():
         panel.host.set("127.0.0.1")
         attempts=[]
         class Link:
-            def __init__(self, store, notify, confirm):
+            def __init__(self, store, notify, confirm, bluetooth=None):
                 self.notify=notify
                 self.stopped=threading.Event()
                 self.retryable=False
@@ -219,7 +219,47 @@ def transport_recovery():
             root.destroy()
 
 
+def bluetooth_bootstrap():
+    """A trusted BLE route starts pinned TLS; explicit Disconnect cancels it."""
+    from types import SimpleNamespace
+    with tempfile.TemporaryDirectory() as directory:
+        root=tk.Tk()
+        panel=PhonePanel(root,Path(directory),bluetooth=SimpleNamespace(status='Bluetooth ready'))
+        panel.store.save(dict(pin='a'*64,credential='b'*64,host='192.168.1.2',bluetooth=True))
+        attempts=[]
+        class Link:
+            def __init__(self,store,notify,confirm,bluetooth=None):
+                self.notify=notify;self.stopped=threading.Event();self.retryable=False
+            def snapshot(self):return None
+            def stop(self):self.stopped.set()
+            def run(self,host,pair):
+                attempts.append((host,pair));self.notify('connected',host)
+                self.stopped.wait(4);self.notify('ended','Disconnected')
+        def until(predicate):
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                root.update()
+                if predicate():return
+                time.sleep(.01)
+            raise AssertionError(panel.status.get())
+        try:
+            with patch('phone_panel.PhoneLink',Link),patch('phone_panel.discover') as discovery:
+                panel.startup();root.update()
+                assert 'Bluetooth' in panel.status.get() and not panel.worker
+                discovery.assert_not_called()
+                panel.notify('bluetooth_endpoint','192.168.1.30')
+                until(lambda:attempts)
+                assert attempts==[('192.168.1.30',False)] and not panel.approval
+                panel.disconnect();until(lambda:not panel.worker.is_alive())
+                panel.notify('bluetooth_endpoint','192.168.1.40')
+                until(lambda:panel.events.empty())
+                assert len(attempts)==1,'Bluetooth route overrode deliberate Disconnect'
+            print('Bluetooth-first startup, automatic trusted route and manual-disconnect suppression passed')
+        finally:panel.close();root.destroy()
+
+
 if __name__ == "__main__":
     main()
     automatic_reconnect()
     transport_recovery()
+    bluetooth_bootstrap()

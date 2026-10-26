@@ -7,10 +7,13 @@ from phone_link import PairingStore, PhoneLink, SENSORS, discover
 
 
 class PhonePanel:
-    def __init__(self, parent, config_dir):
+    def __init__(self, parent, config_dir, bluetooth=None):
         import tkinter as tk
         from tkinter import ttk
         self.parent = parent
+        self.bluetooth = bluetooth
+        self.bluetooth_endpoint = None
+        self.bluetooth_auto = True
         self.events = queue.Queue(maxsize=64)
         self.link = self.worker = self.approval = None
         self.closed = self.searching = False
@@ -60,6 +63,7 @@ class PhonePanel:
         self.pair_button.pack(side="left")
         self.connect_button = ttk.Button(buttons, text="Reconnect", command=self.startup)
         self.connect_button.pack(side="left", padx=6)
+        ttk.Button(buttons, text="Use Wi-Fi", command=self.connect).pack(side="left", padx=6)
         ttk.Button(buttons, text="Disconnect", command=self.disconnect).pack(side="left")
         ttk.Button(buttons, text="Forget phone", command=self.forget).pack(side="right")
         self.confirmation = ttk.LabelFrame(self.settings, text="Verify on the physical phone", padding=6)
@@ -116,6 +120,7 @@ class PhonePanel:
 
     def startup(self):
         self.cancel_retry()
+        self.bluetooth_auto = True
         if self.closed or (self.worker and self.worker.is_alive()):
             return
         try:
@@ -125,6 +130,9 @@ class PhonePanel:
             return
         self.auto_hosts = []
         self.auto_error = ""
+        if saved and saved.get('bluetooth') and self.bluetooth:
+            self.status.set("Waiting for the phone over Bluetooth…")
+            return
         self.find(auto=bool(saved))
 
     def find(self, auto=False):
@@ -177,13 +185,16 @@ class PhonePanel:
         if pair:
             self.show_connection()
         self.status.set(("Pairing with " if pair else "Connecting to saved phone at ")+self.host.get().strip()+"…")
-        self.link = PhoneLink(self.store, self.notify, self.confirm)
+        self.bluetooth_auto = True
+        self.link = PhoneLink(self.store, self.notify, self.confirm, bluetooth=self.bluetooth)
         self.worker = threading.Thread(target=self.link.run, args=(self.host.get().strip(), pair), daemon=True)
         self.worker.start()
         self.pair_button.configure(state="disabled")
         self.connect_button.configure(state="disabled")
 
     def disconnect(self):
+        self.bluetooth_auto = False
+        self.bluetooth_endpoint = None
         self.cancel_retry(disable=True)
         self.auto_search = False
         self.auto_connecting = False
@@ -243,6 +254,8 @@ class PhonePanel:
         self.forget_saved()
 
     def forget_saved(self):
+        self.bluetooth_auto = False
+        self.bluetooth_endpoint = None
         self.cancel_retry(disable=True)
         self.auto_search = False
         self.auto_connecting = False
@@ -264,6 +277,9 @@ class PhonePanel:
                 self.status.set(value)
                 if kind == "error":
                     self.auto_error = value
+            elif kind == "bluetooth_endpoint":
+                if not self.closed and self.bluetooth_auto and self.store.load():
+                    self.bluetooth_endpoint = value
             elif kind == "connected":
                 if self.link is None or self.link.stopped.is_set():
                     continue
@@ -317,6 +333,13 @@ class PhonePanel:
                     self.parent.after(50, self.connect_next)
                 elif not self.forget_pending:
                     self.schedule_retry()
+        if (self.bluetooth_endpoint and self.bluetooth_auto and not self.closed and
+                not (self.worker and self.worker.is_alive())):
+            self.cancel_retry()
+            self.auto_connecting = False
+            self.host.set(self.bluetooth_endpoint)
+            self.bluetooth_endpoint = None
+            self.connect(automatic=True)
         snapshot = self.link.snapshot() if self.link else None
         if snapshot:
             self.geometry.set("Phone body / case: %.1f × %.1f mm" % tuple(x * 1000 for x in snapshot["dimensions"][:2]))
@@ -333,11 +356,12 @@ class PhonePanel:
                 self.rows[name].set(text)
             rtt = snapshot["rtt_ms"]
             clock = "clock syncing" if rtt is None else f"RTT {rtt:.2f} ms"
-            self.health.set(f"{snapshot['count']} samples · {snapshot['gaps']} gaps · {snapshot['dropped']} dropped · {clock}")
+            transport = "Bluetooth LE" if snapshot.get("pose_transport") == "bluetooth" else "Wi-Fi"
+            self.health.set(f"{snapshot['count']} samples · {snapshot['gaps']} gaps · {snapshot['dropped']} dropped · {clock} · pose: {transport}")
         else:
             for row in self.rows.values():
                 row.set("Not connected")
-            self.health.set("No live telemetry")
+            self.health.set(self.bluetooth.status if self.bluetooth else "No live telemetry")
         if not self.closed:
             self.timer = self.parent.after(100, self.tick)
 

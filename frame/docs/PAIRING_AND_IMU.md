@@ -1,3 +1,7 @@
+> Normal setup now uses [Bluetooth-first trust and endpoint exchange](BLUETOOTH.md).
+> This document describes the retained pinned TLS control/diagnostic path and
+> explicit Wi-Fi-only enrollment fallback.
+
 # LAN pairing and phone sensor link v1
 
 Implemented in Android `link/` and desktop `phone_link.py` / `phone_panel.py`.

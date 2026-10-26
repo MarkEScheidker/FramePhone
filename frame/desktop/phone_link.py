@@ -20,7 +20,7 @@ MAX_MESSAGE = 65536
 DISCOVERY = b"FRAMEPHONE_DISCOVER_V1"
 SENSORS = {"gyro": "rad/s", "accel": "m/s^2", "mag": "uT"}
 PHONE_ERRORS = {
-    "pairing_closed": "The phone's pairing window expired. Tap Pair new headset on the phone, then Pair new phone here.",
+    "pairing_closed": "The phone's pairing window expired. Use Details → Pair using Wi-Fi on the phone, then Pair new phone here.",
     "pairing_rejected_or_expired": "Pairing was rejected or timed out. Reopen pairing and approve matching fingerprints on both screens.",
     "authentication_failed": "The phone rejected the saved pairing. Start new pairing on both devices.",
     "protocol_error": "The phone could not process this connection. Check its connection status and update both apps.",
@@ -386,7 +386,7 @@ class Telemetry:
 
 
 class PhoneLink:
-    def __init__(self, store, notify, confirm):
+    def __init__(self, store, notify, confirm, bluetooth=None):
         self.store, self.notify, self.confirm = store, notify, confirm
         self.stopped = threading.Event()
         self.sock = None
@@ -398,6 +398,8 @@ class PhoneLink:
         self.commands = queue.Queue(maxsize=8)
         self.retryable = False
         self.headset = (False, 0)
+        self.bluetooth = bluetooth
+        self.ble_telemetry = None
 
     def headset_presence(self, worn, updated_host_ns):
         """Latest-only wearer state. A frozen UI/monitor cannot renew its timestamp."""
@@ -425,6 +427,34 @@ class PhoneLink:
             return True
         except queue.Full:
             return False
+
+    def receive_bluetooth(self, message, gyro, now):
+        with self.lock:
+            state = self.ble_telemetry
+            if self.stopped.is_set() or state is None:
+                return
+            try:
+                state.receive(message, now)
+                for sample in gyro:
+                    if not state.gyro_history or sample['t_ns'] > state.gyro_history[-1]['t_ns']:
+                        state.gyro_history.append(sample)
+                if self.recording:
+                    self.recording.submit(message, now, transport='bluetooth')
+            except (ValueError, KeyError, TypeError):
+                return  # Old/reordered Bluetooth traffic never ends the TLS session.
+
+    def _pose_state(self, now):
+        ble = self.ble_telemetry
+        if (ble and ble.arcore_poses and 0 <= now-ble.arcore_received_ns <= 150_000_000 and
+                (not self.telemetry.arcore_poses or
+                 ble.arcore_poses[-1]['t_ns'] >= self.telemetry.arcore_poses[-1]['t_ns'])):
+            # The same phone monotonic clock applies to both radios; clock
+            # probes remain on reliable TLS. Never replace sample timestamps.
+            ble.offset_ns = self.telemetry.offset_ns
+            ble.probes = self.telemetry.probes.copy()
+            ble.rtt_ns = self.telemetry.rtt_ns
+            return ble
+        return self.telemetry
 
     def start_recording(self, path):
         from telemetry_recording import TelemetryRecording
@@ -456,12 +486,17 @@ class PhoneLink:
         with self.lock:
             if not self.telemetry:
                 return None
-            result = self.telemetry.snapshot(time.monotonic_ns())
+            now = time.monotonic_ns()
+            result = self.telemetry.snapshot(now)
+            state = self._pose_state(now)
+            result['arcore'] = state.pose_packet(now)
+            result['pose_transport'] = 'bluetooth' if state is self.ble_telemetry else 'wifi'
             return result
 
     def pose_packet(self):
         with self.lock:
-            return self.telemetry.pose_packet(time.monotonic_ns(), compact=True) if self.telemetry else None
+            now = time.monotonic_ns()
+            return self._pose_state(now).pose_packet(now, compact=True) if self.telemetry else None
 
     def run(self, host, pair=False, port=PORT):
         phase = "connection setup"
@@ -523,6 +558,10 @@ class PhoneLink:
                         self.telemetry = telemetry
                         self.profile = profile
                         self.profile_received_ns = profile_received_ns
+                        if self.bluetooth and profile.get('bluetooth_pose_v1') is True:
+                            self.ble_telemetry = Telemetry(profile)
+                    if self.ble_telemetry:
+                        self.bluetooth.authorize(telemetry.session, self.receive_bluetooth)
                     if saved.get("host") != host:
                         saved["host"] = host
                         self.store.save(saved)
@@ -553,11 +592,16 @@ class PhoneLink:
                         now = time.monotonic_ns()
                         with self.lock:
                             if message.get("type") == "pong":
+                                previous_offset = telemetry.offset_ns
                                 telemetry.clock_reply(message, now, pending)
+                                if (self.ble_telemetry and previous_offset is not None and
+                                        abs(telemetry.offset_ns-previous_offset) > 50_000_000):
+                                    self.ble_telemetry.arcore_poses.clear()
+                                    self.ble_telemetry.gyro_history.clear()
                             else:
                                 telemetry.receive(message, now)
                             if self.recording:
-                                self.recording.submit(message, now)
+                                self.recording.submit(message, now, transport='wifi')
         except (OSError, ValueError, KeyError, TypeError, RecursionError) as error:
             self.retryable = not self.stopped.is_set() and (
                 (isinstance(error, OSError) and not isinstance(error, ssl.SSLError)) or isinstance(error, ssl.SSLEOFError))
@@ -570,9 +614,12 @@ class PhoneLink:
                 else:
                     self.notify("error", str(error) if isinstance(error, (OSError, ValueError)) else "Malformed phone telemetry")
         finally:
+            if self.bluetooth and self.telemetry:
+                self.bluetooth.revoke(self.telemetry.session)
             self.sock = None
             with self.lock:
                 self.telemetry = None
+                self.ble_telemetry = None
                 self.profile = None
                 self.profile_received_ns = None
             self.stop_recording()

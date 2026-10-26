@@ -2,9 +2,9 @@
 
 An experimental Android companion for Valve Steam Frame. The phone shows one
 screen-width AprilTag overlay when alignment is needed and sends motion telemetry
-over a paired LAN connection.
+over a Bluetooth companion connection with pinned Wi-Fi control and fallback.
 Frame's two front cameras estimate the marker's position and rotation using
-factory fisheye calibration. An optional SteamVR display follows the tracked
+factory fisheye calibration. An automatic SteamVR display follows the tracked
 screen as a flat rectangle.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
@@ -12,8 +12,9 @@ devices, with stable distance and orientation readings. Both optical and ARCore-
 been demonstrated on the headset. Distance scale uses Android's reported
 display DPI; metric accuracy and motion timing still need independent validation.
 The automatic brief-marker ARCore handoff now includes bounded motion prediction;
-its origin calibration and exposure timing are provisional. Bluetooth and screen
-streaming are future work.
+its origin calibration and exposure timing are provisional. Bluetooth companion
+wake, trust/LAN bootstrap and BLE pose transport are implemented for device
+testing. Screen streaming is the next milestone.
 
 ## Build and run
 
@@ -28,17 +29,24 @@ in file Properties. Runtime libraries, desktop controls and the camera broker ar
 bundled. Docker/Podman is required only for building; Frametop is not required.
 The app uses the headset's installed SteamVR for its automatic VR display.
 
-1. Enter width and height on Android and tap **Connect**. Grant camera and
-   **display over other apps** access; install ARCore if requested.
-2. Launch FramePhone on the headset. Cameras start automatically (approve
-   desktop authorization if prompted), and the saved phone reconnects. For first
-   pairing, expand **Connection**, select the phone and choose **Pair new phone**.
-   Compare and approve matching codes on both devices.
-3. The marker overlay and headset tracking start automatically. Keep the phone
-   roughly in view for a brief alignment (two stereo observations spanning at
-   least 80 ms, allowing up to 8 cm relative movement). When the VR rectangle
-   is visible and alignment is accepted, the marker disappears and ARCore takes
-   over. Recovery displays the overlay again. **Disconnect** stops the session.
+1. Enable Bluetooth and Wi-Fi on both devices; launch FramePhone on Frame first.
+   Cameras and Bluetooth advertising start automatically (approve desktop camera
+   authorization if prompted).
+2. On Android enter width and height and tap **Connect**. Grant Bluetooth,
+   notification, camera and overlay access. Select **FramePhone** in Android's
+   companion picker and approve Bluetooth numeric comparison on both devices.
+   Bluetooth exchanges application trust and the Wi-Fi route; Frame connects.
+3. Briefly show the automatic marker to the front cameras. After alignment the
+   marker hides and ARCore drives the VR rectangle. Live poses use Bluetooth LE,
+   with Wi-Fi diagnostics/control and a backup pose path.
+4. Subsequent headset advertisements can wake Android's connection service
+   without opening setup. If Android requires user action to restart its camera,
+   tap **Resume tracking** in the notification. **Disconnect** disables automatic
+   phone reconnection until Connect is used again.
+
+See [Bluetooth setup and limits](frame/docs/BLUETOOTH.md), including migration
+of existing Wi-Fi pairings and explicit Wi-Fi-only fallback. Actual radio latency
+and cold background behavior require device testing; smoothing delay is separate.
 
 No photo selection, manual corners or marker-size adjustment is required. The
 white quiet border is part of the width-filling marker; the black square itself
@@ -59,7 +67,7 @@ bash gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 Windows uses `gradlew.bat`. For a native Linux development build:
 
 ```bash
-sudo apt-get install build-essential cmake python3 libapriltag-dev libopencv-dev nlohmann-json3-dev
+sudo apt-get install build-essential cmake python3 python3-dbus-next libapriltag-dev libopencv-dev nlohmann-json3-dev
 cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
@@ -76,6 +84,7 @@ have been removed. The supported build and UI use the same single-marker path.
 - [VR test display](frame/docs/VR_DISPLAY.md)
 - [Brief-marker ARCore test](frame/docs/ARCORE_HANDOFF.md)
 - [Tracking research and decisions](frame/docs/TRACKING_RESEARCH.md)
+- [Bluetooth companion and poses](frame/docs/BLUETOOTH.md)
 - [Pairing and telemetry](frame/docs/PAIRING_AND_IMU.md)
 - [Architecture](frame/docs/ARCHITECTURE.md), [coordinates](frame/docs/COORDINATE_SYSTEMS.md)
 - [Calibration](frame/docs/CALIBRATION.md), [validation](frame/docs/TRACKING_VALIDATION.md)

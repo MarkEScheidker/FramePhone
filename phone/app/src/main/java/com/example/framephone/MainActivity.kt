@@ -1,5 +1,12 @@
 package com.example.framephone
 
+import com.example.framephone.bluetooth.BluetoothPose
+import com.example.framephone.bluetooth.CompanionSetup
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanResult
+import android.companion.CompanionDeviceManager
+import androidx.activity.result.IntentSenderRequest
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -35,9 +42,40 @@ class MainActivity : ComponentActivity() {
     private var notice by mutableStateOf("")
     private var connectionDetail by mutableStateOf("")
     private var pendingConnect = false
+    private var wifiOnly = false
     private var waiting = ""
     private var installRequested = false
     private var notificationsAsked = false
+    private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+        waiting = ""
+        if (granted.values.all { it }) continueConnection()
+        else { pendingConnect = false; notice = "Bluetooth access is required for automatic connection." }
+    }
+    @Suppress("DEPRECATION")
+    private val companionPicker = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+        if (result.resultCode != RESULT_OK) {
+            waiting = ""; pendingConnect = false; notice = "Bluetooth selection cancelled."
+        } else {
+            val association = if (Build.VERSION.SDK_INT >= 33)
+                result.data?.getParcelableExtra(CompanionDeviceManager.EXTRA_ASSOCIATION, android.companion.AssociationInfo::class.java)
+                else null
+            val value = result.data?.getParcelableExtra<android.os.Parcelable>(CompanionDeviceManager.EXTRA_DEVICE)
+            val address = association?.deviceMacAddress?.toString() ?: when (value) {
+                is ScanResult -> value.device.address
+                is BluetoothDevice -> value.address
+                else -> null
+            }
+            if (address != null) bluetoothSelected(address, association?.id ?: -1)
+        }
+    }
+    private fun bluetoothSelected(address: String, id: Int) {
+        runCatching { CompanionSetup.remember(this, address, id) }.onFailure {
+            pendingConnect = false; notice = "Bluetooth setup failed: ${it.javaClass.simpleName}"
+        }.onSuccess {
+            waiting = ""
+            if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) continueConnection()
+        }
+    }
     private val notifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         waiting = ""
         continueConnection()
@@ -58,6 +96,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = SettingsStore(this)
         pendingConnect = savedInstanceState?.getBoolean("pending_connect") ?: false
+        wifiOnly = savedInstanceState?.getBoolean("wifi_only") ?: false
         waiting = savedInstanceState?.getString("waiting").orEmpty()
         installRequested = savedInstanceState?.getBoolean("install_requested") ?: false
         notificationsAsked = savedInstanceState?.getBoolean("notifications_asked") ?: false
@@ -73,6 +112,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("pending_connect", pendingConnect)
+        outState.putBoolean("wifi_only", wifiOnly)
         outState.putString("waiting", waiting)
         outState.putBoolean("install_requested", installRequested)
         outState.putBoolean("notifications_asked", notificationsAsked)
@@ -84,7 +124,9 @@ class MainActivity : ComponentActivity() {
             startService(Intent(this, TelemetryService::class.java).setAction(action).putExtra("request", request))
         }.onFailure { notice = "Connection action failed." }
     }
-    private fun connect() { notice = ""; connectionDetail = ""; pendingConnect = true; continueConnection() }
+    private fun connect(useWifiOnly: Boolean = false) {
+        wifiOnly = useWifiOnly; notice = ""; connectionDetail = ""; pendingConnect = true; continueConnection()
+    }
     private fun continueConnection() {
         if (!pendingConnect) return
         try {
@@ -104,6 +146,23 @@ class MainActivity : ComponentActivity() {
                 waiting = "overlay"
                 overlayAccess.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                 return
+            }
+            if (!wifiOnly) {
+                val requiredBluetooth = arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
+                if (requiredBluetooth.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
+                    waiting = "bluetooth_permissions"; bluetoothPermission.launch(requiredBluetooth); return
+                }
+                if (getSystemService(BluetoothManager::class.java).adapter?.isEnabled != true) {
+                    pendingConnect = false; notice = "Enable Bluetooth on the phone and headset."; return
+                }
+                if (!CompanionSetup.associated(this)) {
+                    waiting = "bluetooth_picker"
+                    CompanionSetup.associate(this, { companionPicker.launch(IntentSenderRequest.Builder(it).build()) },
+                        { info -> info.deviceMacAddress?.toString()?.let { bluetoothSelected(it, info.id) } },
+                        { error -> waiting = ""; pendingConnect = false; notice = error })
+                    return
+                }
+                CompanionSetup.observe(this)
             }
             waiting = "arcore"
             if (ArCoreApk.getInstance().requestInstall(this, !installRequested) == ArCoreApk.InstallStatus.INSTALL_REQUESTED) {
@@ -182,12 +241,17 @@ class MainActivity : ComponentActivity() {
             }
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
             if (details) {
+                if (!status.running) TextButton(onClick = {
+                    runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
+                        .onSuccess { connect(true) }.onFailure { notice = "Enter a valid width and height." }
+                }) { Text("Connect using Wi-Fi") }
                 Text(status.message)
+                Text(BluetoothPose.status)
                 if (status.address.isNotEmpty()) Text("IP: ${status.address}")
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)
                 if (trackingDetail.isNotEmpty()) Text(trackingDetail)
-                if (status.running) TextButton(onClick = { command("pair") }) { Text("Pair another headset") }
+                if (status.running) TextButton(onClick = { command("pair") }) { Text("Pair using Wi-Fi") }
                 if (remembered != null) TextButton(onClick = { command("forget") }) { Text("Forget headset") }
                 TextButton(onClick = { about = true }) { Text("About") }
             }

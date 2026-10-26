@@ -2,10 +2,11 @@
 
 1. Build with **`bash frame/build.sh`** on the headset or a Linux PC. Open
    `frame/build/dist/FramePhone-arm64.run` on Frame after allowing execution.
-2. Start the Android phone connection. FramePhone automatically enables cameras
-   and searches for the saved phone. Approve the desktop camera authorization
-   prompt if shown. For first pairing, use **Connection → Pair new phone** and
-   verify the fingerprint on both devices.
+2. Run FramePhone on Frame, then tap Connect on Android with both radios enabled.
+   Select FramePhone in the phone's companion picker and approve the Bluetooth
+   bond. Bluetooth exchanges trust and the current Wi-Fi route automatically.
+   Approve desktop camera authorization if shown. See [Bluetooth setup](BLUETOOTH.md)
+   for existing-pair migration, cold background wake and Wi-Fi-only fallback.
 3. Put on the headset and unlock the phone. The marker appears automatically;
    there are no Start/Stop, ARCore mode or VR visibility switches.
 4. The dashboard shows compact telemetry and both front camera previews. Point
