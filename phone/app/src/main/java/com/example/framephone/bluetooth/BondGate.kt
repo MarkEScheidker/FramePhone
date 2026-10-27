@@ -1,19 +1,29 @@
 package com.example.framephone.bluetooth
 
-/** Bond completion fences GATT setup; security failures stop automatic retries. */
+/** Bond lifetime is independent of the GATT connection carrying setup traffic. */
 internal class BondGate {
     enum class Bond { NONE, BONDING, BONDED }
     enum class Action { WAIT, CREATE_BOND, NEGOTIATE, RETRY, BLOCK }
     var blocked = false
         private set
-    private var waiting = false
+    var waiting = false
+        private set
+    var ready = false
+        private set
+    private var connected = false
     private var lastBond = Bond.NONE
 
     fun connected(bond: Bond): Action {
         if (blocked) return Action.BLOCK
-        lastBond = bond
-        waiting = bond != Bond.BONDED
-        return when (bond) {
+        if (connected) return Action.WAIT
+        connected = true
+        if (waiting) return Action.WAIT
+        // A cached getter may lag the BONDED broadcast. Only an actual unpair
+        // event may discard a bond already observed by this client.
+        if (lastBond != Bond.BONDED) lastBond = bond
+        waiting = lastBond != Bond.BONDED
+        ready = !waiting
+        return when (lastBond) {
             Bond.NONE -> Action.CREATE_BOND
             Bond.BONDING -> Action.WAIT
             Bond.BONDED -> Action.NEGOTIATE
@@ -23,22 +33,22 @@ internal class BondGate {
         val previous = lastBond
         lastBond = bond
         return when {
-            bond == Bond.NONE && waiting -> { reject(); Action.BLOCK }
-            bond == Bond.BONDED && waiting -> { waiting = false; blocked = false; Action.NEGOTIATE }
-            bond == Bond.NONE && previous == Bond.BONDED && !blocked -> { reject(); Action.BLOCK }
-            bond == Bond.BONDED || (bond == Bond.NONE && blocked && previous == Bond.BONDED) -> {
-                blocked = false; Action.RETRY
+            bond == Bond.NONE && (waiting || previous == Bond.BONDED) -> { reject(); Action.BLOCK }
+            bond == Bond.BONDING -> { waiting = true; ready = false; Action.WAIT }
+            bond == Bond.BONDED -> {
+                if (blocked && !waiting) return Action.WAIT
+                val initialize = waiting || !ready
+                waiting = false; blocked = false; ready = connected
+                if (!connected) Action.RETRY else if (initialize) Action.NEGOTIATE else Action.WAIT
             }
             else -> Action.WAIT
         }
     }
-    fun retry() { blocked = false; waiting = false }
-    fun reject() { blocked = true; waiting = false }
-    fun disconnected() { waiting = false }
+    fun retry() { blocked = false; waiting = false; ready = false; connected = false }
+    fun reject() { blocked = true; waiting = false; ready = false }
+    fun disconnected() { connected = false; ready = false } // Bonding may still be in progress.
 
     companion object {
-        // ATT authentication/authorization/key-size/encryption and Android's
-        // internal GATT_AUTH_FAIL (0x89). Transport errors such as133 may retry.
         fun securityFailure(status: Int) = status in setOf(5, 8, 12, 15, 137)
     }
 }

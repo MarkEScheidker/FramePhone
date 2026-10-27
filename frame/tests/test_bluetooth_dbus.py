@@ -73,7 +73,7 @@ async def check(address):
             assert (await ad.get_interface('org.freedesktop.DBus.Properties').call_get('org.bluez.LEAdvertisement1','LocalName')).value=='Steam Frame'
             agent=radio.get_proxy_object(name,base+'/agent',await radio.introspect(name,base+'/agent')).get_interface('org.bluez.Agent1')
             device='/org/bluez/hci0/dev_phone'
-            async def confirmation(accepted):
+            async def confirmation(accepted, phone_first=False):
                 pending=asyncio.create_task(agent.call_request_confirmation(device,12345))
                 for _ in range(100):
                     if link.pairing is not None:break
@@ -81,13 +81,22 @@ async def check(address):
                 request=link.pairing
                 assert request and request['passkey']=='012345'
                 assert not pending.done(),'number comparison was auto-approved'
+                if phone_first:
+                    await radio.send(Message.new_signal(device,'org.freedesktop.DBus.Properties','PropertiesChanged',
+                        signature='sa{sv}as',body=['org.bluez.Device1',{'Connected':Variant('b',False)},[]]))
+                    await asyncio.sleep(.1)
+                    assert link.pairing is request and not pending.done(), 'phone-first transport handoff cancelled SSP'
                 request['accepted']=accepted;request['event'].set()
+                if not phone_first:
+                    await radio.send(Message.new_signal(device,'org.freedesktop.DBus.Properties','PropertiesChanged',
+                        signature='sa{sv}as',body=['org.bluez.Device1',{'Connected':Variant('b',False)},[]]))
                 try:await pending
                 except DBusError as error:
                     assert not accepted and error.type=='org.bluez.Error.Rejected'
                 else:assert accepted
             await confirmation(False)
-            await confirmation(True)
+            await confirmation(True,phone_first=False)
+            await confirmation(True,phone_first=True)
             try:await agent.call_request_authorization(device)
             except DBusError as error:assert error.type=='org.bluez.Error.Rejected'
             else:raise AssertionError('Just Works was silently accepted')
@@ -101,7 +110,7 @@ async def check(address):
             pose=radio.get_proxy_object(name,base+'/service0/pose',await radio.introspect(name,base+'/service0/pose')).get_interface('org.bluez.GattCharacteristic1')
             await pose.call_write_value(GOLDEN,options)
             assert len(received)==1 and received[0][0]['seq']==17
-            async def propose(accepted):
+            async def propose(accepted, disconnected=False):
                 before=link.store.load()
                 challenge=json.loads(await control.call_read_value(options))['challenge']
                 async def write():
@@ -114,13 +123,18 @@ async def check(address):
                 request=link.pairing
                 assert request and request['kind']=='replace'
                 assert link.store.load()==before and not pending.done()
-                request['accepted']=accepted;request['event'].set()
+                if disconnected:
+                    await radio.send(Message.new_signal(device,'org.freedesktop.DBus.Properties','PropertiesChanged',
+                        signature='sa{sv}as',body=['org.bluez.Device1',{'Connected':Variant('b',False)},[]]))
+                else:
+                    request['accepted']=accepted;request['event'].set()
                 await pending
                 ready=json.loads(await control.call_read_value(options))
                 if accepted:
                     assert ready['op']=='ready' and link.store.load()['pin']=='d'*64 and link.expected is None
                 else:
                     assert ready['code']=='pairing_rejected' and link.store.load()==before
+            await propose(False,disconnected=True)
             await propose(False)
             await propose(True)
             # Lost ACK/restarted client: a repeated proof succeeds without
@@ -140,9 +154,12 @@ async def check(address):
             assert link.pairing is active
             await radio.send(Message.new_signal(device,'org.freedesktop.DBus.Properties','PropertiesChanged',
                 signature='sa{sv}as',body=['org.bluez.Device1',{'Connected':Variant('b',False)},[]]))
+            await asyncio.sleep(.1)
+            assert link.pairing is active and not pending.done(), 'transport disconnect cancelled pending number comparison'
+            await agent.call_cancel()
             try:await pending
             except DBusError as error:assert error.type=='org.bluez.Error.Rejected'
-            else:raise AssertionError('disconnected pairing remained approved')
+            else:raise AssertionError('Agent.Cancel did not cancel pending number comparison')
             assert link.peer is None and link.store.load()['credential']=='e'*64
             rogue=await MessageBus(bus_address=address).connect()
             try:

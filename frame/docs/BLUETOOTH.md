@@ -12,10 +12,10 @@ or video dependency is included in this milestone.
    camera and overlay permissions, then select Steam Frame in Android's companion
    picker. Location Services may need to be enabled for the system picker.
 3. Approve the same six-digit number on the phone and in the FramePhone desktop
-   app. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
+   app. Either device may be confirmed first. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
    Android waits for bond completion before MTU/services and protected reads. GATT
    characteristics require authenticated encryption; there is no Just Works
-   downgrade. An existing weaker bond may need removing in Bluetooth settings.
+   downgrade. Connection retries keep both the OS bond and the saved app trust.
 4. Bluetooth transfers the application trust information and current LAN route.
    Frame verifies the phone's complete saved certificate pin before sending a
    Wi-Fi credential. It then connects automatically; no IP entry is needed.
@@ -118,13 +118,14 @@ any of them. Recovery is explicit when it changes which device is trusted:
 | --- | --- |
 | Both app records and bond are valid | Reconnect automatically with a fresh challenge/session binding; no new prompt. |
 | Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. Retry pairing starts a fresh bond flow. Saved app keys may be reused after secure bonding. |
-| One side has stale/weak OS keys; status137 | Stop the retry loop with a repair message. Remove the old FramePhone/Steam Frame bond in both devices' Bluetooth settings once, then compare numbers again. |
+| Authentication error after confirmation | Stop a failed security attempt with Retry connection; keep saved keys. A transport retry never starts another bond while confirmation is pending or forgets an observed completed bond. Genuine OS key loss may require system repair, but Frame's Forget is not a connection-retry step. |
 | Android app reinstalled/reset, but OS bond survives | Create a new app credential; Frame offers Replace saved phone. Approval ends the old TLS/binding before using the new identity. Rejection preserves old trust. |
 | Frame app record lost/reset, but phone/bond remain | Phone proposes a fresh credential over encrypted BLE. Frame asks Connect this phone; no OS unpair is required. |
 | Frame explicitly forgets a phone | Clear trust, old binding, pending requests and recent bond approval. The existing OS bond cannot silently re-enroll; reconnect needs confirmation. |
 | Both records exist but credentials differ | Return a specific app-trust mismatch, then offer a fresh verified credential proposal and confirmation. Do not mislabel this as an OS encryption failure. |
 | App stops or an acknowledgment is lost during enrollment | Retain the same pending proposal across restart; a repeated valid proof completes without replacing a newer record or prompting twice. |
-| Pairing cancelled, times out, or radio disconnects during approval | Cancel the pending request, preserve prior trust and show Retry pairing. No automatic prompt loop. |
+| Transport disconnect during number comparison | Keep the same pending number; it is a bond transaction, not a GATT connection. Only BlueZ Agent.Cancel/Release, explicit rejection, shutdown or timeout cancels it. Both acceptance orders are valid. |
+| App trust proposal disconnects, or an approval is rejected/times out | Cancel that proposal and preserve prior trust. Retry connection resumes using saved keys without silently replacing them. |
 | Another phone tries pairing while a prompt is open | Reject the second request; it cannot replace the device/number being confirmed. |
 | Saved trust changes while confirmation is open | Reject the stale approval instead of overwriting the newer record. |
 | User switches to another companion address | Drop the old peer's pending secret/verifier and close its active connection. Never share a pending credential between headsets. |
@@ -135,7 +136,7 @@ Initial app enrollment can reuse a just-approved number comparison for two minut
 for that device only. An existing OS bond without an app record needs explicit
 Connect confirmation. This prevents Forget being immediately undone by background
 reconnection. Application proposals are verified before prompting, and stored
-identity is checked again after approval. No key is changed by a rejected, expired,
+identity is checked again after approval. No saved trust is replaced by a rejected, expired,
 replayed or stale request. Pending secrets, tokens and comparison numbers are not
 written to diagnostics.
 
@@ -143,6 +144,19 @@ The app uses supported Android bond APIs; it does not remove bonds by reflection
 or discard other Bluetooth devices. Android force-stop/permission revocation and
 host Bluetooth policy still require user action. Hardware trials remain necessary
 for actual OS bonding, privacy-address resolution and radio interruption behavior.
+
+Android uses reported bond-state broadcasts rather than re-reading a potentially
+lagging cached getter. It retains the in-progress bond across GATT disconnects;
+no second createBond call is allowed while waiting. Duplicate callbacks cannot
+restart setup, and an observed completed bond survives ordinary transport retries.
+After bonding, a 1.6-second settling interval allows encryption/service-change
+processing before discovery; this follows the ordering described by
+[Nordic's BLE manager](https://github.com/NordicSemiconductor/Android-BLE-Library/blob/main/ble/src/main/java/no/nordicsemi/android/ble/BleManager.java).
+Discovery precedes MTU optimization. Unsolicited MTU/discovery callbacks cannot
+advance setup during bonding; optional MTU timeout falls back to small-packet
+bootstrap rather than disconnecting a valid bond. Connection/PHY optimization
+happens after binding. Details retains the last failure stage until setup succeeds.
+These changes affect connection setup, not steady-state pose cadence.
 
 ## Wire format
 

@@ -21,6 +21,8 @@ import java.util.ArrayDeque
 object BluetoothPose {
     @Volatile var status = "Bluetooth not associated"
         internal set
+    @Volatile var lastFailure = ""
+        internal set
     @Volatile var pairingNeedsAttention = false
         internal set
     private var client: BleClient? = null
@@ -63,6 +65,7 @@ private class BleClient(private val context: Context, private val address: Strin
     private var control: BluetoothGattCharacteristic? = null
     private var pose: BluetoothGattCharacteristic? = null
     private var mtu = 23
+    private var mtuKnown = false
     private var poseAvailable = false
     private var pin = ""
     private var host = ""
@@ -84,14 +87,17 @@ private class BleClient(private val context: Context, private val address: Strin
     private var needsRead = false
     private var nextSetupRead = 0L
     private var wifiWaitingAt = 0L
+    private var bondStartedAt = 0L
 
     fun retryPairing() { handler.post {
+        if (bondGate.waiting) return@post
+        failed("Retrying saved connection")
         bondGate.retry()
         BluetoothPose.pairingNeedsAttention = false
         retryAt = 0
     } }
     fun retryConnection() { handler.post {
-        if (session == null && !bondGate.blocked) {
+        if (session == null && !bondGate.blocked && !bondGate.waiting) {
             // Re-advertise the authenticated route even if the address did not
             // change. This wakes Frame's automatic Wi-Fi retry on each unlock.
             bootstrapHost = ""
@@ -113,27 +119,29 @@ private class BleClient(private val context: Context, private val address: Strin
             if (value != null && control != null) needsRead = true
         }
     } }
-    fun isBound(): Boolean = bound && poseAvailable
+    fun isBound(): Boolean = bound && poseAvailable && bondGate.ready
     private fun begin(kind: String) { flight = kind; flightAt = SystemClock.elapsedRealtime() }
     private fun failed(detail: String) {
+        BluetoothPose.lastFailure = "$detail during ${flight ?: if (bondGate.waiting) "bond" else "connection"}"
         bondGate.disconnected()
         bound = false
         runCatching { gatt?.disconnect() }; runCatching { gatt?.close() }
         gatt = null; control = null; pose = null; flight = null; binding = null; token = null
         chunks.clear()
+        mtu = 23; mtuKnown = false; poseAvailable = false
         setupAttempted = false; waitingBootstrapReady = false; bindSession = null
         wifiWaitingAt = 0
         retryAt = SystemClock.elapsedRealtime()+retryMs
         retryMs = minOf(5000, retryMs*2)
-        BluetoothPose.status = "Bluetooth retrying: $detail"
+        BluetoothPose.status = if (bondGate.waiting) "Finishing Bluetooth pairing — keep the confirmation open"
+            else "Bluetooth retrying: ${BluetoothPose.lastFailure}"
     }
-    private fun securityFailed(detail: String, repairBond: Boolean = true) {
+    private fun securityFailed(detail: String) {
         bondGate.reject()
         failed(detail)
         BluetoothPose.pairingNeedsAttention = true
         bondLost()
-        BluetoothPose.status = if (repairBond) "$detail — remove the old Steam Frame bond on both devices and pair again"
-            else "$detail — tap Retry pairing when ready"
+        BluetoothPose.status = "$detail — tap Retry connection; saved pairing is kept"
     }
     private fun applicationFailed(detail: String) {
         bondGate.reject()
@@ -147,12 +155,16 @@ private class BleClient(private val context: Context, private val address: Strin
         else -> BondGate.Bond.NONE
     }
     private fun negotiate(value: BluetoothGatt) {
+        if (gatt !== value || !bondGate.ready) return
+        bondStartedAt = 0
         BluetoothPose.pairingNeedsAttention = false
-        BluetoothPose.status = "Bluetooth paired — negotiating"
-        value.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-        runCatching { value.setPreferredPhy(BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED) }
-        begin("mtu")
-        if (!value.requestMtu(517)) discover(value, 23)
+        BluetoothPose.status = "Bluetooth paired — finishing connection"
+        begin("settling")
+        // Bond completion precedes encryption/service-change processing on
+        // Android. Fence this delay to the same connection and operation.
+        handler.postDelayed({
+            if (!closed && gatt === value && flight == "settling" && bondGate.ready) discover(value, mtu)
+        }, 1600)
     }
     private fun discover(value: BluetoothGatt, size: Int) {
         mtu = size.coerceIn(23, 517)
@@ -160,19 +172,40 @@ private class BleClient(private val context: Context, private val address: Strin
         begin("services")
         if (!value.discoverServices()) failed("service discovery rejected")
     }
+    private fun awaitBond(value: BluetoothGatt, create: Boolean) {
+        begin("bond")
+        if (bondStartedAt == 0L) bondStartedAt = SystemClock.elapsedRealtime()
+        BluetoothPose.status = "Compare and approve the Bluetooth number on both devices"
+        if (create && !value.device.createBond()) {
+            when (bondState(value.device)) {
+                BondGate.Bond.BONDED -> { bondGate.changed(BondGate.Bond.BONDED); negotiate(value) }
+                BondGate.Bond.BONDING -> Unit
+                else -> securityFailed("Could not start Bluetooth pairing")
+            }
+        }
+    }
     private val bondChanges = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             val device = if (Build.VERSION.SDK_INT >= 33)
                 intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                 else intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
             if (!device?.address.equals(address, true)) return
+            val reported = when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)) {
+                BluetoothDevice.BOND_BONDED -> BondGate.Bond.BONDED
+                BluetoothDevice.BOND_BONDING -> BondGate.Bond.BONDING
+                BluetoothDevice.BOND_NONE -> BondGate.Bond.NONE
+                else -> return
+            }
             handler.post {
                 if (closed) return@post
-                when (bondGate.changed(bondState(device!!))) {
-                    BondGate.Action.NEGOTIATE -> gatt?.let { negotiate(it) }
-                    BondGate.Action.BLOCK -> securityFailed("Bluetooth pairing cancelled or removed", repairBond = false)
+                when (bondGate.changed(reported)) {
+                    BondGate.Action.NEGOTIATE -> {
+                        bondStartedAt = 0
+                        gatt?.let { if (control == null) negotiate(it) }
+                    }
+                    BondGate.Action.BLOCK -> securityFailed("Bluetooth pairing cancelled or removed")
                     BondGate.Action.RETRY -> if (gatt == null) {
-                        BluetoothPose.pairingNeedsAttention = false; retryAt = 0
+                        BluetoothPose.pairingNeedsAttention = false; bondStartedAt = 0; retryAt = SystemClock.elapsedRealtime()+300
                     }
                     else -> Unit
                 }
@@ -203,38 +236,40 @@ private class BleClient(private val context: Context, private val address: Strin
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 when (bondGate.connected(bondState(value.device))) {
                     BondGate.Action.NEGOTIATE -> negotiate(value)
-                    BondGate.Action.CREATE_BOND, BondGate.Action.WAIT -> {
-                        begin("bond")
-                        BluetoothPose.status = "Compare and approve the Bluetooth number on both devices"
-                        if (value.device.bondState == BluetoothDevice.BOND_NONE && !value.device.createBond()) {
-                            when (bondState(value.device)) {
-                                BondGate.Bond.BONDED -> { bondGate.changed(BondGate.Bond.BONDED); negotiate(value) }
-                                BondGate.Bond.BONDING -> Unit
-                                else -> securityFailed("Could not start Bluetooth pairing", repairBond = false)
-                            }
-                        }
-                    }
+                    BondGate.Action.CREATE_BOND -> awaitBond(value, create = true)
+                    BondGate.Action.WAIT -> if (bondGate.waiting) awaitBond(value, create = false)
                     else -> securityFailed("Bluetooth pairing needs attention")
                 }
             }
         } }
         override fun onMtuChanged(value: BluetoothGatt, size: Int, status: Int) { current(value) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                mtu = size.coerceIn(23, 517)
+                mtuKnown = true
+                poseAvailable = mtu-3 >= BleProtocol.POSE_BYTES
+            }
+            if (flight != "mtu" || !bondGate.ready) return@current
             if (BondGate.securityFailure(status)) {
                 securityFailed("Bluetooth authentication failed ($status)"); return@current
             }
-            discover(value, if (status == BluetoothGatt.GATT_SUCCESS) size else 23)
+            flight = null; needsRead = true
         } }
         override fun onServicesDiscovered(value: BluetoothGatt, status: Int) { current(value) {
+            if (flight != "services" || !bondGate.ready) return@current
             val service = value.getService(BleProtocol.SERVICE)
             control = service?.getCharacteristic(BleProtocol.CONTROL)
             pose = service?.getCharacteristic(BleProtocol.POSE)
             if (status != BluetoothGatt.GATT_SUCCESS || control == null || pose == null) {
-                failed("FramePhone service unavailable"); return@current
+                failed("FramePhone service unavailable ($status)"); return@current
             }
-            flight = null; needsRead = true; retryMs = 1000
+            if (mtuKnown) { flight = null; needsRead = true }
+            else {
+                begin("mtu")
+                if (!value.requestMtu(517)) { mtuKnown = true; flight = null; needsRead = true }
+            }
         } }
         private fun read(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) { current(value) {
-            if (characteristic.uuid != BleProtocol.CONTROL) return@current
+            if (characteristic.uuid != BleProtocol.CONTROL || flight != "read") return@current
             flight = null
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 if (BondGate.securityFailure(status)) securityFailed("Bluetooth authentication failed ($status)")
@@ -249,7 +284,7 @@ private class BleClient(private val context: Context, private val address: Strin
                         bootstrapHost = ""; setupAttempted = false; waitingBootstrapReady = false; needsRead = true
                         BluetoothPose.status = "Confirm replacement of the saved phone on Steam Frame"
                     } else applicationFailed(when (message.optString("code")) {
-                        "pairing_rejected" -> "Pairing declined on Steam Frame — tap Retry pairing to try again"
+                        "pairing_rejected" -> "Pairing declined on Steam Frame — tap Retry connection to try again"
                         "saved_pairing_invalid" -> "Saved pairing is unreadable on Steam Frame — use Forget phone there, then retry"
                         "pairing_storage_failed" -> "Steam Frame could not save pairing — check its configuration permissions"
                         else -> "Pairing versions are incompatible — update both apps and retry"
@@ -292,6 +327,8 @@ private class BleClient(private val context: Context, private val address: Strin
         override fun onCharacteristicRead(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) =
             read(value, characteristic, bytes, status)
         override fun onCharacteristicWrite(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) { current(value) {
+            if ((characteristic.uuid == BleProtocol.CONTROL && flight != "control") ||
+                (characteristic.uuid == BleProtocol.POSE && flight != "pose")) return@current
             flight = null
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 if (BondGate.securityFailure(status)) securityFailed("Bluetooth authentication failed ($status)")
@@ -302,9 +339,13 @@ private class BleClient(private val context: Context, private val address: Strin
                 if (completion == "bootstrap") { needsRead = true }
                 if (completion == "bind") {
                     bound = bindSession == session && session != null
-                    if (bound) BluetoothPose.status = if (poseAvailable) "Tracking over Bluetooth LE" else
-                        "Bluetooth paired — motion uses Wi-Fi"
-                    else needsRead = true
+                    if (bound) {
+                        BluetoothPose.lastFailure = ""
+                        retryMs = 1000
+                        runCatching { value.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
+                        runCatching { value.setPreferredPhy(BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_LE_2M_MASK, BluetoothDevice.PHY_OPTION_NO_PREFERRED) }
+                        BluetoothPose.status = if (poseAvailable) "Tracking over Bluetooth LE" else "Bluetooth paired — motion uses Wi-Fi"
+                    } else needsRead = true
                 }
                 completion = ""
             }
@@ -320,15 +361,22 @@ private class BleClient(private val context: Context, private val address: Strin
             if (closed) return
             try {
                 val now = SystemClock.elapsedRealtime()
-                val timeout = when (flight) { "bond", "control", "read" -> 95_000L; "pose" -> 300L; else -> 15_000L }
+                val timeout = when (flight) { "bond", "control", "read" -> 95_000L; "pose" -> 300L; "mtu" -> 2_000L; else -> 15_000L }
+                if (bondGate.waiting && bondStartedAt == 0L) bondStartedAt = now
+                if (bondGate.waiting && now-bondStartedAt > 95_000) securityFailed("Bluetooth pairing timed out")
                 if (flight != null && now-flightAt > timeout) {
-                    if (now-flightAt <= 95_000 && gatt?.device?.bondState == BluetoothDevice.BOND_BONDING)
+                    if (now-flightAt <= 95_000 && bondGate.waiting)
                         BluetoothPose.status = "Compare and approve the Bluetooth number on both devices"
-                    else if (flight == "bond") securityFailed("Bluetooth pairing timed out", repairBond = false)
-                    else if (flight == "control") applicationFailed("Pairing did not complete — check Steam Frame and tap Retry pairing")
+                    else if (flight == "mtu") {
+                        // Optional packet-size optimization cannot restart a
+                        // successful bond. Small packets still bootstrap TLS.
+                        mtuKnown = true; flight = null; needsRead = true
+                    }
+                    else if (flight == "bond") securityFailed("Bluetooth pairing timed out")
+                    else if (flight == "control") applicationFailed("Pairing did not complete — check Steam Frame and tap Retry connection")
                     else failed("operation timed out")
                 }
-                if (!bondGate.blocked && gatt == null && now >= retryAt) {
+                if (!bondGate.blocked && !bondGate.waiting && gatt == null && now >= retryAt) {
                     val adapter = context.getSystemService(BluetoothManager::class.java).adapter
                     if (adapter?.isEnabled == true) {
                         begin("connect")
@@ -342,7 +390,7 @@ private class BleClient(private val context: Context, private val address: Strin
                     nextSetupRead = now+1000
                 }
                 if (session == null && binding != null && gatt != null) waitingStatus(now)
-                if (flight == null && control != null) {
+                if (flight == null && control != null && bondGate.ready) {
                     if (chunks.isNotEmpty()) {
                         begin("control")
                         if (!write(control!!, chunks.removeFirst(), true)) failed("control busy")
@@ -368,7 +416,7 @@ private class BleClient(private val context: Context, private val address: Strin
                 bound && poseAvailable -> 4L
                 bound -> 200L
                 gatt == null -> 200L
-                flight in listOf("connect", "mtu", "services") -> 50L
+                flight in listOf("connect", "bond", "settling", "mtu", "services") -> 50L
                 else -> 10L
             }
             handler.postDelayed(this, delay)

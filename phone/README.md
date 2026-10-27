@@ -36,10 +36,12 @@ The associated Frame can wake the connection service with setup closed. Android
 may still require the Resume tracking notification action for a cold camera
 start. Disconnect disables automatic wake until Connect is used again; Forget
 also removes the companion association. Force-stop is not bypassed. Authentication
-failures stop retrying and expose Retry pairing. App reinstalls or mismatched app
+failures stop retrying and expose Retry connection. App reinstalls or mismatched app
 keys use a Connect/Replace confirmation on Frame rather than requiring OS unpair.
-For an existing weak OS bond/status137, remove that bond on both devices once and
-pair again with number comparison.
+Confirmations may be accepted on either device first. A transport handoff retains
+the pending confirmation and completed bonds. Retry connection keeps the saved
+keys; Forget is reserved for deliberately removing trust. Details retains the
+last Bluetooth failure and its setup stage.
 
 Bluetooth is the only pairing method. Wi-Fi connects and retries automatically;
 screen-on/unlock requests another attempt while disconnected. Both devices must

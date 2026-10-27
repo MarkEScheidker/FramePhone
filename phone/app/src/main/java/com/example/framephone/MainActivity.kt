@@ -196,12 +196,14 @@ class MainActivity : ComponentActivity() {
         var trackingReady by remember { mutableStateOf(false) }
         var timedOut by remember { mutableStateOf(false) }
         var pairingNeedsAttention by remember { mutableStateOf(BluetoothPose.pairingNeedsAttention) }
+        var bluetoothFailure by remember { mutableStateOf(BluetoothPose.lastFailure) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
         LaunchedEffect(Unit) {
             while (true) {
                 tracking = ArPoseState.status
                 bluetoothStatus = BluetoothPose.status
+                bluetoothFailure = BluetoothPose.lastFailure
                 pairingNeedsAttention = BluetoothPose.pairingNeedsAttention
                 trackingDetail = ArPoseState.detail
                 trackingReady = ArPoseState.running && !ArPoseState.failed
@@ -234,7 +236,7 @@ class MainActivity : ComponentActivity() {
                     runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
                         .onSuccess { connect() }.onFailure { notice = "Enter a valid width and height." }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running && pairingNeedsAttention) "Retry pairing" else if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running && pairingNeedsAttention) "Retry connection" else if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {
                 TextButton(onClick = {
@@ -247,6 +249,7 @@ class MainActivity : ComponentActivity() {
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
             if (details) {
                 Text(status.message)
+                if (bluetoothFailure.isNotEmpty()) Text("Last Bluetooth error: $bluetoothFailure")
                 if (status.address.isNotEmpty()) Text("IP: ${status.address}")
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)

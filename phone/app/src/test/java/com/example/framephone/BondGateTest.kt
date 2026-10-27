@@ -12,7 +12,7 @@ class BondGateTest {
         assertEquals(CREATE_BOND, gate.connected(NONE))
         assertEquals(WAIT, gate.changed(BONDING))
         assertEquals(NEGOTIATE, gate.changed(BONDED))
-        assertEquals(RETRY, gate.changed(BONDED)) // only reconnect when disconnected
+        assertEquals(WAIT, gate.changed(BONDED)) // a duplicate cannot restart GATT setup
     }
     @Test fun alreadyBondedReconnectDoesNotAskToPairAgain() {
         assertEquals(NEGOTIATE, BondGate().connected(BONDED))
@@ -34,7 +34,8 @@ class BondGateTest {
         gate.reject() // GATT_AUTH_FAIL137 after an old Just Works bond
         gate.disconnected()
         assertEquals(BLOCK, gate.connected(BONDED))
-        assertEquals(RETRY, gate.changed(NONE))
+        assertEquals(BLOCK, gate.changed(NONE))
+        gate.retry()
         assertEquals(CREATE_BOND, gate.connected(NONE))
         assertEquals(NEGOTIATE, gate.changed(BONDED))
     }
@@ -46,6 +47,58 @@ class BondGateTest {
         assertEquals(BLOCK, gate.connected(NONE))
         gate.retry()
         assertEquals(CREATE_BOND, gate.connected(NONE))
+    }
+    @Test fun connectionDropDoesNotStartASecondBondWhileConfirmationIsPending() {
+        val gate = BondGate()
+        assertEquals(CREATE_BOND, gate.connected(NONE))
+        gate.changed(BONDING)
+        gate.disconnected()
+        assertTrue(gate.waiting)
+        assertFalse(gate.ready)
+        assertEquals(WAIT, gate.connected(NONE))
+        gate.disconnected()
+        assertEquals(RETRY, gate.changed(BONDED))
+        assertEquals(NEGOTIATE, gate.connected(NONE)) // lagging getter, confirmed bond retained
+        assertTrue(gate.ready)
+    }
+    @Test fun duplicateConnectionCallbacksCannotRenegotiateOrCreateAnotherBond() {
+        val gate = BondGate()
+        assertEquals(CREATE_BOND, gate.connected(NONE))
+        assertEquals(WAIT, gate.connected(NONE))
+        assertEquals(NEGOTIATE, gate.changed(BONDED))
+        assertEquals(WAIT, gate.connected(BONDED))
+        assertEquals(WAIT, gate.changed(BONDED))
+        assertTrue(gate.ready)
+    }
+    @Test fun retryAfterGattFailureKeepsTheBondInsteadOfRequestingNewNumbers() {
+        val gate = BondGate()
+        gate.connected(NONE)
+        gate.changed(BONDED)
+        gate.reject()
+        gate.disconnected()
+        gate.retry()
+        assertEquals(NEGOTIATE, gate.connected(NONE))
+        assertFalse(gate.waiting)
+        assertEquals(BLOCK, gate.changed(NONE)) // only an explicit unpair discards it
+    }
+    @Test fun bondCompletionBeforeConnectionCallbackStillInitializesExactlyOnce() {
+        val gate = BondGate()
+        assertEquals(RETRY, gate.changed(BONDED))
+        assertEquals(NEGOTIATE, gate.connected(NONE))
+        assertEquals(WAIT, gate.changed(BONDED))
+        gate.disconnected()
+        assertFalse(gate.ready)
+        assertEquals(NEGOTIATE, gate.connected(BONDED))
+    }
+    @Test fun duplicateBondCompletionCannotRestartARejectedAttempt() {
+        val gate = BondGate()
+        gate.connected(BONDED)
+        gate.reject()
+        gate.disconnected()
+        assertEquals(WAIT, gate.changed(BONDED))
+        assertTrue(gate.blocked)
+        gate.retry()
+        assertEquals(NEGOTIATE, gate.connected(BONDED))
     }
     @Test fun securityErrorsStopButTransportErrorsCanRetry() {
         for (status in listOf(5, 8, 12, 15, 137)) assertTrue(BondGate.securityFailure(status))

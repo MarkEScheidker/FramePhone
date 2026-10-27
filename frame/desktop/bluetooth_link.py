@@ -60,7 +60,7 @@ class BluetoothLink:
                 with self.lock:
                     self.bond_approvals[device] = time.monotonic()+120
             self.status = ('Bluetooth pairing approved — completing encryption' if accepted else
-                           'Bluetooth pairing cancelled — pair again from your phone')
+                           'Bluetooth pairing cancelled — retry connection from your phone')
             return accepted
         finally:
             with self.lock:
@@ -346,7 +346,11 @@ class BluetoothLink:
                     lost = any(key in values and not values[key].value for key in ('Connected', 'Paired'))
                     if lost:
                         with owner.lock:
-                            if owner.pairing and owner.pairing['device'] == message.path:
+                            if (owner.pairing and owner.pairing['device'] == message.path and
+                                    owner.pairing['kind'] != 'bond'):
+                                # A transport/profile handoff is not cancellation
+                                # of SSP. Only Agent.Cancel/Release, timeout or
+                                # the user's rejection ends numeric confirmation.
                                 owner.cancel_pairing()
                             if owner.peer and owner.peer['device'] == message.path:
                                 owner.peer = None
