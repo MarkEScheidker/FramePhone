@@ -26,15 +26,20 @@ Android 12+; application ID `com.example.framephone`. See
 ## Bluetooth connection
 
 Run FramePhone on Frame with Bluetooth enabled before tapping Pair headset on Android.
-After the initial permissions, select FramePhone in the system companion picker
-and approve the Bluetooth bond on both devices. Trust and the Wi-Fi endpoint
+After the initial permissions, select Steam Frame in the system companion picker
+and approve the same six-digit number on the phone and in FramePhone on the
+headset. Bonding completes before protected GATT setup begins. Trust and the Wi-Fi endpoint
 travel over authenticated BLE. Existing Wi-Fi pairings migrate using their verifier;
 a new pair no longer needs a separate LAN fingerprint enrollment.
 
 The associated Frame can wake the connection service with setup closed. Android
 may still require the Resume tracking notification action for a cold camera
 start. Disconnect disables automatic wake until Connect is used again; Forget
-also removes the companion association. Force-stop is not bypassed.
+also removes the companion association. Force-stop is not bypassed. Authentication
+failures stop retrying and expose Retry pairing. App reinstalls or mismatched app
+keys use a Connect/Replace confirmation on Frame rather than requiring OS unpair.
+For an existing weak OS bond/status137, remove that bond on both devices once and
+pair again with number comparison.
 
 Bluetooth is the only pairing method. Wi-Fi connects and retries automatically;
 screen-on/unlock requests another attempt while disconnected. Both devices must

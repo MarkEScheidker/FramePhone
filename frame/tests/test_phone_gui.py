@@ -84,8 +84,22 @@ def connected_ui():
                     return [child for direct in parent.winfo_children() for child in [direct, *widgets(direct)]]
                 controls = widgets(root)
                 assert not any(w.winfo_class() in ("TEntry", "TCombobox") for w in controls)
-                buttons = [w.cget("text") for w in controls if w.winfo_class() == "TButton"]
+                buttons = [w.cget("text") for w in controls if w.winfo_class() == "TButton" and w.winfo_ismapped()]
                 assert buttons == ["Forget phone"], buttons
+                request = dict(passkey="012345", accepted=False, event=threading.Event())
+                panel.notify("bluetooth_pairing", request)
+                until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())
+                assert panel.pairing_number.get() == "012345"
+                panel.answer_pairing(True)
+                assert request["event"].is_set() and request["accepted"]
+                assert not panel.pairing_panel.winfo_ismapped()
+                replacement = dict(kind="replace", passkey="", accepted=False, event=threading.Event())
+                panel.notify("bluetooth_pairing", replacement)
+                until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())
+                assert panel.pairing_accept.cget("text") == "Replace phone"
+                panel.answer_pairing(False)
+                assert replacement["event"].is_set() and not replacement["accepted"]
+                assert not panel.link.stopped.is_set(), "rejection disconnected the working phone"
                 stop.set()
                 panel.forget()
                 until(root, panel, lambda: panel.store.load() is None and not panel.worker.is_alive())
@@ -137,6 +151,12 @@ def automatic_recovery():
                 panel.notify("bluetooth_endpoint", "192.168.1.20")
                 until(root, panel, lambda: panel.status.get() == "Wi-Fi connected")
                 assert attempts == [("192.168.1.10", False), ("192.168.1.20", False)]
+                old_link = panel.link
+                panel.notify("bluetooth_replaced", None)
+                panel.notify("bluetooth_endpoint", "192.168.1.30")
+                until(root, panel, lambda: len(attempts) == 3 and panel.status.get() == "Wi-Fi connected")
+                assert old_link.stopped.is_set(), "replacement left the old authenticated session alive"
+                assert attempts[-1] == ("192.168.1.30", False)
                 panel.link.retryable = False
                 panel.schedule_retry()
                 assert not panel.retry_enabled and panel.retry_timer is None

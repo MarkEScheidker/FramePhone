@@ -1,13 +1,10 @@
 package com.example.framephone.bluetooth
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanFilter
 import android.companion.AssociationInfo
 import android.companion.AssociationRequest
@@ -49,7 +46,6 @@ object CompanionSetup {
             }, Handler(Looper.getMainLooper()))
     }
 
-    @SuppressLint("MissingPermission")
     @Suppress("DEPRECATION")
     fun remember(context: Context, address: String, id: Int = -1) {
         check(context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
@@ -57,8 +53,8 @@ object CompanionSetup {
         }
         val store = SettingsStore(context)
         store.companion(address, id)
-        val device = context.getSystemService(BluetoothManager::class.java).adapter.getRemoteDevice(address)
-        if (device.bondState == BluetoothDevice.BOND_NONE) device.createBond()
+        // The BLE client owns bonding on its LE connection and waits for the
+        // result before negotiating GATT. Association alone is not a bond.
         observe(context)
     }
 

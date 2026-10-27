@@ -49,6 +49,13 @@ class TelemetryService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val store = SettingsStore(this)
         when (intent?.action) {
+            "companion_changed" -> {
+                BluetoothPose.close()
+                server?.disconnectClient()
+                ArPoseState.setConnected(false)
+                return START_NOT_STICKY
+            }
+            "retry_pairing" -> { BluetoothPose.retryPairing(); return START_NOT_STICKY }
             "stop", "forget" -> {
                 store.enableConnection(false)
                 BluetoothPose.close()
@@ -66,7 +73,7 @@ class TelemetryService : Service() {
         }
         if (intent?.action == "wake" && !store.connectionEnabled()) { stopSelf(); return START_NOT_STICKY }
         if (intent?.action != "wake") store.enableConnection(true)
-        runCatching { BluetoothPose.start(this, ArPoseState::message) }
+        runCatching { BluetoothPose.start(this, ArPoseState::message) { main.post { server?.disconnectClient() } } }
         if (server != null) {
             if (!TelemetryState.status.connected) BluetoothPose.retryConnection()
             return START_NOT_STICKY

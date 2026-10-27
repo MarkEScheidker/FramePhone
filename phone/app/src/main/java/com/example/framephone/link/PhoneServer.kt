@@ -1,6 +1,9 @@
 package com.example.framephone.link
 
 import android.content.Context
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.annotation.SuppressLint
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
@@ -41,7 +44,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             stage = "identity initialization"
             val identity = Identity()
             if (identity.replacedLegacyIdentity) {
-                store.forget()
+                store.resetApplicationTrust()
                 identity.retireLegacyIdentity()
             }
             stage = "TLS self-check"
@@ -95,6 +98,14 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
         } finally { close() }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun companionBonded(): Boolean {
+        val address = store.bluetoothAddress() ?: return false
+        return context.getSystemService(BluetoothManager::class.java).adapter
+            ?.getRemoteDevice(address)?.bondState == BluetoothDevice.BOND_BONDED
+    }
+    fun disconnectClient() { runCatching { client?.close() } }
+
     private fun serve(socket: SSLSocket) {
         stage = "TLS handshake"
         socket.enabledProtocols = arrayOf("TLSv1.3")
@@ -108,7 +119,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
         val hello = Protocol.read(input)
         require(hello.getString("type") == "hello" && hello.getInt("version") == Protocol.VERSION)
         stage = "reconnect authentication"
-        require(hello.getString("mode") == "reconnect" && store.authenticates(hello.getString("credential"))) {
+        require(hello.getString("mode") == "reconnect" && companionBonded() && store.authenticates(hello.getString("credential"))) {
             "Pair over Bluetooth first"
         }
         require(running && store.pairedName() != null)

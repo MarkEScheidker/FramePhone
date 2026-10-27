@@ -67,9 +67,12 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun bluetoothSelected(address: String, id: Int) {
+        val previous = store.bluetoothAddress()
         runCatching { CompanionSetup.remember(this, address, id) }.onFailure {
             pendingConnect = false; notice = "Bluetooth setup failed: ${it.javaClass.simpleName}"
         }.onSuccess {
+            if (previous != null && !previous.equals(address, true) && TelemetryState.status.running)
+                command("companion_changed")
             waiting = ""
             if (lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) continueConnection()
         }
@@ -192,12 +195,14 @@ class MainActivity : ComponentActivity() {
         var trackingDetail by remember { mutableStateOf("") }
         var trackingReady by remember { mutableStateOf(false) }
         var timedOut by remember { mutableStateOf(false) }
+        var pairingNeedsAttention by remember { mutableStateOf(BluetoothPose.pairingNeedsAttention) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
         LaunchedEffect(Unit) {
             while (true) {
                 tracking = ArPoseState.status
                 bluetoothStatus = BluetoothPose.status
+                pairingNeedsAttention = BluetoothPose.pairingNeedsAttention
                 trackingDetail = ArPoseState.detail
                 trackingReady = ArPoseState.running && !ArPoseState.failed
                 timedOut = ArPoseState.overlayTimedOut
@@ -224,11 +229,12 @@ class MainActivity : ComponentActivity() {
                 DimensionField("Height (mm)", height, !status.running, Modifier.weight(1f)) { height = it }
             }
             Button(onClick = {
-                if (status.running) command("stop") else {
+                if (status.running && pairingNeedsAttention) command("retry_pairing")
+                else if (status.running) command("stop") else {
                     runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
                         .onSuccess { connect() }.onFailure { notice = "Enter a valid width and height." }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running && pairingNeedsAttention) "Retry pairing" else if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {
                 TextButton(onClick = {

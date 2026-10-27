@@ -3,7 +3,7 @@
 1. Build with **`bash frame/build.sh`** on the headset or a Linux PC. Open
    `frame/build/dist/FramePhone-arm64.run` on Frame after allowing execution.
 2. Run FramePhone on Frame, then tap Pair headset on Android with both radios enabled.
-   Select FramePhone in the phone's companion picker and approve the Bluetooth
+   Select Steam Frame in the phone's companion picker and approve the Bluetooth
    bond. Bluetooth exchanges trust and the current Wi-Fi route automatically.
    Approve desktop camera authorization if shown. See [Bluetooth setup](BLUETOOTH.md)
    for existing-pair migration and cold background wake. There are no manual

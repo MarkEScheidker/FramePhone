@@ -12,6 +12,7 @@ class PhonePanel:
         self.parent, self.bluetooth = parent, bluetooth
         self.events = queue.Queue(maxsize=64)
         self.link = self.worker = None
+        self.pairing_request = None
         self.closed = self.forget_pending = False
         self.bluetooth_endpoint = None
         self.retry_enabled = False
@@ -24,6 +25,7 @@ class PhonePanel:
         self.geometry = tk.StringVar(value="")
         self.health = tk.StringVar(value="")
         self.rows = {}
+        self.pairing_number = tk.StringVar()
         panel = ttk.LabelFrame(parent, text="Phone", padding=6)
         panel.pack(fill="x")
         header = ttk.Frame(panel)
@@ -31,6 +33,13 @@ class PhonePanel:
         ttk.Label(header, textvariable=self.bluetooth_status, wraplength=550).pack(side="left", fill="x", expand=True)
         ttk.Button(header, text="Forget phone", command=self.forget).pack(side="right")
         ttk.Label(panel, textvariable=self.status, wraplength=660).pack(anchor="w")
+        self.pairing_panel = ttk.LabelFrame(panel, text="Pair phone with Steam Frame", padding=6)
+        ttk.Label(self.pairing_panel, textvariable=self.pairing_number, font=("monospace", 20, "bold")).pack(anchor="w")
+        self.pairing_hint = tk.StringVar()
+        ttk.Label(self.pairing_panel, textvariable=self.pairing_hint, wraplength=600).pack(anchor="w")
+        self.pairing_accept = ttk.Button(self.pairing_panel, text="Numbers match", command=lambda: self.answer_pairing(True))
+        self.pairing_accept.pack(side="left")
+        ttk.Button(self.pairing_panel, text="Reject", command=lambda: self.answer_pairing(False)).pack(side="left", padx=6)
         self.telemetry_panel = ttk.Frame(panel)
         self.telemetry_panel.pack(fill="x")
         for col, name in enumerate(SENSORS):
@@ -50,6 +59,13 @@ class PhonePanel:
                 self.events.put_nowait((kind, value))
             except queue.Full:
                 pass
+
+    def answer_pairing(self, accepted):
+        if self.pairing_request:
+            self.pairing_request['accepted'] = accepted
+            self.pairing_request['event'].set()
+            self.pairing_request = None
+        self.pairing_panel.pack_forget()
 
     def startup(self):
         self.cancel_retry()
@@ -100,6 +116,7 @@ class PhonePanel:
     def disconnect(self):
         """Internal shutdown; normal use stays connected automatically."""
         self.cancel_retry(disable=True)
+        self.answer_pairing(False)
         self.bluetooth_endpoint = None
         if self.link:
             self.link.stop()
@@ -130,7 +147,24 @@ class PhonePanel:
                 kind, value = self.events.get_nowait()
             except queue.Empty:
                 break
-            if kind == "bluetooth_endpoint":
+            if kind == "bluetooth_pairing":
+                self.answer_pairing(False)
+                self.pairing_request = value
+                kind = value.get('kind', 'bond')
+                self.pairing_panel.configure(text="Pair phone with Steam Frame" if kind == 'bond' else "Confirm phone pairing")
+                self.pairing_number.set(value['passkey'] if kind == 'bond' else
+                                        "Replace saved phone?" if kind == 'replace' else "Connect this phone?")
+                self.pairing_hint.set("Confirm this number matches your phone." if kind == 'bond' else
+                                      "Approve if you reinstalled/reset the phone app or are pairing another phone." if kind == 'replace' else
+                                      "This restores the app connection over the existing Bluetooth bond.")
+                self.pairing_accept.configure(text="Numbers match" if kind == 'bond' else "Replace phone" if kind == 'replace' else "Connect phone")
+                self.pairing_panel.pack(fill="x", pady=6, before=self.telemetry_panel)
+            elif kind == "bluetooth_pairing_closed":
+                if self.pairing_request is value:
+                    self.answer_pairing(False)
+            elif kind == "bluetooth_replaced":
+                self.disconnect()
+            elif kind == "bluetooth_endpoint":
                 try:
                     if not self.closed and not self.forget_pending and self.store.load():
                         self.bluetooth_endpoint = value

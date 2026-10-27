@@ -12,7 +12,7 @@ import uuid
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'desktop'))
 from bluetooth_protocol import bootstrap, transcript, decode_pose, ControlFragments
-from bluetooth_link import BluetoothLink
+from bluetooth_link import BluetoothLink, PairingApprovalRequired
 from phone_link import PairingStore, PhoneLink, Telemetry
 from test_phone_link import profile
 from test_arcore_link import pose_message
@@ -85,6 +85,7 @@ class BluetoothTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             events=[];link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:events.append(v))
             link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            link.bond_approvals[device]=time.monotonic()+120
             challenge=json.loads(link.read_control(device))['challenge']
             for part in fragments(hello(challenge=challenge)):link.control(device,part)
             self.assertEqual(events,[('bluetooth_endpoint','192.168.1.10')])
@@ -106,6 +107,7 @@ class BluetoothTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
             link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            link.bond_approvals[device]=time.monotonic()+120
             challenge=json.loads(link.read_control(device))['challenge']
             for part in fragments(hello(challenge=challenge)):link.control(device,part)
             link.authorize(str(uuid.UUID(int=1)),lambda *v:None)
@@ -120,6 +122,7 @@ class BluetoothTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             events=[];link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:events.append(v))
             link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            link.bond_approvals[device]=time.monotonic()+120
             challenge=json.loads(link.read_control(device))['challenge']
             for part in fragments(hello(challenge=challenge)):link.control(device,part)
             ready=json.loads(link.read_control(device))
@@ -131,6 +134,103 @@ class BluetoothTests(unittest.TestCase):
             self.assertEqual(link.store.load()['host'],'192.168.1.20')
             self.assertEqual(events[-1],('bluetooth_endpoint','192.168.1.20'))
             self.assertNotEqual(json.loads(link.read_control(device))['binding'],ready['binding'])
+
+    def test_unreadable_saved_pairing_reports_app_recovery_not_radio_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store=PairingStore(Path(directory)/'pair.json')
+            store.save(dict(pin='c'*64,credential='b'*64,host='192.168.1.10'))
+            store.path.write_text('{broken')
+            link=BluetoothLink(store,lambda *v:None);link.address='AA:BB:CC:DD:EE:FF'
+            self.assertEqual(json.loads(link.read_control('/org/bluez/hci0/dev_phone'))['code'],'saved_pairing_invalid')
+            link.forget()
+            self.assertFalse(json.loads(link.read_control('/org/bluez/hci0/dev_phone'))['paired'])
+
+    def test_small_mtu_reads_keep_one_snapshot_including_error_responses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            for error in (None,'pairing_rejected'):
+                if error:link.setup_errors[device]=error
+                complete=link.read_control(device)
+                rebuilt=complete[:22]
+                for offset in range(22,len(complete),22):rebuilt+=link.read_control(device,offset)[:22]
+                self.assertEqual(rebuilt,complete)
+                self.assertEqual(json.loads(rebuilt)['op'],'error' if error else 'challenge')
+            with self.assertRaises(ValueError):link.read_control(device,len(complete)+1)
+
+    def test_existing_os_bond_without_app_record_requires_consent(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            challenge=json.loads(link.read_control(device))
+            self.assertFalse(challenge['paired'])
+            with self.assertRaises(PairingApprovalRequired) as proposal:
+                for part in fragments(hello(challenge=challenge['challenge'])):link.control(device,part)
+            self.assertIsNone(link.store.load())
+            link.commit_bootstrap(device,proposal.exception.candidate,None,replace=True)
+            self.assertEqual(link.store.load()['credential'],'b'*64)
+
+    def test_reinstalled_phone_requires_replacement_then_old_binding_is_revoked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            events=[];link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:events.append(v))
+            old=dict(pin='c'*64,credential='b'*64,host='192.168.1.10')
+            link.store.save(old);link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            old_session=str(uuid.UUID(int=1));link.authorize(old_session,lambda *v:None)
+            challenge=json.loads(link.read_control(device))['challenge']
+            with self.assertRaises(PairingApprovalRequired) as proposal:
+                for part in fragments(hello(challenge=challenge,pin='d'*64,credential='e'*64)):link.control(device,part)
+            self.assertEqual(link.store.load(),old,'proposal/rejection changed the old trust record')
+            link.commit_bootstrap(device,proposal.exception.candidate,proposal.exception.previous,replace=True)
+            self.assertEqual(link.store.load()['pin'],'d'*64)
+            self.assertIsNone(link.expected)
+            new_binding=link.peer.copy()
+            link.revoke(old_session) # Old TLS shutdown must not erase the replacement.
+            self.assertEqual(link.peer,new_binding)
+            self.assertEqual([kind for kind,_ in events],['bluetooth_replaced','bluetooth_endpoint'])
+
+    def test_desynchronized_credentials_offer_recovery_without_destroying_saved_trust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            saved=dict(pin='c'*64,credential='b'*64,host='192.168.1.10')
+            link.store.save(saved);link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            challenge=json.loads(link.read_control(device))['challenge']
+            wrong=hello(challenge=challenge,credential='e'*64);wrong.pop('credential')
+            for part in fragments(wrong):link.control(device,part)
+            self.assertEqual(json.loads(link.read_control(device))['code'],'pairing_mismatch')
+            self.assertEqual(link.store.load(),saved)
+            challenge=json.loads(link.read_control(device))['challenge']
+            with self.assertRaises(PairingApprovalRequired):
+                for part in fragments(hello(challenge=challenge,credential='e'*64)):link.control(device,part)
+
+    def test_forget_does_not_silently_reenroll_an_existing_bond(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            link.bond_approvals[device]=time.monotonic()+120
+            link.forget()
+            challenge=json.loads(link.read_control(device))['challenge']
+            with self.assertRaises(PairingApprovalRequired):
+                for part in fragments(hello(challenge=challenge)):link.control(device,part)
+            self.assertIsNone(link.store.load())
+
+    def test_stale_confirmation_and_lost_ack_cannot_replace_newer_trust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            original=dict(pin='c'*64,credential='b'*64,host='192.168.1.10')
+            link.store.save(original)
+            challenge=json.loads(link.read_control(device))['challenge']
+            with self.assertRaises(PairingApprovalRequired) as proposal:
+                for part in fragments(hello(challenge=challenge,credential='e'*64)):link.control(device,part)
+            newer=dict(original,credential='f'*64);link.store.save(newer)
+            with self.assertRaises(ValueError):
+                link.commit_bootstrap(device,proposal.exception.candidate,proposal.exception.previous,replace=True)
+            self.assertEqual(link.store.load(),newer)
+            # If an approved save succeeded but its ACK was lost, retrying the
+            # same pending credential must succeed without a new trust prompt.
+            challenge=json.loads(link.read_control(device))['challenge']
+            for part in fragments(hello(challenge=challenge,credential='f'*64)):link.control(device,part)
+            self.assertEqual(link.store.load()['credential'],'f'*64)
 
     def test_fresh_ble_preferred_then_wifi_fallback(self):
         link=PhoneLink(None,None,None)

@@ -26,7 +26,10 @@ The phone serves TLS 1.3 on TCP port 47643 with a persistent P-256 identity in
 Android Keystore. Frame checks the complete saved SHA-256 certificate hash before
 sending the reconnect credential. New trust and endpoint hints arrive only over
 authenticated encrypted BLE. Existing Wi-Fi records can migrate using their
-verifier, but cannot enroll another device over Wi-Fi.
+verifier, but cannot enroll another device over Wi-Fi. Reinstalled or desynchronized
+apps recover over Bluetooth with Frame confirmation; see the
+[pairing recovery table](BLUETOOTH.md#pairing-recovery). An OS bond must still exist
+for a new TLS authentication. Manual unpairing closes the active phone connection.
 
 Frame stores the pin and credential atomically in a private mode-0600 pairing
 file. Android keeps the SHA-256 verifier in private preferences; its temporary

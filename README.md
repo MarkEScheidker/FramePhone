@@ -33,7 +33,7 @@ The app uses the headset's installed SteamVR for its automatic VR display.
    Bluetooth advertising starts automatically; camera processing waits for the
    phone marker. Approve desktop camera authorization if prompted.
 2. On Android enter width and height and tap **Pair headset**. Grant Bluetooth,
-   notification, camera and overlay access. Select **FramePhone** in Android's
+   notification, camera and overlay access. Select **Steam Frame** in Android's
    companion picker and approve Bluetooth numeric comparison on both devices.
    Bluetooth exchanges application trust and the Wi-Fi route; Frame connects.
 3. Briefly show the automatic marker to the front cameras. After alignment the
