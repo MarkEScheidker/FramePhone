@@ -1,5 +1,6 @@
-"""Run with xvfb-run: actual Tk pairing/telemetry UI against a local TLS phone."""
+"""Actual Tk Bluetooth-only connection UI against a pinned loopback TLS phone."""
 from pathlib import Path
+from types import SimpleNamespace
 import select
 import socket
 import ssl
@@ -16,7 +17,17 @@ from phone_panel import PhonePanel
 from test_phone_link import TLSTests, profile, batch
 
 
-def main():
+def until(root, panel, predicate):
+    deadline = time.monotonic()+6
+    while time.monotonic() < deadline:
+        root.update()
+        if predicate():
+            return
+        time.sleep(.01)
+    raise AssertionError(panel.status.get())
+
+
+def connected_ui():
     TLSTests.setUpClass()
     errors, stop = [], threading.Event()
     listener = socket.socket()
@@ -24,6 +35,7 @@ def main():
     listener.bind(("127.0.0.1", PORT))
     listener.listen(1)
     listener.settimeout(5)
+
     def phone():
         try:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -31,10 +43,8 @@ def main():
             context.load_cert_chain(str(TLSTests.root / "cert.pem"), str(TLSTests.root / "key.pem"))
             with listener, context.wrap_socket(listener.accept()[0], server_side=True) as conn:
                 conn.settimeout(5)
-                assert read_message(conn)["mode"] == "pair"
-                write_message(conn, {"type": "pairing", "nonce": "c" * 64})
-                assert read_message(conn) == {"type": "confirm", "accepted": True}
-                write_message(conn, {"type": "paired", "credential": "b" * 64})
+                hello = read_message(conn)
+                assert hello["mode"] == "reconnect" and hello["credential"] == "b"*64
                 write_message(conn, profile())
                 sequence = 0
                 while not stop.is_set():
@@ -44,47 +54,43 @@ def main():
                         write_message(conn, {"type": "pong", "session": "test-session", "h0": ping["h0"], "p1": now, "p2": now})
                     sequence += 1
                     write_message(conn, batch(sequence, time.monotonic_ns()))
-        except (OSError, ConnectionError):
+        except OSError:
             if not stop.is_set():
                 errors.append("TLS phone disconnected unexpectedly")
         except BaseException as error:
             errors.append(error)
+
     worker = threading.Thread(target=phone, daemon=True)
     worker.start()
     try:
         with tempfile.TemporaryDirectory() as directory:
             root = tk.Tk()
-            root.geometry("1000x850")
             root.report_callback_exception = lambda *error: errors.append(error)
-            panel = PhonePanel(root, Path(directory))
-            def until(predicate):
-                deadline = time.monotonic() + 6
-                while time.monotonic() < deadline:
-                    root.update()
-                    if predicate():
-                        return
-                    time.sleep(.01)
-                raise AssertionError(panel.status.get())
+            radio = SimpleNamespace(status="Bluetooth authenticated", revoke=lambda *_: None, forget=lambda: panel.store.forget())
+            panel = PhonePanel(root, Path(directory), bluetooth=radio)
             try:
-                panel.host.set("127.0.0.1")
-                panel.pair_button.invoke()
-                until(lambda: panel.approval is not None)
-                assert panel.confirmation.winfo_ismapped()
-                assert panel.confirmation.winfo_y() < root.winfo_height() - 100
-                assert len(panel.comparison.get().split()) == 4
-                panel.answer(True)
-                until(lambda: "Hz" in panel.rows["gyro"].get())
+                # Simulate only the authenticated BLE enrollment boundary. The
+                # real pinned TLS exchange and telemetry rendering run unchanged.
+                panel.store.save({"pin": TLSTests.pin, "credential": "b"*64, "host": "127.0.0.1", "bluetooth": True})
+                panel.startup()
+                assert panel.worker is None, "startup used a cached LAN route before Bluetooth"
+                panel.notify("bluetooth_endpoint", "127.0.0.1")
+                until(root, panel, lambda: "Hz" in panel.rows["gyro"].get())
+                assert panel.status.get() == "Wi-Fi connected"
+                assert "Bluetooth" in panel.bluetooth_status.get()
                 assert "75.0" in panel.geometry.get()
                 assert "Unavailable" in panel.rows["mag"].get()
-                assert panel.store.load()["pin"] == TLSTests.pin
+                def widgets(parent):
+                    return [child for direct in parent.winfo_children() for child in [direct, *widgets(direct)]]
+                controls = widgets(root)
+                assert not any(w.winfo_class() in ("TEntry", "TCombobox") for w in controls)
+                buttons = [w.cget("text") for w in controls if w.winfo_class() == "TButton"]
+                assert buttons == ["Forget phone"], buttons
                 stop.set()
                 panel.forget()
-                until(lambda: panel.rows["gyro"].get() == "Not connected")
-                until(lambda: not panel.worker.is_alive())
-                until(lambda: panel.store.load() is None)
-                assert panel.store.load() is None
+                until(root, panel, lambda: panel.store.load() is None and not panel.worker.is_alive())
                 assert not errors, errors
-                print("Tk pairing, fingerprint approval, TLS telemetry, missing sensor, disconnect and Forget passed")
+                print("Bluetooth-only UI, automatic pinned TLS, sensor telemetry and Forget passed")
             finally:
                 panel.close()
                 root.destroy()
@@ -95,171 +101,55 @@ def main():
         TLSTests.tearDownClass()
 
 
-def automatic_reconnect():
-    """Discovery tries the saved endpoint first and never enrolls a new phone."""
+def automatic_recovery():
     with tempfile.TemporaryDirectory() as directory:
         root = tk.Tk()
-        panel = PhonePanel(root, Path(directory))
-        panel.store.save({"pin": "a"*64, "credential": "b"*64, "host": "127.0.0.10"})
-        panel.host.set("127.0.0.10")
+        errors = []
+        root.report_callback_exception = lambda *error: errors.append(error)
+        panel = PhonePanel(root, Path(directory), bluetooth=SimpleNamespace(status="Bluetooth connected"))
+        panel.store.save({"pin": "a"*64, "credential": "b"*64, "host": "192.168.1.10", "bluetooth": True})
         attempts = []
+
         class Link:
             def __init__(self, store, notify, confirm, bluetooth=None):
-                self.notify = notify
-                self.stopped = threading.Event()
-            def snapshot(self):
-                return None
-            def stop(self):
-                self.stopped.set()
-            def run(self, host, pair):
-                attempts.append((host, pair))
-                assert not pair, "startup tried to enroll an untrusted phone"
-                if host != "127.0.0.30":
-                    self.notify("error", "Saved identity did not match")
-                else:
-                    self.notify("connected", host)
-                    self.notify("status", "Connected")
-                    self.stopped.wait(5)
-                self.notify("ended", "Disconnected")
-        def until(predicate):
-            deadline = time.monotonic()+5
-            while time.monotonic() < deadline:
-                root.update()
-                if predicate(): return
-                time.sleep(.01)
-            raise AssertionError(panel.status.get())
-        phones = [{"host": host, "name": "Phone", "pairing": True}
-                  for host in ("127.0.0.20", "127.0.0.30", "127.0.0.30")]
-        try:
-            with patch("phone_panel.PhoneLink", Link), patch("phone_panel.discover", return_value=phones):
-                panel.startup()
-                until(lambda: panel.status.get() == "Connected")
-                assert attempts == [("127.0.0.10", False), ("127.0.0.20", False), ("127.0.0.30", False)]
-                assert not panel.auto_hosts and not panel.approval
-                panel.disconnect()
-                until(lambda: not panel.worker.is_alive())
-                for _ in range(20):
-                    root.update()
-                    time.sleep(.01)
-                assert len(attempts) == 3, "manual disconnect restarted automatic connection"
-                # Cancelling discovery also cancels its pending auto-connect.
-                release = threading.Event()
-                def delayed_discovery():
-                    release.wait(2)
-                    return phones
-                with patch("phone_panel.discover", delayed_discovery):
-                    panel.startup()
-                    panel.disconnect()
-                    release.set()
-                    until(lambda: not panel.searching)
-                assert len(attempts) == 3
-                panel.host.set("")
-                panel.store.save({"pin": "a"*64, "credential": "b"*64})
-                with patch("phone_panel.discover", return_value=[]):
-                    panel.startup()
-                    until(lambda: "Saved phone unavailable" in panel.status.get())
-                assert not panel.auto_connecting and len(attempts) == 3
-            print("Automatic saved-phone discovery, endpoint fallback, no enrollment and cancellation passed")
-        finally:
-            panel.close()
-            if panel.worker: panel.worker.join(1)
-            root.destroy()
-
-
-def transport_recovery():
-    """A previously authenticated peer reconnects after sleep/network loss without enrollment."""
-    with tempfile.TemporaryDirectory() as directory:
-        root = tk.Tk()
-        panel = PhonePanel(root, Path(directory))
-        panel.store.save({"pin":"a"*64,"credential":"b"*64,"host":"127.0.0.1"})
-        panel.host.set("127.0.0.1")
-        attempts=[]
-        class Link:
-            def __init__(self, store, notify, confirm, bluetooth=None):
-                self.notify=notify
-                self.stopped=threading.Event()
-                self.retryable=False
+                self.notify, self.stopped = notify, threading.Event()
+                self.retryable = True
             def snapshot(self): return None
             def stop(self): self.stopped.set()
             def run(self, host, pair):
-                attempts.append((host,pair))
+                attempts.append((host, pair))
                 assert not pair
-                self.notify('connected',host)
-                if len(attempts)==1:
-                    self.retryable=True
-                    self.notify('ended','Disconnected')
+                if len(attempts) == 1:
+                    # Failure before the first successful TLS connection must
+                    # retry too; an unlock provides a new authenticated route.
+                    self.notify("error", "network unreachable")
                 else:
-                    self.notify('status','Recovered')
+                    self.notify("connected", host)
                     self.stopped.wait(5)
-                    self.notify('ended','Disconnected')
-        def until(predicate):
-            deadline=time.monotonic()+5
-            while time.monotonic()<deadline:
-                root.update()
-                if predicate(): return
-                time.sleep(.01)
-            raise AssertionError(panel.status.get())
+                self.notify("ended", "Disconnected")
+
         try:
-            with patch('phone_panel.PhoneLink',Link):
-                panel.connect()
-                until(lambda: panel.status.get()=='Recovered')
-                assert attempts==[('127.0.0.1',False)]*2
-                panel.disconnect()
-                until(lambda: not panel.worker.is_alive())
-                assert panel.retry_timer is None and not panel.retry_enabled
-                # A pin/protocol failure is not treated as a transient network loss.
-                panel.retry_enabled=True
-                panel.link.stopped.clear()
-                panel.link.retryable=False
+            with patch("phone_panel.PhoneLink", Link):
+                panel.startup()
+                assert not attempts
+                panel.notify("bluetooth_endpoint", "192.168.1.10")
+                until(root, panel, lambda: panel.retry_timer is not None)
+                panel.notify("bluetooth_endpoint", "192.168.1.20")
+                until(root, panel, lambda: panel.status.get() == "Wi-Fi connected")
+                assert attempts == [("192.168.1.10", False), ("192.168.1.20", False)]
+                panel.link.retryable = False
                 panel.schedule_retry()
                 assert not panel.retry_enabled and panel.retry_timer is None
-            print('Authenticated transport-loss recovery, manual cancellation and identity-failure retry stop passed')
+                panel.close()
+                until(root, panel, lambda: not panel.worker.is_alive())
+                assert not errors, errors
+                print("Initial Wi-Fi failure retry, unlock route refresh and identity-failure retry stop passed")
         finally:
-            panel.close()
+            if not panel.closed:
+                panel.close()
             root.destroy()
 
 
-def bluetooth_bootstrap():
-    """A trusted BLE route starts pinned TLS; explicit Disconnect cancels it."""
-    from types import SimpleNamespace
-    with tempfile.TemporaryDirectory() as directory:
-        root=tk.Tk()
-        panel=PhonePanel(root,Path(directory),bluetooth=SimpleNamespace(status='Bluetooth ready'))
-        panel.store.save(dict(pin='a'*64,credential='b'*64,host='192.168.1.2',bluetooth=True))
-        attempts=[]
-        class Link:
-            def __init__(self,store,notify,confirm,bluetooth=None):
-                self.notify=notify;self.stopped=threading.Event();self.retryable=False
-            def snapshot(self):return None
-            def stop(self):self.stopped.set()
-            def run(self,host,pair):
-                attempts.append((host,pair));self.notify('connected',host)
-                self.stopped.wait(4);self.notify('ended','Disconnected')
-        def until(predicate):
-            deadline=time.monotonic()+5
-            while time.monotonic()<deadline:
-                root.update()
-                if predicate():return
-                time.sleep(.01)
-            raise AssertionError(panel.status.get())
-        try:
-            with patch('phone_panel.PhoneLink',Link),patch('phone_panel.discover') as discovery:
-                panel.startup();root.update()
-                assert 'Bluetooth' in panel.status.get() and not panel.worker
-                discovery.assert_not_called()
-                panel.notify('bluetooth_endpoint','192.168.1.30')
-                until(lambda:attempts)
-                assert attempts==[('192.168.1.30',False)] and not panel.approval
-                panel.disconnect();until(lambda:not panel.worker.is_alive())
-                panel.notify('bluetooth_endpoint','192.168.1.40')
-                until(lambda:panel.events.empty())
-                assert len(attempts)==1,'Bluetooth route overrode deliberate Disconnect'
-            print('Bluetooth-first startup, automatic trusted route and manual-disconnect suppression passed')
-        finally:panel.close();root.destroy()
-
-
 if __name__ == "__main__":
-    main()
-    automatic_reconnect()
-    transport_recovery()
-    bluetooth_bootstrap()
+    connected_ui()
+    automatic_recovery()

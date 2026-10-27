@@ -8,15 +8,10 @@ import com.example.framephone.SettingsStore
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.SocketTimeoutException
-import java.security.SecureRandom
 import java.util.UUID
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import com.example.framephone.Fiducial
@@ -27,44 +22,21 @@ import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
 
 data class LinkStatus(val running: Boolean = false, val message: String = "Stopped",
-    val address: String = "", val fingerprint: String = "", val request: String? = null,
-    val peer: String = "", val paired: String? = null, val connected: Boolean = false)
+    val address: String = "", val paired: String? = null, val connected: Boolean = false)
 
 class PhoneServer(private val context: Context, private val store: SettingsStore,
     private val dimensions: PhoneDimensions, private val publish: (LinkStatus) -> Unit) {
     @Volatile private var running = true
-    @Volatile private var pairUntil = 0L
     @Volatile private var server: SSLServerSocket? = null
     @Volatile private var client: SSLSocket? = null
-    @Volatile private var discovery: DatagramSocket? = null
-    @Volatile private var pending: Approval? = null
     @Volatile private var status = LinkStatus(running = true, message = "Starting secure listener…")
     @Volatile private var stage = "startup"
     @Volatile private var tlsReady = false
-    private class Approval(val id: String = UUID.randomUUID().toString()) {
-        val latch = CountDownLatch(1)
-        @Volatile var accepted = false
-    }
-    private fun update(message: String, request: String? = null, peer: String = "", fingerprint: String = "",
-                       connected: Boolean = false) {
-        status = status.copy(message = message, request = request, peer = peer,
-            fingerprint = fingerprint, paired = store.pairedName(), connected = connected)
+    private fun update(message: String, connected: Boolean = false) {
+        status = status.copy(message = message, paired = store.pairedName(), connected = connected)
         if (running) publish(status)
     }
-    fun openPairing() {
-        pairUntil = SystemClock.elapsedRealtime() + 90000
-        pending?.latch?.countDown()
-        runCatching { client?.close() }
-        update("Pairing open for 90 seconds. On Frame choose Find phones, then Pair.")
-    }
-    fun approve(id: String, accepted: Boolean) {
-        pending?.takeIf { it.id == id }?.let {
-            it.accepted = accepted
-            it.latch.countDown()
-            if (!accepted) runCatching { client?.close() }
-        }
-    }
-    fun start(pair: Boolean) = thread(name = "phone-tls") {
+    fun start() = thread(name = "phone-tls") {
         try {
             stage = "identity initialization"
             val identity = Identity()
@@ -85,9 +57,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             val addresses = NetworkInterface.getNetworkInterfaces().toList().flatMap { it.inetAddresses.toList() }
                 .filter { it is Inet4Address && !it.isLoopbackAddress }.joinToString(" / ") { it.hostAddress ?: "" }
             status = status.copy(address = addresses)
-            if (pair || identity.replacedLegacyIdentity || store.pairedName() == null) openPairing()
-            else update("Ready. On Frame choose Connect saved phone.")
-            startDiscovery()
+            update("Waiting for headset over Bluetooth")
             while (running) {
                 // Refresh the BLE route while waiting for TLS, so a Wi-Fi
                 // reconnect/IP change does not require restarting either app.
@@ -96,32 +66,27 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                     .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
                     ?.hostAddress.orEmpty()
                 BluetoothPose.identity(identity.pin, endpoint)
-                if (pairUntil != 0L && SystemClock.elapsedRealtime() >= pairUntil) {
-                    pairUntil = 0
-                    update("Pairing window expired. Use Details → Pair using Wi-Fi to try again.")
-                }
+                if (endpoint.isEmpty() && !status.message.startsWith("Wi-Fi unavailable"))
+                    update("Wi-Fi unavailable — connect both devices to the same network")
+                else if (endpoint.isNotEmpty() && status.message.startsWith("Wi-Fi unavailable"))
+                    update("Waiting for headset over Bluetooth")
                 val socket = try { listener.accept() as SSLSocket } catch (_: SocketTimeoutException) { continue }
                 client = socket
                 tlsReady = false
-                try { serve(socket, identity.pin) }
+                try { serve(socket) }
                 catch (error: Exception) {
                     // TLS details do not contain application credentials; never log inbound JSON.
                     if (stage == "TLS handshake") Log.w("FramePhone", "TLS handshake failed", error)
                     val detail = if (stage == "TLS handshake") ": ${error.message?.take(200) ?: "No details"}" else ""
-                    update("Connection failed at $stage (${error.javaClass.simpleName})$detail. Reopen pairing to retry.")
-                    val code = when {
-                        stage == "pairing request" && SystemClock.elapsedRealtime() >= pairUntil -> "pairing_closed"
-                        stage == "pairing approval" -> "pairing_rejected_or_expired"
-                        stage == "reconnect authentication" -> "authentication_failed"
-                        else -> "protocol_error"
-                    }
+                    update("Connection failed at $stage (${error.javaClass.simpleName})$detail. Reconnecting automatically.")
+                    val code = if (stage == "reconnect authentication") "authentication_failed" else "protocol_error"
                     if (tlsReady && !socket.isClosed) runCatching {
                         Protocol.write(DataOutputStream(socket.outputStream), JSONObject().put("type", "error").put("code", code))
                     }
                     runCatching { socket.close() }
                 }
                 finally {
-                    runCatching { socket.close() }; client = null; pending = null
+                    runCatching { socket.close() }; client = null
                     if (status.connected) update("Waiting for headset")
                 }
             }
@@ -130,73 +95,23 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
         } finally { close() }
     }
 
-    private fun startDiscovery() = thread(name = "phone-discovery") {
-        try {
-            DatagramSocket(Protocol.PORT).use { socket ->
-                discovery = socket
-                socket.soTimeout = 1000
-                var lastReply = 0L
-                while (running) {
-                    val packet = DatagramPacket(ByteArray(256), 256)
-                    try { socket.receive(packet) } catch (_: SocketTimeoutException) { continue }
-                    if (String(packet.data, 0, packet.length, Charsets.US_ASCII) != Protocol.DISCOVERY) continue
-                    if (SystemClock.elapsedRealtime() - lastReply < 100) continue
-                    lastReply = SystemClock.elapsedRealtime()
-                    val bytes = JSONObject().put("service", "framephone").put("version", Protocol.VERSION)
-                        .put("port", Protocol.PORT).put("name", Build.MODEL.take(60))
-                        .put("pairing", SystemClock.elapsedRealtime() < pairUntil).toString().toByteArray()
-                    socket.send(DatagramPacket(bytes, bytes.size, packet.address, packet.port))
-                }
-            }
-        } catch (_: Exception) { /* Manual IP entry remains available if discovery fails. */ }
-    }
-
-    private fun serve(socket: SSLSocket, pin: String) {
+    private fun serve(socket: SSLSocket) {
         stage = "TLS handshake"
         socket.enabledProtocols = arrayOf("TLSv1.3")
         socket.soTimeout = 5000
         socket.tcpNoDelay = true
         socket.startHandshake()
         tlsReady = true
-        stage = "pairing request"
+        stage = "session request"
         val input = DataInputStream(socket.inputStream)
         val output = DataOutputStream(socket.outputStream)
         val hello = Protocol.read(input)
         require(hello.getString("type") == "hello" && hello.getInt("version") == Protocol.VERSION)
-        val peer: String
-        if (hello.getString("mode") == "pair") {
-            require(SystemClock.elapsedRealtime() < pairUntil) { "Pairing closed" }
-            peer = hello.getString("name").filter { !it.isISOControl() }.take(60)
-            val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                .joinToString("") { "%02x".format(it.toInt() and 255) }
-            val code = Protocol.pairingFingerprint(pin, hello.getString("nonce"), nonce)
-            val approval = Approval()
-            pending = approval
-            update("Compare all four fingerprint groups with Frame, then approve both screens.", approval.id, peer, code)
-            Protocol.write(output, JSONObject().put("type", "pairing").put("nonce", nonce))
-            socket.soTimeout = 60000
-            stage = "pairing approval"
-            try {
-                val confirm = Protocol.read(input)
-                require(confirm.getString("type") == "confirm" && confirm.getBoolean("accepted"))
-                val remaining = minOf(60000L, pairUntil - SystemClock.elapsedRealtime())
-                require(remaining > 0 && approval.latch.await(remaining, TimeUnit.MILLISECONDS)
-                    && approval.accepted && running && SystemClock.elapsedRealtime() < pairUntil)
-                val credential = ByteArray(32).also { SecureRandom().nextBytes(it) }
-                    .joinToString("") { "%02x".format(it.toInt() and 255) }
-                synchronized(this) {
-                    require(running)
-                    store.remember(peer, credential)
-                }
-                pairUntil = 0
-                Protocol.write(output, JSONObject().put("type", "paired").put("credential", credential))
-            } finally { pending = null }
-        } else {
-            stage = "reconnect authentication"
-            require(hello.getString("mode") == "reconnect" && store.authenticates(hello.getString("credential")))
-            peer = store.pairedName() ?: error("Pairing was revoked")
+        stage = "reconnect authentication"
+        require(hello.getString("mode") == "reconnect" && store.authenticates(hello.getString("credential"))) {
+            "Pair over Bluetooth first"
         }
-        require(running)
+        require(running && store.pairedName() != null)
         val session = UUID.randomUUID().toString()
         stage = "sensor startup"
         val feed = SensorFeed(context)
@@ -213,7 +128,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
             BluetoothPose.session(session)
-            update("Connected", peer = peer, connected = true)
+            update("Connected", connected = true)
             stage = "sensor streaming"
             socket.soTimeout = 8000
             val lastWrite = AtomicLong(SystemClock.elapsedRealtime())
@@ -295,9 +210,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
     }
     fun close() {
         synchronized(this) { running = false }
-        pending?.latch?.countDown()
         runCatching { client?.close() }
         runCatching { server?.close() }
-        runCatching { discovery?.close() }
     }
 }

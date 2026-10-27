@@ -26,7 +26,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.framephone.link.PhoneDimensions
@@ -42,7 +41,6 @@ class MainActivity : ComponentActivity() {
     private var notice by mutableStateOf("")
     private var connectionDetail by mutableStateOf("")
     private var pendingConnect = false
-    private var wifiOnly = false
     private var waiting = ""
     private var installRequested = false
     private var notificationsAsked = false
@@ -96,7 +94,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         store = SettingsStore(this)
         pendingConnect = savedInstanceState?.getBoolean("pending_connect") ?: false
-        wifiOnly = savedInstanceState?.getBoolean("wifi_only") ?: false
         waiting = savedInstanceState?.getString("waiting").orEmpty()
         installRequested = savedInstanceState?.getBoolean("install_requested") ?: false
         notificationsAsked = savedInstanceState?.getBoolean("notifications_asked") ?: false
@@ -112,20 +109,19 @@ class MainActivity : ComponentActivity() {
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("pending_connect", pendingConnect)
-        outState.putBoolean("wifi_only", wifiOnly)
         outState.putString("waiting", waiting)
         outState.putBoolean("install_requested", installRequested)
         outState.putBoolean("notifications_asked", notificationsAsked)
         super.onSaveInstanceState(outState)
     }
 
-    private fun command(action: String, request: String? = null) {
+    private fun command(action: String) {
         runCatching {
-            startService(Intent(this, TelemetryService::class.java).setAction(action).putExtra("request", request))
+            startService(Intent(this, TelemetryService::class.java).setAction(action))
         }.onFailure { notice = "Connection action failed." }
     }
-    private fun connect(useWifiOnly: Boolean = false) {
-        wifiOnly = useWifiOnly; notice = ""; connectionDetail = ""; pendingConnect = true; continueConnection()
+    private fun connect() {
+        notice = ""; connectionDetail = ""; pendingConnect = true; continueConnection()
     }
     private fun continueConnection() {
         if (!pendingConnect) return
@@ -147,7 +143,7 @@ class MainActivity : ComponentActivity() {
                 overlayAccess.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                 return
             }
-            if (!wifiOnly) {
+            run {
                 val requiredBluetooth = arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
                 if (requiredBluetooth.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
                     waiting = "bluetooth_permissions"; bluetoothPermission.launch(requiredBluetooth); return
@@ -196,10 +192,12 @@ class MainActivity : ComponentActivity() {
         var trackingDetail by remember { mutableStateOf("") }
         var trackingReady by remember { mutableStateOf(false) }
         var timedOut by remember { mutableStateOf(false) }
+        var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
         LaunchedEffect(Unit) {
             while (true) {
                 tracking = ArPoseState.status
+                bluetoothStatus = BluetoothPose.status
                 trackingDetail = ArPoseState.detail
                 trackingReady = ArPoseState.running && !ArPoseState.failed
                 timedOut = ArPoseState.overlayTimedOut
@@ -214,12 +212,13 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("FramePhone", style = MaterialTheme.typography.headlineLarge)
             Text(when {
-                !status.running -> "Ready to connect"
-                !status.connected -> "Waiting for headset"
+                !status.running -> if (status.message == "Stopped") "Ready to pair" else status.message
+                !status.connected -> status.message
                 timedOut -> "Alignment timed out"
                 !trackingReady -> "Tracking unavailable"
                 else -> tracking
             }, style = MaterialTheme.typography.titleMedium)
+            Text(bluetoothStatus, style = MaterialTheme.typography.bodyMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 DimensionField("Width (mm)", width, !status.running, Modifier.weight(1f)) { width = it }
                 DimensionField("Height (mm)", height, !status.running, Modifier.weight(1f)) { height = it }
@@ -229,7 +228,7 @@ class MainActivity : ComponentActivity() {
                     runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
                         .onSuccess { connect() }.onFailure { notice = "Enter a valid width and height." }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running) "Disconnect" else "Connect") }
+            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {
                 TextButton(onClick = {
@@ -241,29 +240,14 @@ class MainActivity : ComponentActivity() {
             }
             TextButton(onClick = { details = !details }) { Text(if (details) "Hide details" else "Details") }
             if (details) {
-                if (!status.running) TextButton(onClick = {
-                    runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
-                        .onSuccess { connect(true) }.onFailure { notice = "Enter a valid width and height." }
-                }) { Text("Connect using Wi-Fi") }
                 Text(status.message)
-                Text(BluetoothPose.status)
                 if (status.address.isNotEmpty()) Text("IP: ${status.address}")
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)
                 if (trackingDetail.isNotEmpty()) Text(trackingDetail)
-                if (status.running) TextButton(onClick = { command("pair") }) { Text("Pair using Wi-Fi") }
                 if (remembered != null) TextButton(onClick = { command("forget") }) { Text("Forget headset") }
                 TextButton(onClick = { about = true }) { Text("About") }
             }
-        }
-        status.request?.let { request ->
-            AlertDialog(onDismissRequest = { command("reject", request) }, title = { Text("Pair with ${status.peer}?") },
-                text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Confirm this code matches the headset.")
-                    Text(status.fingerprint, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleLarge)
-                } },
-                confirmButton = { TextButton(onClick = { command("approve", request) }) { Text("Codes match") } },
-                dismissButton = { TextButton(onClick = { command("reject", request) }) { Text("Cancel") } })
         }
         if (about) AlertDialog(onDismissRequest = { about = false }, title = { Text("FramePhone") },
             text = { Column {

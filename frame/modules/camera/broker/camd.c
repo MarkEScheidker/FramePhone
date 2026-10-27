@@ -1193,6 +1193,10 @@ static void on_signal(int sig)
     stop = 1;
 }
 
+/* Optional consumer demand. The broker remains attached without collecting
+ * trace samples or copying images while no optical acquisition is requested. */
+static const char *opt_active_file;
+
 static void usage(const char *argv0)
 {
     printf("Usage: %s [options]\n"
@@ -1205,6 +1209,7 @@ static void usage(const char *argv0)
            "  --color-fps F  ... at most F frames a second (default 30; they run at 60), as readers ask\n"
            "                 in /run/user/UID/framephone-camera/color-fps (ft-hands does when it tracks with them)\n"
            "  --color-idle F ... and F a second while no reader asks (default 2: enough to tell the light)\n"
+           "  --active-file P  collect only while this user-owned demand file exists\n"
            "  --status S     print a status line every S seconds, 0 for never (default 10)\n"
            "HANDS_CAMERAS=mono in ~/.config/frametop.conf (or FT_HANDS_CAMERAS) turns --with-color off.\n"
            "Frames go to /run/user/UID/" FH_RING_NAME " (layout in fhring.h).\n", argv0);
@@ -1228,6 +1233,8 @@ int main(int argc, char **argv)
             opt_color_fps = atof(argv[++i]);
         else if (!strcmp(argv[i], "--color-idle") && i + 1 < argc)
             opt_color_idle = atof(argv[++i]);
+        else if (!strcmp(argv[i], "--active-file") && i + 1 < argc)
+            opt_active_file = argv[++i];
         else if (!strcmp(argv[i], "--status") && i + 1 < argc)
             opt_status = atof(argv[++i]);
         else {
@@ -1331,12 +1338,25 @@ int main(int argc, char **argv)
     signal(SIGINT, on_signal);
     signal(SIGTERM, on_signal);
 
+    bool active = !opt_active_file;
+    if (!active && !tp_set_enabled(&tp, false))
+        die("cannot suspend camera trace collection: %s", strerror(errno));
     uint64_t start = mono_ns(), last_status = start, last_want = 0;
     int rc = 0;
 
     while (!stop) {
 
-        if (tp_poll(&tp, 100, on_sample, NULL) < 0) {
+        bool wanted = !opt_active_file || access(opt_active_file, F_OK) == 0;
+        if (wanted != active) {
+            if (!tp_set_enabled(&tp, wanted)) {
+                rc = 1;
+                break;
+            }
+            active = wanted;
+        }
+        if (!active)
+            poll(NULL, 0, 100);
+        if (active && tp_poll(&tp, 100, on_sample, NULL) < 0) {
             rc = 1;
             break;
         }

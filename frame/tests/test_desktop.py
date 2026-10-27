@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "desktop"))
@@ -45,6 +46,38 @@ class DesktopTests(unittest.TestCase):
             env = app.host_environment()
             self.assertEqual(env["DISPLAY"], ":99")
             self.assertFalse(any(k.startswith(("LD_", "PYTHON", "TK_", "FRAMEPHONE_")) for k in env))
+
+    def test_idle_camera_work_requires_fresh_phone_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            window = app.Window.__new__(app.Window)
+            window.capture_request = Path(directory)/"capture-active"
+            window.capture_active = False
+            window.status = SimpleNamespace(set=lambda value: None)
+            window.closing = False
+            state = {}
+            window.phone_panel = SimpleNamespace(link=SimpleNamespace(snapshot=lambda: state))
+            window.tracking_panel = SimpleNamespace(handoff_active=False, busy=False,
+                parent=SimpleNamespace(winfo_ismapped=lambda: True))
+            window.show_views = SimpleNamespace(get=lambda: True)
+            window.preview_updated = [0, 0]
+            calls = []
+            window.preview_reader = SimpleNamespace(update=lambda *args: calls.append(args))
+            window.root = SimpleNamespace(after=lambda *args: None)
+            with patch.dict(sys.modules, {"tkinter": SimpleNamespace(TclError=RuntimeError)}):
+                window.update_previews()
+            self.assertFalse(window.capture_request.exists())
+            self.assertTrue(all(not enabled for _, _, enabled in calls))
+            for state in ({"marker_displayed": False, "marker_state_fresh": True},
+                          {"marker_displayed": True, "marker_state_fresh": False}):
+                self.assertFalse(window.marker_active())
+            state = {"marker_displayed": True, "marker_state_fresh": True}
+            self.assertTrue(window.marker_active())
+            window.camera_demand(True)
+            self.assertTrue(window.capture_request.exists())
+            window.tracking_panel.handoff_active = True
+            self.assertFalse(window.marker_active())
+            window.camera_demand(False)
+            self.assertFalse(window.capture_request.exists())
 
     def test_preview_sequence_bounds_and_writer_lifetime(self):
         with tempfile.TemporaryDirectory() as folder:

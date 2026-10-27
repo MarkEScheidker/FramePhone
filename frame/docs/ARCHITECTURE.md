@@ -24,7 +24,7 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | Fiducial / MarkerOverlay | Automatic application-overlay raster, geometry and visibility. |
-| Android link / phone_link.py | LAN pairing, pinned reconnect, sensor/clock diagnostics and marker state. |
+| Android link / phone_link.py | Bluetooth-established pinned Wi-Fi reconnect, sensor/clock diagnostics and marker state. |
 | [Camera module](../modules/camera/) broker / FrametopRing | Camera access and bounded read-only ring copies. |
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
@@ -39,13 +39,15 @@ losing the connection clears the pose and hides the VR object. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
 
-Each visible idle camera view has one native preview worker. It detects and annotates
-its own source frames, independently of phone pairing or stereo tracking, and
-Python retains only the newest image per camera. Hiding the views stops these
-workers; a running tracker also stops them to avoid duplicate detection, supplying
-its own paired previews instead. Tracking and the VR display continue. Pose axes use only the exact
-synchronized tracking pair. Missing preview slots do not suppress valid pose
-telemetry. Waiting streams and worker errors are reported per camera.
+Camera processing requires a fresh authenticated phone marker-visible signal.
+The broker's demand file disables trace collection and image copies while idle,
+retaining the ring and authorization for prompt resume. Each visible camera view
+uses one native preview worker only during acquisition before the tracker starts.
+A running stereo tracker supplies its own paired previews to avoid duplicate
+detection. Hiding views stops preview processing; optical acquisition continues.
+ARCore handoff idles optics again while the VR rectangle follows phone poses.
+Pose axes use only the exact synchronized pair; missing preview slots never
+suppress valid pose telemetry.
 
 The VR helper is separate from tracking/TLS and discovers the installed SteamVR
 client. It neither registers a device driver nor replaces the scene application.
@@ -75,11 +77,15 @@ adding cross-layer dependencies.
 
 The desktop uses one dashboard. Its fixed front pair is declared in
 front_cameras.py; saved camera assignments are not loaded and no camera selectors
-are exposed. Startup launches wearer monitoring, camera authorization and phone discovery. Saved
-phone candidates are bounded and checked with the existing certificate pin;
-first-time pairing remains an explicit, fingerprint-approved action. Connection
-controls and the activity log expand inline. Tracking, ARCore selection and the VR rectangle are automatic; native failures retry without a manual Start/Stop state. Raw sensor telemetry and recording
-remain independent from optical pose estimation.
+are exposed. Startup launches wearer monitoring, camera authorization and
+Bluetooth advertising. Pairing is exclusively through Android's companion picker
+and authenticated Bluetooth bond. Wi-Fi connects automatically from the verified
+Bluetooth route, with capped retry backoff and another route exchange on phone
+screen-on/unlock while disconnected. There are no IP fields, LAN scans or
+transport buttons. Bluetooth status is always visible; the only headset pairing
+control is Forget phone. The activity log expands inline. Tracking, ARCore and
+the VR rectangle are automatic; raw sensor telemetry and recording remain
+independent from optical pose estimation.
 
 `pose_stream.py` owns bounded renderer publication rather than the Tk timer.
 `pose_prediction.hpp` predicts briefly from the latest measured ARCore pose;

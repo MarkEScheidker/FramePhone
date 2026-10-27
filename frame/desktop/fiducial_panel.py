@@ -86,7 +86,7 @@ class FiducialPanel:
         self.preview_images = [None, None]
         self.preview_detections = [[], []]
         self.preview_updated = [0, 0]
-        self.camera_status = [tk.StringVar(value=name + " — starting camera") for name in ("Front left", "Front right")]
+        self.camera_status = [tk.StringVar(value=name + " — waiting for phone marker") for name in ("Front left", "Front right")]
         self.last_update = 0
         self.has_results = False
         self.status = tk.StringVar(value="Tracking starts automatically when the phone marker appears.")

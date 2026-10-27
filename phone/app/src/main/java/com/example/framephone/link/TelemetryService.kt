@@ -8,6 +8,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -27,6 +30,21 @@ object TelemetryState {
 class TelemetryService : Service() {
     private var server: PhoneServer? = null
     private val main = Handler(Looper.getMainLooper())
+    private val screen = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action in listOf(Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT) &&
+                SettingsStore(this@TelemetryService).connectionEnabled() && !TelemetryState.status.connected) {
+                BluetoothPose.retryConnection()
+            }
+        }
+    }
+    override fun onCreate() {
+        super.onCreate()
+        androidx.core.content.ContextCompat.registerReceiver(this, screen, IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val store = SettingsStore(this)
@@ -45,16 +63,12 @@ class TelemetryService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            "approve", "reject" -> {
-                intent.getStringExtra("request")?.let { server?.approve(it, intent.action == "approve") }
-                return START_NOT_STICKY
-            }
         }
         if (intent?.action == "wake" && !store.connectionEnabled()) { stopSelf(); return START_NOT_STICKY }
         if (intent?.action != "wake") store.enableConnection(true)
         runCatching { BluetoothPose.start(this, ArPoseState::message) }
         if (server != null) {
-            if (intent?.action == "pair") server?.openPairing()
+            if (!TelemetryState.status.connected) BluetoothPose.retryConnection()
             return START_NOT_STICKY
         }
         val dimensions = store.dimensions()
@@ -86,10 +100,11 @@ class TelemetryService : Service() {
             }
         }
         server = instance
-        instance.start(intent?.action == "pair" || store.pairedName() == null)
+        instance.start()
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        unregisterReceiver(screen)
         BluetoothPose.close()
         ArPoseState.setConnected(false)
         stopService(Intent(this, ArPoseService::class.java))

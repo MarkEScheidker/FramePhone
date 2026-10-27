@@ -8,7 +8,7 @@ motion timing, Bluetooth device validation and then screen video.
 
 - Automatic screen-width marker overlay, width/height setup and pinned LAN control.
 - Bluetooth companion association, authenticated trust/LAN bootstrap and BLE poses
-  implemented for device testing; explicit Wi-Fi fallback retained.
+  implemented for device testing; Wi-Fi reconnects automatically after pairing.
 - Native AprilTag detection, factory KB4 calibration, stereo pose and replay.
 - Marker-to-ARCore world registration with two observations spanning 80 ms with up to 8 cm relative movement.
 - A latest-only renderer channel, bounded gyro/velocity prediction and rate/age diagnostics.

@@ -5,7 +5,7 @@ establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
 mode remains available for phones without ARCore. Poses use the
 [Bluetooth companion path](BLUETOOTH.md) with pinned Wi-Fi control and backup;
-explicit Wi-Fi-only connections are retained. Screen streaming is future work.
+Wi-Fi connects automatically after Bluetooth pairing. Screen streaming is future work.
 
 ## Run the test
 

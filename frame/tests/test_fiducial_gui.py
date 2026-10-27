@@ -133,7 +133,6 @@ with tempfile.TemporaryDirectory(prefix="framephone-body-gui-") as folder:
     phone = Phone()
     window.phone_panel.link = phone
     # The synthetic connection replaces the real connected event and readouts.
-    window.phone_panel.settings.pack_forget()
     for row in window.phone_panel.rows.values():
         row.set("X +0.000 Y +0.000 Z +0.000\n120.0 Hz · age ≈ 12.3 ms")
     phone_startups = []

@@ -1,6 +1,6 @@
 # Android companion
 
-Enter the phone's width and height, then tap **Connect**. After the headset
+Enter the phone's width and height, then tap **Pair headset**. After the headset
 connects and is worn, a screen-width AprilTag appears over the current app. Frame accepts a
 stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
 ARCore then supplies anchored motion over BLE, with pinned Wi-Fi control and fallback.
@@ -25,7 +25,7 @@ Android 12+; application ID `com.example.framephone`. See
 
 ## Bluetooth connection
 
-Run FramePhone on Frame with Bluetooth enabled before tapping Connect on Android.
+Run FramePhone on Frame with Bluetooth enabled before tapping Pair headset on Android.
 After the initial permissions, select FramePhone in the system companion picker
 and approve the Bluetooth bond on both devices. Trust and the Wi-Fi endpoint
 travel over authenticated BLE. Existing Wi-Fi pairings migrate using their verifier;
@@ -36,23 +36,19 @@ may still require the Resume tracking notification action for a cold camera
 start. Disconnect disables automatic wake until Connect is used again; Forget
 also removes the companion association. Force-stop is not bypassed.
 
-Details → Connect using Wi-Fi preserves the previous diagnostic connection path.
-[Bluetooth protocol and validation](../frame/docs/BLUETOOTH.md) explains fallback,
-permissions and testing. Rebuild both applications for this milestone.
+Bluetooth is the only pairing method. Wi-Fi connects and retries automatically;
+screen-on/unlock requests another attempt while disconnected. Both devices must
+already share a reachable Wi-Fi network. No manual IP or transport selection is
+needed. [Bluetooth setup and validation](../frame/docs/BLUETOOTH.md) covers the
+protocol, permissions and platform limitations. Rebuild both apps.
 
-## Wi-Fi-only fallback
+## Tracking
 
-1. Put the phone and headset on the same LAN. Enter outside phone/case width and
-   height in millimeters, then use **Details → Connect using Wi-Fi**.
-2. Grant camera, notification and **display over other apps** access. Install or
-   update Google Play Services for AR when prompted. These are setup steps;
-   normal connections do not need a separate ARCore or marker button.
-3. Launch FramePhone on the headset. Saved pairing reconnects automatically.
-   For a new pairing, use **Connection → Pair new phone** on Frame and confirm
-   matching codes on both devices.
-4. Briefly present the marker to both front cameras. Two accepted stereo
-   observations spanning at least 80 ms can align, allowing up to 8 cm of
-   relative movement. Startup and processing may add time. The overlay disappears only after a successful visible VR handoff.
+Briefly present the marker to both front cameras. Two accepted stereo observations
+spanning at least 80 ms can align, allowing up to 8 cm of relative movement.
+Startup and processing can add time. The overlay disappears only after a visible
+VR handoff. Headset camera interception and detection then sleep until another
+marker acquisition is needed.
 
 **Back**, **Home**, opening recent apps or tapping the marker dismisses it and
 pauses tracking until the phone screen is turned off and unlocked again. Retry,

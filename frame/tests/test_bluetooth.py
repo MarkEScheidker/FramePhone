@@ -102,6 +102,20 @@ class BluetoothTests(unittest.TestCase):
             link.revoke(session)
             with self.assertRaises(ValueError):link.pose(device,GOLDEN)
 
+    def test_forget_revokes_radio_state_and_application_trust(self):
+        with tempfile.TemporaryDirectory() as directory:
+            link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:None)
+            link.address='AA:BB:CC:DD:EE:FF';device='/org/bluez/hci0/dev_phone'
+            challenge=json.loads(link.read_control(device))['challenge']
+            for part in fragments(hello(challenge=challenge)):link.control(device,part)
+            link.authorize(str(uuid.UUID(int=1)),lambda *v:None)
+            link.forget()
+            self.assertIsNone(link.store.load())
+            self.assertIsNone(link.expected)
+            self.assertIsNone(link.peer)
+            self.assertEqual(json.loads(link.read_control(device))['op'],'challenge')
+            with self.assertRaises(ValueError):link.pose(device,GOLDEN)
+
     def test_route_refresh_before_tls_session(self):
         with tempfile.TemporaryDirectory() as directory:
             events=[];link=BluetoothLink(PairingStore(Path(directory)/'pair.json'),lambda *v:events.append(v))

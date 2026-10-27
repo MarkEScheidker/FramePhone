@@ -8,7 +8,7 @@ or video dependency is included in this milestone.
 
 1. Rebuild/install both apps. Enable Bluetooth on both devices and keep them on
    the same reachable Wi-Fi LAN. Run FramePhone on Frame first.
-2. On Android enter dimensions and tap Connect. Grant Bluetooth, notifications,
+2. On Android enter dimensions and tap Pair headset. Grant Bluetooth, notifications,
    camera and overlay permissions, then select FramePhone in Android's companion
    picker. Location Services may need to be enabled for the system picker.
 3. Approve the Bluetooth numeric-comparison/bond prompt on both devices. GATT
@@ -27,13 +27,21 @@ or video dependency is included in this milestone.
 
 Disconnect on Android disables background reconnection until Connect is used
 again. Forget also removes the companion association; removing the OS Bluetooth
-bond is a separate settings action. Frame Disconnect suppresses automatic route
-hints until Reconnect/Connect is used. Android force-stop is not bypassed.
+bond is a separate settings action. Frame stays available while its app runs; Forget phone removes its saved trust.
+Android force-stop is not bypassed.
 
-An explicitly requested Wi-Fi fallback remains in Android Details → Connect using
-Wi-Fi and Frame Connection → Use Wi-Fi. Legacy Wi-Fi enrollment still requires
-physical fingerprint comparison. Bluetooth-paired records wait for Bluetooth at
-startup rather than using broadcast LAN discovery as their normal bootstrap.
+Bluetooth is the only pairing path. Both apps show Bluetooth status directly;
+there is no transport selection, IP entry, LAN scan or Wi-Fi enrollment. The
+phone accepts only pinned reconnect authentication on its Wi-Fi listener.
+Wi-Fi failures retry automatically, including the first failed attempt. Every
+screen-on/unlock while disconnected requests another authenticated route exchange,
+even if the phone's address is unchanged. Both devices must already be on a
+reachable Wi-Fi LAN; the app does not provision the network itself.
+
+Camera trace collection, image copies and preview detectors stay idle without a
+fresh phone marker-visible signal. After ARCore handoff, optical work sleeps
+again. The already-authorized broker keeps its attachment and ring so acquisition
+can resume without another authorization prompt; headset tracking is unaffected.
 
 ## Responsibilities
 

@@ -406,6 +406,26 @@ int tp_poll(tp_t *tp, int timeout_ms, tp_cb cb, void *ctx)
     return n;
 }
 
+bool tp_set_enabled(tp_t *tp, bool enabled)
+{
+    if (enabled) {
+        /* Every event is disabled here, so discard the old epoch before fresh
+         * capture. A resume must not replay pre-idle trace samples. */
+        tp->npend = 0;
+        for (int c = 0; c < tp->ncpu; ++c) {
+            if (!tp->ring[c])
+                continue;
+            struct perf_event_mmap_page *pg = tp->ring[c];
+            uint64_t head = __atomic_load_n(&pg->data_head, __ATOMIC_ACQUIRE);
+            __atomic_store_n(&pg->data_tail, head, __ATOMIC_RELEASE);
+        }
+    }
+    for (int i = 0; i < tp->nfds; ++i)
+        if (ioctl(tp->fds[i], enabled ? PERF_EVENT_IOC_ENABLE : PERF_EVENT_IOC_DISABLE, 0) < 0)
+            return false;
+    return true;
+}
+
 void tp_close(tp_t *tp)
 {
     for (int i = 0; i < tp->nfds; i++) {

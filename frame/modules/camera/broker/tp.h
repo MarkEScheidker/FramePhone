@@ -73,4 +73,6 @@ bool tp_open(tp_t *tp, tp_event_t **events, int nevents, char *err, size_t errn)
  * across all CPUs. Returns samples read, -1 on error.
  */
 int  tp_poll(tp_t *tp, int timeout_ms, tp_cb cb, void *ctx);
+/* Suspend trace collection; discard buffered samples before resuming. */
+bool tp_set_enabled(tp_t *tp, bool enabled);
 void tp_close(tp_t *tp);

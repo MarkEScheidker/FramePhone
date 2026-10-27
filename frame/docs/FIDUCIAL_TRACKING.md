@@ -11,17 +11,19 @@ is required. One tag is sufficient; the same tag is observed in both front camer
    one centered marker appears automatically. Back/Home or a tap dismisses it
    and pauses tracking until the next screen-off/unlock cycle.
 3. Build Frame using `bash frame/build.sh`, open the new ARM64 executable and
-   let startup discover and reconnect the saved phone. Use **Connection** for
-   first-time pairing or a manual retry.
+   pair once from Android's **Pair headset** Bluetooth picker. Wi-Fi connects
+   and retries automatically; there are no network controls.
 4. Approve camera authorization if prompted. The confirmed front camera pair
-   starts automatically; selectors are not exposed.
+   is fixed; selectors are not exposed. Its interceptor stays idle until the
+   phone marker is visible, and sleeps again after ARCore handoff.
 5. Point the marker at the front cameras. Tracking and the VR rectangle start automatically. The UI
    reports ID 0 counts for left/right, processing time and pose quality. Tilt and
    move slowly, then hide/reveal the marker to test loss and automatic reacquisition.
 
 **Show camera views** on the dashboard displays the two front cameras with
 AprilTag outlines, center crosses and marker counts. Each native worker annotates
-its own frame without requiring phone pairing or a stereo pose. A 2D outline
+its own frame during active acquisition. A fresh paired-phone marker-visible
+signal is required, but a stereo pose need not have been accepted. A 2D outline
 alone is not a 3D measurement. Waiting streams and errors have per-camera status.
 Images fit and center within their panes, preserving aspect ratio; pose overlays
 use the same display transform. Hide the views to stop preview processing while

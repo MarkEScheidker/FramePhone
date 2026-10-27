@@ -45,7 +45,7 @@ class Runtime:
             raise ValueError("The desktop's pkexec authorization tool is missing.")
         return [pkexec, "--disable-internal-agent",
                 str(self.root / "opt/framephone/bin/framephone-camd"),
-                "--status", "0"]
+                "--status", "0", "--active-file", str(self.ring.with_name("capture-active"))]
 
 
 
@@ -57,6 +57,8 @@ class Window:
         self.root, self.runtime = root, runtime
         self.preview_reader = CameraPreviews(runtime)
         self.preview_updated = [0, 0]
+        self.capture_active = False
+        self.capture_request = runtime.ring.with_name("capture-active")
         self.events = queue.SimpleQueue()
         self.processes, self.jobs, self.stopping = {}, set(), set()
         self.closing = False
@@ -73,6 +75,7 @@ class Window:
             fcntl.flock(self.lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise ValueError("FramePhone is already open. Use the existing window.") from None
+        self.capture_request.unlink(missing_ok=True)
         self.logfile = (state / "desktop.log").open("a", buffering=1)
         try:
             saved = json.loads(self.config.read_text())
@@ -81,7 +84,7 @@ class Window:
         except (OSError, ValueError):
             saved = {}
         self.show_views = tk.BooleanVar(value=bool(saved.get("show_camera_views", True)))
-        self.status = tk.StringVar(value="Starting cameras and phone discovery…")
+        self.status = tk.StringVar(value="Starting Bluetooth…")
         root.title("FramePhone")
         root.geometry("1000x900")
         root.minsize(720, 600)
@@ -314,15 +317,38 @@ class Window:
         if not self.closing:
             self.root.after(100, self.drain)
 
+    def marker_active(self):
+        link = self.phone_panel.link
+        snapshot = link.snapshot() if link else None
+        return bool(snapshot and snapshot.get("marker_displayed") is True and
+                    snapshot.get("marker_state_fresh") is True and not self.tracking_panel.handoff_active)
+
+    def camera_demand(self, active):
+        if active == self.capture_active:
+            return
+        try:
+            if active:
+                self.capture_request.parent.mkdir(parents=True, exist_ok=True)
+                self.capture_request.touch(mode=0o600)
+            else:
+                self.capture_request.unlink(missing_ok=True)
+            self.capture_active = active
+        except OSError as error:
+            self.status.set("Camera capture unavailable: " + str(error))
+
     def update_previews(self):
         import tkinter as tk
         if self.closing:
             return
-        visible = (self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
+        active = self.marker_active()
+        self.camera_demand(active)
+        visible = (active and self.show_views.get() and self.tracking_panel.parent.winfo_ismapped()
                    and not self.tracking_panel.busy)
         for index, (_, stream) in enumerate(FRONT_CAMERAS):
             self.preview_reader.update(index, stream, visible)
             if not visible:
+                if self.preview_updated[index] and not self.tracking_panel.busy:
+                    self.tracking_panel.camera_preview(index, None, "Idle — waiting for phone marker")
                 self.preview_updated[index] = 0
                 continue
             item = self.preview_reader.take(index)
@@ -350,6 +376,7 @@ class Window:
         if self.closing:
             return
         self.closing = True
+        self.camera_demand(False)
         self.bluetooth.close()
         self.preview_reader.close()
         self.tracking_panel.close()

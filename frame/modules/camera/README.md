@@ -85,6 +85,11 @@ means supplying your own authorized launch and process-lifetime management.
 The ring path remains /run/user/UID/framephone-camera/cam-ring; only one writer
 can own it. Consumers can share the existing ring rather than start another writer.
 
+The optional `--active-file PATH` argument suspends trace collection and image
+copying while PATH is absent. The ring heartbeat stays live; resume discards old
+trace samples. FramePhone uses this to collect only during marker acquisition.
+Without that option the reusable broker retains its continuous-capture behavior.
+
 This broker is **Steam Frame-specific**, not a general camera driver or a public
 Valve capture API. It depends on XRService, Linux tracepoints and DMA-BUF layouts;
 OS/runtime changes may require maintenance. No hardware reconfiguration or

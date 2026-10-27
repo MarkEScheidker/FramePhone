@@ -25,6 +25,7 @@ object BluetoothPose {
         client = BleClient(context.applicationContext, address, latest)
     }
     @Synchronized fun close() { client?.close(); client = null; synchronized(gyro) { gyro.clear() } }
+    @Synchronized fun retryConnection() { client?.retryConnection() }
     @Synchronized fun identity(pin: String, host: String) { client?.identity(pin, host) }
     @Synchronized fun session(value: String?) { client?.session(value) }
     @Synchronized fun isBound(): Boolean = client?.isBound() == true
@@ -69,7 +70,18 @@ private class BleClient(private val context: Context, private val address: Strin
     @Volatile private var bound = false
     private var needsRead = false
     private var nextSetupRead = 0L
+    private var wifiWaitingAt = 0L
 
+    fun retryConnection() { handler.post {
+        if (session == null) {
+            // Re-advertise the authenticated route even if the address did not
+            // change. This wakes Frame's automatic Wi-Fi retry on each unlock.
+            bootstrapHost = ""
+            nextSetupRead = 0
+            needsRead = true
+            retryAt = 0
+        }
+    } }
     fun identity(value: String, endpoint: String) { handler.post {
         val changed = pin != value || host != endpoint
         pin = value; host = endpoint
@@ -79,6 +91,7 @@ private class BleClient(private val context: Context, private val address: Strin
         if (session != value) {
             session = value; bound = false; lastPose = ""
             nextSetupRead = 0
+            wifiWaitingAt = if (value == null) SystemClock.elapsedRealtime() else 0
             if (value != null && control != null) needsRead = true
         }
     } }
@@ -89,6 +102,7 @@ private class BleClient(private val context: Context, private val address: Strin
         runCatching { gatt?.disconnect() }; runCatching { gatt?.close() }
         gatt = null; control = null; pose = null; flight = null; binding = null; token = null
         chunks.clear()
+        wifiWaitingAt = 0
         retryAt = SystemClock.elapsedRealtime()+retryMs
         retryMs = minOf(5000, retryMs*2)
         BluetoothPose.status = "Bluetooth retrying: $detail"
@@ -162,7 +176,8 @@ private class BleClient(private val context: Context, private val address: Strin
                         enqueue(JSONObject().put("op", "bind").put("binding", binding).put("session", sessionId)
                             .put("proof", BleProtocol.proof(BleProtocol.unhex(token!!), sessionId)), "bind")
                     }
-                    BluetoothPose.status = "Bluetooth authenticated — waiting for Wi-Fi session"
+                    if (session == null && wifiWaitingAt == 0L) wifiWaitingAt = SystemClock.elapsedRealtime()
+                    if (session == null) waitingStatus(SystemClock.elapsedRealtime())
                 }
             }.onFailure { failed("setup rejected (${it.javaClass.simpleName})") }
         } }
@@ -179,6 +194,11 @@ private class BleClient(private val context: Context, private val address: Strin
                 completion = ""
             }
         } }
+    }
+    private fun waitingStatus(now: Long) {
+        BluetoothPose.status = if (wifiWaitingAt > 0 && now-wifiWaitingAt >= 5000)
+            "Bluetooth connected — Wi-Fi unavailable; retrying automatically"
+        else "Bluetooth connected — Wi-Fi connecting automatically"
     }
     private val tick = object : Runnable {
         override fun run() {
@@ -199,6 +219,7 @@ private class BleClient(private val context: Context, private val address: Strin
                     needsRead = true
                     nextSetupRead = now+1000
                 }
+                if (session == null && binding != null && gatt != null) waitingStatus(now)
                 if (flight == null && control != null) {
                     if (chunks.isNotEmpty()) {
                         begin("control")

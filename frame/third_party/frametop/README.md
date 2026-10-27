@@ -52,6 +52,9 @@ The broker is compiled statically and runs on the headset host. Local adaptation
   Frametop's ring directory; byte layout and sequence protocol remain version 1.
 - Arm a parent-death signal before camera setup and again after dropping privileges
   so the GUI owns the broker lifetime; adjust help/errors for desktop authorization.
+- Add optional `--active-file` consumer demand: disable trace events and image
+  copies while idle, discard queued samples before resuming, retain the ring and
+  privilege-dropped attachment for prompt reacquisition.
 - Expose all mono streams for discovery, with the GUI processing only its selected
   pair. The earlier OG0VE10-only default hid the other pair on the owner's headset;
   `--sensor` remains available for manual diagnostics. XRService's camera modes

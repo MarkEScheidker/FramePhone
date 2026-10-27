@@ -30,9 +30,9 @@ bundled. Docker/Podman is required only for building; Frametop is not required.
 The app uses the headset's installed SteamVR for its automatic VR display.
 
 1. Enable Bluetooth and Wi-Fi on both devices; launch FramePhone on Frame first.
-   Cameras and Bluetooth advertising start automatically (approve desktop camera
-   authorization if prompted).
-2. On Android enter width and height and tap **Connect**. Grant Bluetooth,
+   Bluetooth advertising starts automatically; camera processing waits for the
+   phone marker. Approve desktop camera authorization if prompted.
+2. On Android enter width and height and tap **Pair headset**. Grant Bluetooth,
    notification, camera and overlay access. Select **FramePhone** in Android's
    companion picker and approve Bluetooth numeric comparison on both devices.
    Bluetooth exchanges application trust and the Wi-Fi route; Frame connects.
@@ -45,8 +45,10 @@ The app uses the headset's installed SteamVR for its automatic VR display.
    phone reconnection until Connect is used again.
 
 See [Bluetooth setup and limits](frame/docs/BLUETOOTH.md), including migration
-of existing Wi-Fi pairings and explicit Wi-Fi-only fallback. Actual radio latency
-and cold background behavior require device testing; smoothing delay is separate.
+of existing Wi-Fi pairings. Bluetooth is the only pairing path; Wi-Fi connects
+and retries automatically, including on phone screen-on/unlock if disconnected.
+Actual radio latency and cold background behavior require device testing;
+smoothing delay is separate.
 
 No photo selection, manual corners or marker-size adjustment is required. The
 white quiet border is part of the width-filling marker; the black square itself

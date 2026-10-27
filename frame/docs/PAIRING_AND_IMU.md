@@ -1,85 +1,43 @@
-> Normal setup now uses [Bluetooth-first trust and endpoint exchange](BLUETOOTH.md).
-> This document describes the retained pinned TLS control/diagnostic path and
-> explicit Wi-Fi-only enrollment fallback.
+# Pinned Wi-Fi control and sensor link v1
 
-# LAN pairing and phone sensor link v1
+Pairing is exclusively [Bluetooth](BLUETOOTH.md). The phone's TLS listener accepts
+only reconnect authentication with the credential established over the approved
+Bluetooth bond. UDP discovery, manual IP entry and LAN enrollment have been
+removed from the applications.
 
-Implemented in Android `link/` and desktop `phone_link.py` / `phone_panel.py`.
-Android sends raw sensor observations and anchored ARCore poses. The headset
-registers them optically, renders the screen surface and applies bounded motion
-prediction; raw diagnostic telemetry remains independently available.
+## Connection lifecycle
 
-## Using the apps
+Frame advertises while running. Pair it once from the Android app. Bluetooth
+provides the current phone route and certificate pin; Wi-Fi connects automatically.
+Initial connection failures and transient transport loss retry with capped 1–5
+second backoff. A phone screen-on/unlock requests another Bluetooth route exchange
+if Wi-Fi is disconnected. Identity/protocol failures stop the current retry loop
+and remain visible; an address is never treated as identity.
 
-Enter measured phone-body/case dimensions on Android and start its connection.
-FramePhone presents one dashboard with a compact telemetry area. At startup it
-searches the LAN and reconnects to the saved phone. The last address is tried
-first, followed by at most seven additional distinct discovered addresses.
-Every candidate must match the saved TLS certificate before a credential is sent.
-A discovery reply does not establish identity; startup never enrolls a new phone.
+The dashboard shows Bluetooth and Wi-Fi state plus compact gyro, accelerometer
+and magnetometer diagnostics. Neither app offers transport selection or manual
+network setup. Android Disconnect disables companion wake until Connect is used;
+Forget removes application trust and the phone's companion association. Remove
+the OS Bluetooth bond separately in system settings when needed.
 
-For first pairing, expand **Connection**, use **Find phones**, select the phone
-and click **Pair new phone**. Compare all four fingerprint groups on the actual
-phone and headset screens, then approve both. A mismatch must be rejected.
-Pairing is open for 90 seconds; confirmation waits are bounded.
+## Authentication
 
-After a failed automatic attempt, use **Connection → Reconnect**. A manual IP is
-available when broadcasts are blocked. **Disconnect** or **Forget phone** cancels
-pending automatic connection attempts and transport retries. After a successful
-authenticated connection, transient transport failures retry the saved pinned
-endpoint with capped 1–5 second backoff. Identity and protocol failures stop
-retries; no new enrollment occurs. The phone must already be serving its
-connection; the headset does not wake or start the Android app.
+The phone serves TLS 1.3 on TCP port 47643 with a persistent P-256 identity in
+Android Keystore. Frame checks the complete saved SHA-256 certificate hash before
+sending the reconnect credential. New trust and endpoint hints arrive only over
+authenticated encrypted BLE. Existing Wi-Fi records can migrate using their
+verifier, but cannot enroll another device over Wi-Fi.
 
-Gyro, accelerometer and magnetometer values, received rates, approximate ages,
-queue drops and RTT remain visible. Full sensor data, including accuracy and
-bias, remains available in opt-in recordings. Pairing still uses physical
-fingerprint approval and pinned reconnect. Camera authorization is separate from
-pairing and may appear at application startup.
+Frame stores the pin and credential atomically in a private mode-0600 pairing
+file. Android keeps the SHA-256 verifier in private preferences; its temporary
+Bluetooth enrollment secret is removed after acknowledgment. One paired headset
+and one active TLS connection are supported. See the Bluetooth contract for
+challenge proofs, session binding and background camera restrictions.
 
-## Discovery and authentication
-
-- IPv4 UDP port 47643 accepts the ASCII query `FRAMEPHONE_DISCOVER_V1`.
-  Replies are small JSON objects with `service: framephone`, `version: 1`,
-  `port: 47643`, a display name and a pairing-open hint. They are untrusted
-  endpoint hints, never an authentication authority. Replies are rate-limited.
-  Direct IP entry is available when broadcast is blocked.
-- The phone serves TLS 1.3 on TCP port 47643 using a persistent P-256 identity
-  key in Android Keystore and its self-signed certificate. The private key stays
-  in Keystore. TLS comes from Android and Python/OpenSSL, with no new crypto library.
-  Android's standard key-manager factory selects the certificate. Keystore
-  authorizes both SHA-256 and no-digest signing: Conscrypt uses NONEwithECDSA
-  on the TLS transcript digest it already computed. The phone verifies an actual
-  pinned local TLS 1.3 handshake before advertising discovery. The earlier
-  SHA-256-only identity is replaced once, revoking its saved pairing.
-- First enrollment displays a session fingerprint as four groups of four hex
-  digits. Both independently compute the first 64 bits of SHA-256 of the ASCII
-  concatenation `certificate_hash_hex + client_nonce_hex + phone_nonce_hex`.
-  Each component is exactly 64 lowercase hex characters; each nonce contains
-  32 fresh random bytes. The certificate hash is SHA-256 of certificate DER:
-  Android uses its own certificate; Frame uses the actual TLS peer certificate.
-  Nonces bind the comparison to this request instead of reusing a static display.
-  Trust is established by physical comparison and approval on both devices,
-  not by a CA, a network-supplied fingerprint or the advertised phone name.
-- Enrollment sends no existing credential. After approval, the phone issues a
-  random 256-bit reconnect credential inside TLS and closes the enrollment window.
-  Frame stores it plus the full 256-bit certificate hash atomically in a private
-  mode-0600 file; Android stores only its SHA-256 verifier in private preferences.
-- Reconnect verifies the **full saved certificate hash before sending any
-  credential**. Changed identities require deliberate new pairing. This is
-  application credential authentication, not mutual client-certificate TLS.
-- One headset record and one active connection are supported. A newly approved
-  pairing replaces the old credential. Phone **Forget headset and stop** revokes
-  it and closes sockets. Frame **Forget phone** removes its local copy; revoke on
-  the phone too when removing trust. Neither tokens nor sensor streams are logged.
-- Networking runs as the desktop user, independently of the camera broker.
-  Android uses a user-started connected-device foreground service with Stop.
-  Stop closes TCP/UDP listeners; no boot start or automatic reconnect is enabled.
-
-This first implementation intentionally uses fingerprint confirmation instead
-of QR/NSD from the earlier proposal, so telemetry can be tested without cameras
-or additional dependencies. QR-based full-key pinning, visual association and
-standard DNS-SD discovery remain possible future additions.
+Networking runs as the desktop user. Camera authorization is separate and may
+appear once on startup. Camera interception/AprilTag previews remain idle unless
+a fresh authenticated phone message says the marker is visible. ARCore handoff
+retains clock/control traffic and raw sensor recordings while optics sleep.
 
 ## Wire format
 
@@ -91,10 +49,7 @@ malformed data, unexpected sessions and reordered samples close the connection.
 
 | Message | Fields and direction |
 | --- | --- |
-| `hello` | Frame → phone: `version:1`, `mode:pair`, fresh client `nonce` and display `name`, or `mode:reconnect` and `credential`. |
-| `pairing` | Phone → Frame: fresh phone `nonce`; fingerprint is computed locally, not taken from this message. |
-| `confirm` | Frame → phone: `accepted:true`, only after physical comparison. Phone also requires its local approval. |
-| `paired` | Phone → Frame: new 64-character lowercase hexadecimal credential. |
+| `hello` | Frame → phone: `version:1`, `mode:reconnect` and the Bluetooth-established `credential`. LAN pairing mode is rejected. |
 | `profile` | Phone → Frame: version, fresh session UUID, phone name, dimensions, sensor capabilities, axes and clock. Sent only after authentication. |
 | `ping` / `pong` | Frame sends `h0`; phone returns it with receive/send `p1,p2` and session; Frame records receive `h3`. |
 | `samples` | Phone → Frame: session, cumulative queue-drop count, array of at most 64 sensor events. |

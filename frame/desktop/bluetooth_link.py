@@ -39,6 +39,14 @@ class BluetoothLink:
                 self.expected = None
                 self.peer = None
 
+    def forget(self):
+        with self.lock:
+            self.expected = self.peer = None
+            self.challenges.clear()
+            self.fragments = ControlFragments()
+            self.store.forget()
+        self.status = 'Bluetooth ready — pair from Android'
+
     def read_control(self, device, offset=0):
         with self.lock:
             now = time.monotonic()

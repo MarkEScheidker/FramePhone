@@ -24,8 +24,8 @@ The OS Bluetooth bond is managed separately in system settings.
 
 ARCore poses and bounded corrected gyro history use latest-only BLE writes.
 Pinned Wi-Fi TLS retains reliable session/marker/wearer control, clock mapping,
-raw sensor diagnostics and backup poses. Explicit Wi-Fi-only controls remain for
-device troubleshooting. Changing the radio does not remove smoothing latency or
+raw sensor diagnostics and backup poses. Wi-Fi connection/retry is automatic, including another attempt on phone screen-on
+while disconnected; neither app offers manual Wi-Fi pairing or IP entry. Changing the radio does not remove smoothing latency or
 establish that BLE is faster; measure both paths on the actual devices.
 
 Android can restrict camera access from a cold background process even when it
