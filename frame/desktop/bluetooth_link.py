@@ -37,6 +37,7 @@ class BluetoothLink:
         self.status = 'Bluetooth starting'
         self.lock = threading.RLock()
         self.stopped = threading.Event()
+        self.ready = threading.Event()
         self.thread = None
         self.peer = self.expected = self.pairing = None
         self.fragments = ControlFragments()
@@ -75,7 +76,8 @@ class BluetoothLink:
             self.store.forget()
             self.peer = self.expected = self.candidate = None
             self.fragments = ControlFragments()
-        self.status = 'Bluetooth ready — pair a phone'
+        if self.ready.is_set():
+            self.status = 'Bluetooth ready — pair a phone'
         if device and self._disconnect_radio:
             self._disconnect_radio(device)
 
@@ -89,7 +91,8 @@ class BluetoothLink:
             self.fragments.pending.pop(device, None)
             if self.candidate and self.candidate[0] == device:
                 self.candidate = None
-        self.status = 'Bluetooth ready — waiting for phone'
+        if self.ready.is_set():
+            self.status = 'Bluetooth ready — waiting for phone'
 
     def _peer(self, device, address):
         if not self.allowed(address):
@@ -228,9 +231,25 @@ class BluetoothLink:
 
     def _run(self):
         try:
-            asyncio.run(self._serve())
+            asyncio.run(self._supervise())
         except Exception as error:
             self.status = 'Bluetooth unavailable: '+str(error)[:160]
+
+    async def _supervise(self):
+        while not self.stopped.is_set():
+            self.status = 'Bluetooth starting'
+            try:
+                await self._serve()
+                if not self.stopped.is_set():
+                    self.status = 'Bluetooth service lost — reconnecting'
+            except Exception as error:
+                self.status = 'Bluetooth unavailable: '+str(error)[:160]
+            finally:
+                self.ready.clear()
+            for _ in range(30):
+                if self.stopped.is_set():
+                    return
+                await asyncio.sleep(.1)
 
     async def _serve(self):
         from dbus_next import BusType, Variant, DBusError, PropertyAccess, Message, MessageType
@@ -241,6 +260,10 @@ class BluetoothLink:
         service_path = base+'/service0'
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         managers = []
+        released = asyncio.Event()
+        adapter = None
+        properties = None
+        changed_settings = []
         try:
             reply = await bus.call(Message(destination='org.freedesktop.DBus', path='/org/freedesktop/DBus',
                 interface='org.freedesktop.DBus', member='GetNameOwner', signature='s', body=['org.bluez']))
@@ -253,18 +276,31 @@ class BluetoothLink:
                         message.interface in ('org.bluez.Agent1', 'org.bluez.GattCharacteristic1') and message.sender != bluez_owner):
                     bus.send(Message.new_error(message, 'org.bluez.Error.NotAuthorized', 'BlueZ owns radio access'))
                     return True
+                if (message.message_type == MessageType.SIGNAL and message.sender == 'org.freedesktop.DBus' and
+                        message.interface == 'org.freedesktop.DBus' and message.member == 'NameOwnerChanged' and
+                        message.body[0] == 'org.bluez' and message.body[1] == bluez_owner):
+                    released.set()
                 if (message.message_type == MessageType.SIGNAL and message.sender == bluez_owner and
-                        message.interface == 'org.freedesktop.DBus.Properties' and message.member == 'PropertiesChanged' and
-                        message.body[0] == 'org.bluez.Device1'):
+                        message.interface == 'org.freedesktop.DBus.Properties' and message.member == 'PropertiesChanged'):
                     values = message.body[1]
-                    if 'Connected' in values and not values['Connected'].value:
-                        owner.disconnected(message.path)
+                    if message.body[0] == 'org.bluez.Adapter1' and message.path == adapter:
+                        if (('Powered' in values and not values['Powered'].value) or
+                                ('Pairable' in values and not values['Pairable'].value)):
+                            released.set()
+                    elif message.body[0] == 'org.bluez.Device1':
+                        if 'Connected' in values and not values['Connected'].value:
+                            owner.disconnected(message.path)
+                        elif not owner.peer and message.path.startswith(adapter+'/dev_'):
+                            if 'Paired' in values and values['Paired'].value:
+                                owner.status = 'Bluetooth bonded — waiting for secure setup'
+                            elif 'Connected' in values and values['Connected'].value:
+                                owner.status = 'Bluetooth radio connected — waiting for phone'
             bus.add_message_handler(sender_guard)
 
             async def device_info(device, paired=False):
                 if owner.peer and owner.peer.device == device:
                     return owner.peer.address
-                reply = await bus.call(Message(destination='org.bluez', path=device,
+                reply = await bus.call(Message(destination=bluez_owner, path=device,
                     interface='org.freedesktop.DBus.Properties', member='GetAll', signature='s', body=['org.bluez.Device1']))
                 if reply.message_type == MessageType.ERROR:
                     raise DBusError('org.bluez.Error.Rejected', 'Phone is unavailable')
@@ -341,7 +377,7 @@ class BluetoothLink:
                 def Cancel(self):
                     if owner.candidate: owner.disconnected(owner.candidate[0])
                 @method()
-                def Release(self): owner.stopped.set()
+                def Release(self): released.set()
 
             class Advertisement(ServiceInterface):
                 def __init__(self): super().__init__('org.bluez.LEAdvertisement1')
@@ -352,16 +388,18 @@ class BluetoothLink:
                 @dbus_property(access=PropertyAccess.READ)
                 def LocalName(self) -> 's': return 'Steam Frame'
                 @method()
-                def Release(self): owner.stopped.set()
+                def Release(self): released.set()
 
-            tree = await bus.introspect('org.bluez', '/')
-            objects = await bus.get_proxy_object('org.bluez', '/', tree).get_interface('org.freedesktop.DBus.ObjectManager').call_get_managed_objects()
+            tree = await bus.introspect(bluez_owner, '/')
+            objects = await bus.get_proxy_object(bluez_owner, '/', tree).get_interface('org.freedesktop.DBus.ObjectManager').call_get_managed_objects()
             adapter = next((path for path, interfaces in objects.items() if 'org.bluez.GattManager1' in interfaces and
                             'org.bluez.LEAdvertisingManager1' in interfaces and
                             interfaces.get('org.bluez.Adapter1', {}).get('Powered', Variant('b', False)).value), None)
             if not adapter: raise ValueError('Enable headset Bluetooth')
-            obj = bus.get_proxy_object('org.bluez', adapter, await bus.introspect('org.bluez', adapter))
+            obj = bus.get_proxy_object(bluez_owner, adapter, await bus.introspect(bluez_owner, adapter))
             daemon = bus.get_proxy_object('org.freedesktop.DBus', '/org/freedesktop/DBus', await bus.introspect('org.freedesktop.DBus', '/org/freedesktop/DBus'))
+            await daemon.get_interface('org.freedesktop.DBus').call_add_match(
+                "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.bluez'")
             await daemon.get_interface('org.freedesktop.DBus').call_add_match(
                 "type='signal',sender='org.bluez',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path_namespace='"+adapter+"'")
             bus.export(base, ServiceInterface('com.framephone.BluetoothApplication1'))
@@ -370,10 +408,18 @@ class BluetoothLink:
             bus.export(service_path+'/pose', Characteristic(False))
             bus.export(base+'/agent', Agent())
             bus.export(base+'/advertisement', Advertisement())
-            agent = bus.get_proxy_object('org.bluez', '/org/bluez', await bus.introspect('org.bluez', '/org/bluez')).get_interface('org.bluez.AgentManager1')
+            agent = bus.get_proxy_object(bluez_owner, '/org/bluez', await bus.introspect(bluez_owner, '/org/bluez')).get_interface('org.bluez.AgentManager1')
             await agent.call_register_agent(base+'/agent', 'NoInputNoOutput')
             managers.append((agent.call_unregister_agent, base+'/agent'))
             await agent.call_request_default_agent(base+'/agent')
+            # Advertising a service alone does not enable incoming OS bonding.
+            # Keep pairing available while our agent applies the saved-phone policy.
+            properties = obj.get_interface('org.freedesktop.DBus.Properties')
+            for name, desired in (('PairableTimeout', Variant('u', 0)), ('Pairable', Variant('b', True))):
+                previous = await properties.call_get('org.bluez.Adapter1', name)
+                if previous.value != desired.value:
+                    await properties.call_set('org.bluez.Adapter1', name, desired)
+                    changed_settings.append((name, previous, desired))
             manager = obj.get_interface('org.bluez.GattManager1')
             await manager.call_register_application(base, {})
             managers.append((manager.call_unregister_application, base))
@@ -382,19 +428,31 @@ class BluetoothLink:
             managers.append((advertiser.call_unregister_advertisement, base+'/advertisement'))
             loop = asyncio.get_running_loop()
             async def disconnect(device):
-                await bus.call(Message(destination='org.bluez', path=device, interface='org.bluez.Device1', member='Disconnect'))
+                await bus.call(Message(destination=bluez_owner, path=device, interface='org.bluez.Device1', member='Disconnect'))
             self._disconnect_radio = lambda device: asyncio.run_coroutine_threadsafe(disconnect(device), loop)
+            if released.is_set():
+                raise ValueError('Bluetooth service was released during startup')
+            self.ready.set()
             self.status = 'Bluetooth ready — waiting for remembered phone' if current_pairing(self.store) else 'Bluetooth ready — pair a phone'
-            while not self.stopped.is_set() and bus.connected:
+            while not self.stopped.is_set() and bus.connected and not released.is_set():
                 self.poll()
                 await asyncio.sleep(.1)
         finally:
+            self.ready.clear()
+            if not self.stopped.is_set():
+                self.status = 'Bluetooth service lost — reconnecting'
             self._disconnect_radio = None
             with owner.lock:
                 owner._clear_prompt()
-                owner.peer = None
+                owner.peer = owner.candidate = None
+                owner.fragments = ControlFragments()
             for unregister, path in reversed(managers):
                 try: await unregister(path)
+                except Exception: pass
+            for name, previous, desired in reversed(changed_settings):
+                try:
+                    if (await properties.call_get('org.bluez.Adapter1', name)).value == desired.value:
+                        await properties.call_set('org.bluez.Adapter1', name, previous)
                 except Exception: pass
             bus.disconnect()
 

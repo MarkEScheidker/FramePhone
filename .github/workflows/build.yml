@@ -52,6 +52,7 @@ jobs:
           cmake --build frame/build/ci --parallel 4
           ctest --test-dir frame/build/ci --output-on-failure
           python3 frame/tests/test_package_archive.py
+          python3 frame/tests/test_bluetooth_service.py
           xvfb-run -a python3 frame/tests/test_phone_gui.py
           xvfb-run -a python3 frame/tests/test_fiducial_gui.py frame/build/ci
 

@@ -69,6 +69,29 @@ Forget. If OS bond keys are manually removed from only one side, the platform ma
 require removing the stale bond on the other side too; the app does not modify
 BlueZ's global repairing policy or use hidden Android bond-removal APIs.
 
+### Bonding fails before the hash appears
+
+App-level Forget does not remove the OS bond. If Android has no saved headset
+but Frame still has the phone's old keys, BlueZ can reject Just Works re-pairing
+before calling the app's agent. Restarting the apps does not clear these keys.
+
+1. Close FramePhone on both devices.
+2. In **Frame's system Bluetooth settings**, remove the phone's saved device.
+3. In **Android's system Bluetooth settings**, forget Steam Frame if listed.
+4. Open both apps, use app-level Forget if needed, and select **Pair headset**.
+
+This resets only this device pair. The apps then create a fresh OS bond before
+the TLS/hash exchange. BlueZ defaults to rejecting peer-initiated Just Works
+re-pairing with an existing bond; see its
+[repairing policy](https://github.com/bluez/bluez/blob/master/src/main.conf).
+
+Frame enables incoming bonding while its agent is registered and restores any
+adapter pairing settings it changed when the service closes. “Bluetooth ready”
+requires successful agent, GATT and advertisement registration. Service loss
+or an adapter power cycle triggers re-registration; setup errors remain visible
+even after app-level Forget. Radio connection and completed bond are shown
+separately from application hash verification.
+
 ## Wire format
 
 Service UUID: `f7a10001-81a6-4c44-9c79-99ac54174901`. Control ends `0002`, pose ends
@@ -111,6 +134,11 @@ protocol tests exercise real TLS records, two-sided consent, reconnect, Forget,
 wrong identity, encrypted routes/motion, session binding and tampering. The Android
 TLS adapter is tested with fragmented TLS 1.3 records. These checks do not replace
 physical Bluetooth and Android lifecycle testing.
+
+`frame/tests/test_bluetooth_service.py` uses a private D-Bus to check adapter
+pairing readiness, service/daemon recovery, visible registration errors and
+settings restoration without accessing the host radio. Run it with `dbus-daemon`
+and `python3-dbus-next` installed.
 
 Native desktop development needs `python3-dbus-next`; the packaged executable
 bundles it. TLS uses the standard Python/OpenSSL and Android providers already
