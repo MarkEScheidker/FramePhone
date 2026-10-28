@@ -53,8 +53,8 @@ object CompanionSetup {
         }
         val store = SettingsStore(context)
         store.companion(address, id)
-        // The BLE client owns bonding on its LE connection and waits for the
-        // result before negotiating GATT. Association alone is not a bond.
+        // The BLE client completes bonding before GATT setup.
+        // Association alone is not a bond.
         observe(context)
     }
 
@@ -83,13 +83,10 @@ object CompanionSetup {
 
     @Suppress("DEPRECATION")
     fun forget(context: Context) {
-        val store = SettingsStore(context)
-        val address = store.bluetoothAddress() ?: return
         val manager = context.getSystemService(CompanionDeviceManager::class.java)
         if (Build.VERSION.SDK_INT >= 33) {
-            manager.myAssociations.filter { it.deviceMacAddress?.toString().equals(address, true) }
-                .forEach { manager.disassociate(it.id) }
-        } else manager.disassociate(address)
+            manager.myAssociations.forEach { manager.disassociate(it.id) }
+        } else manager.associations.toList().forEach { manager.disassociate(it) }
     }
 
     fun resumeCamera(context: Context) {

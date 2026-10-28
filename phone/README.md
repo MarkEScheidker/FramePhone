@@ -37,12 +37,15 @@ a new pair no longer needs a separate LAN fingerprint enrollment.
 The associated Frame can wake the connection service with setup closed. Android
 may still require the Resume tracking notification action for a cold camera
 start. Disconnect disables automatic wake until Connect is used again; Forget
-also removes the companion association. Force-stop is not bypassed. Authentication
-failures stop retrying and expose Retry connection. App reinstalls or mismatched app
+also removes FramePhone's companion associations. Forget headset is visible beside
+the main connection control, even if Bluetooth setup never reached app enrollment.
+It is available while setup is pending or the connection has failed. Force-stop is
+not bypassed. Authentication failures stop retrying; Disconnect followed by Connect
+starts a fresh connection worker using the saved keys. App reinstalls or mismatched app
 keys use a Connect/Replace confirmation on Frame rather than requiring OS unpair.
-Confirmations may be accepted on either device first. A transport handoff retains
-the pending confirmation and completed bonds. Retry connection keeps the saved
-keys; Forget is reserved for deliberately removing trust. Details retains the
+A transport handoff retains the pending confirmation and completed bonds.
+Forget is reserved for deliberately removing app trust; Android's OS Bluetooth
+bond is managed separately in system settings. Details retains the
 last Bluetooth failure and its setup stage.
 
 Bluetooth is the only pairing method. Wi-Fi connects and retries automatically;

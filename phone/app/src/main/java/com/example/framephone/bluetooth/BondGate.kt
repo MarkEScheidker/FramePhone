@@ -57,7 +57,6 @@ internal class BondGate {
             else -> Action.WAIT
         }
     }
-    fun retry() { blocked = false; waiting = false; ready = false; connected = false }
     fun reject() { blocked = true; waiting = false; ready = false }
     fun disconnected() { connected = false; ready = false } // Bonding may still be in progress.
 

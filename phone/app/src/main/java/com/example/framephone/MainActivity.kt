@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var store: SettingsStore
     private var notice by mutableStateOf("")
     private var connectionDetail by mutableStateOf("")
-    private var pendingConnect = false
+    private var pendingConnect by mutableStateOf(false)
     private var waiting = ""
     private var installRequested = false
     private var notificationsAsked = false
@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     private fun bluetoothSelected(address: String, id: Int) {
+        if (!pendingConnect) return
         val previous = store.bluetoothAddress()
         runCatching { CompanionSetup.remember(this, address, id) }.onFailure {
             pendingConnect = false; notice = "Bluetooth setup failed: ${it.javaClass.simpleName}"
@@ -195,10 +196,11 @@ class MainActivity : ComponentActivity() {
         var trackingDetail by remember { mutableStateOf("") }
         var trackingReady by remember { mutableStateOf(false) }
         var timedOut by remember { mutableStateOf(false) }
-        var pairingNeedsAttention by remember { mutableStateOf(BluetoothPose.pairingNeedsAttention) }
         var bluetoothFailure by remember { mutableStateOf(BluetoothPose.lastFailure) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
         var bluetoothEvents by remember { mutableStateOf(BluetoothPose.pairingEvents) }
+        var remembered by remember { mutableStateOf(store.pairedName()) }
+        var hasHeadset by remember { mutableStateOf(store.hasHeadset()) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
         LaunchedEffect(Unit) {
             while (true) {
@@ -206,7 +208,8 @@ class MainActivity : ComponentActivity() {
                 bluetoothStatus = BluetoothPose.status
                 bluetoothFailure = BluetoothPose.lastFailure
                 bluetoothEvents = BluetoothPose.pairingEvents
-                pairingNeedsAttention = BluetoothPose.pairingNeedsAttention
+                remembered = store.pairedName()
+                hasHeadset = store.hasHeadset()
                 trackingDetail = ArPoseState.detail
                 trackingReady = ArPoseState.running && !ArPoseState.failed
                 timedOut = ArPoseState.overlayTimedOut
@@ -215,8 +218,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         val status = TelemetryState.status
-        var remembered by remember { mutableStateOf(store.pairedName()) }
-        LaunchedEffect(status) { remembered = store.pairedName() }
         Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("FramePhone", style = MaterialTheme.typography.headlineLarge)
@@ -233,12 +234,20 @@ class MainActivity : ComponentActivity() {
                 DimensionField("Height (mm)", height, !status.running, Modifier.weight(1f)) { height = it }
             }
             Button(onClick = {
-                if (status.running && pairingNeedsAttention) command("retry_pairing")
-                else if (status.running) command("stop") else {
+                if (status.running) {
+                    pendingConnect = false; waiting = ""
+                    command("stop")
+                } else {
                     runCatching { store.save(PhoneDimensions(width.replace(',', '.').toDouble(), height.replace(',', '.').toDouble())) }
                         .onSuccess { connect() }.onFailure { notice = "Enter a valid width and height." }
                 }
-            }, modifier = Modifier.fillMaxWidth()) { Text(if (status.running && pairingNeedsAttention) "Retry connection" else if (status.running) "Disconnect" else if (store.bluetoothAddress() == null) "Pair headset" else "Connect") }
+            }, enabled = status.running || !pendingConnect, modifier = Modifier.fillMaxWidth()) {
+                Text(if (status.running) "Disconnect" else if (pendingConnect) "Connecting…" else if (!hasHeadset) "Pair headset" else "Connect")
+            }
+            if (hasHeadset || pendingConnect || status.running) TextButton(onClick = {
+                pendingConnect = false; waiting = ""; notice = ""; connectionDetail = ""
+                command("forget")
+            }) { Text("Forget headset") }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {
                 TextButton(onClick = {
@@ -266,7 +275,6 @@ class MainActivity : ComponentActivity() {
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)
                 if (trackingDetail.isNotEmpty()) Text(trackingDetail)
-                if (remembered != null) TextButton(onClick = { command("forget") }) { Text("Forget headset") }
                 TextButton(onClick = { about = true }) { Text("About") }
             }
         }

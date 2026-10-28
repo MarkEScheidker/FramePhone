@@ -31,6 +31,7 @@ class SettingsStore(context: Context) {
         return verifiers.any { MessageDigest.isEqual(it.toByteArray(), actual) }
     }
     fun bluetoothAddress(): String? = prefs.getString("bluetooth_address", null)
+    fun hasHeadset() = bluetoothAddress() != null || pairedName() != null
     fun companion(address: String, id: Int) {
         val previous = bluetoothAddress()
         val edit = prefs.edit().putString("bluetooth_address", address.uppercase()).putInt("association_id", id)

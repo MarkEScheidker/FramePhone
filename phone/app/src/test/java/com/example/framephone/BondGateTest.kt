@@ -22,12 +22,12 @@ class BondGateTest {
         assertEquals(WAIT, gate.prepare(BONDED))
     }
     @Test fun oneSidedUnpairRepairsWithoutReusingThePreviousGattConnection() {
-        val gate = BondGate()
+        var gate = BondGate()
         assertEquals(CONNECT, gate.prepare(BONDED))
         gate.connected(BONDED)
         assertEquals(BLOCK, gate.changed(NONE))
         gate.disconnected()
-        gate.retry()
+        gate = BondGate()
         assertEquals(CREATE_BOND, gate.prepare(NONE))
         gate.changed(BONDING)
         assertEquals(RETRY, gate.changed(BONDED))
@@ -37,12 +37,12 @@ class BondGateTest {
         assertEquals(CONNECT, gate.prepare(BONDED))
     }
     @Test fun preflightJoinsAnExistingBondAndHonorsCancellation() {
-        val gate = BondGate()
+        var gate = BondGate()
         assertEquals(WAIT, gate.prepare(BONDING))
         assertTrue(gate.waiting)
         assertEquals(BLOCK, gate.changed(NONE))
         repeat(10) { assertEquals(BLOCK, gate.prepare(NONE)) }
-        gate.retry()
+        gate = BondGate()
         assertEquals(CREATE_BOND, gate.prepare(NONE))
     }
 
@@ -68,23 +68,23 @@ class BondGateTest {
         assertTrue(gate.blocked)
     }
     @Test fun removingARejectedSavedBondAllowsExplicitRepair() {
-        val gate = BondGate()
+        var gate = BondGate()
         gate.connected(BONDED)
         gate.reject() // GATT_AUTH_FAIL137 after an old Just Works bond
         gate.disconnected()
         assertEquals(BLOCK, gate.connected(BONDED))
         assertEquals(BLOCK, gate.changed(NONE))
-        gate.retry()
+        gate = BondGate()
         assertEquals(CREATE_BOND, gate.connected(NONE))
         assertEquals(NEGOTIATE, gate.changed(BONDED))
     }
     @Test fun manualUnpairPausesTheCompanionUntilExplicitRepair() {
-        val gate = BondGate()
+        var gate = BondGate()
         gate.connected(BONDED)
         assertEquals(BLOCK, gate.changed(NONE))
         gate.disconnected()
         assertEquals(BLOCK, gate.connected(NONE))
-        gate.retry()
+        gate = BondGate()
         assertEquals(CREATE_BOND, gate.connected(NONE))
     }
     @Test fun connectionDropDoesNotStartASecondBondWhileConfirmationIsPending() {
@@ -110,13 +110,13 @@ class BondGateTest {
         assertTrue(gate.ready)
     }
     @Test fun retryAfterGattFailureKeepsTheBondInsteadOfRequestingNewNumbers() {
-        val gate = BondGate()
+        var gate = BondGate()
         gate.connected(NONE)
         gate.changed(BONDED)
         gate.reject()
         gate.disconnected()
-        gate.retry()
-        assertEquals(NEGOTIATE, gate.connected(NONE))
+        gate = BondGate()
+        assertEquals(NEGOTIATE, gate.connected(BONDED))
         assertFalse(gate.waiting)
         assertEquals(BLOCK, gate.changed(NONE)) // only an explicit unpair discards it
     }
@@ -130,13 +130,13 @@ class BondGateTest {
         assertEquals(NEGOTIATE, gate.connected(BONDED))
     }
     @Test fun duplicateBondCompletionCannotRestartARejectedAttempt() {
-        val gate = BondGate()
+        var gate = BondGate()
         gate.connected(BONDED)
         gate.reject()
         gate.disconnected()
         assertEquals(WAIT, gate.changed(BONDED))
         assertTrue(gate.blocked)
-        gate.retry()
+        gate = BondGate()
         assertEquals(NEGOTIATE, gate.connected(BONDED))
     }
     @Test fun securityErrorsStopButTransportErrorsCanRetry() {

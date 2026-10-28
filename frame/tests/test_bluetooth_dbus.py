@@ -163,6 +163,7 @@ async def check(address):
             try:await agent.call_request_confirmation('/org/bluez/hci0/dev_other',54321)
             except DBusError as error:assert error.type=='org.bluez.Error.Rejected'
             else:raise AssertionError('another phone bypassed the saved-phone lock')
+            assert 'Forget phone' in link.status, 'pairing rejection was only written to a hidden log'
             assert link.pairing is active
             await agent.call_cancel()
             assert link.pairing is None and device not in link.bond_approvals

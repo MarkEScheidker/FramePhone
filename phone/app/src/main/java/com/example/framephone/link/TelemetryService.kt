@@ -55,7 +55,6 @@ class TelemetryService : Service() {
                 ArPoseState.setConnected(false)
                 return START_NOT_STICKY
             }
-            "retry_pairing" -> { BluetoothPose.retryPairing(); return START_NOT_STICKY }
             "stop", "forget" -> {
                 store.enableConnection(false)
                 BluetoothPose.close()
@@ -64,7 +63,10 @@ class TelemetryService : Service() {
                 stopService(Intent(this, ArPoseService::class.java))
                 server?.close()
                 server = null
-                if (intent.action == "forget") store.forget()
+                if (intent.action == "forget") {
+                    store.forget()
+                    BluetoothPose.lastFailure = ""
+                }
                 TelemetryState.status = LinkStatus(paired = store.pairedName())
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()

@@ -33,6 +33,17 @@ class PairingRecoveryTest {
         assertNull(restored.pendingBluetoothCredential())
         assertTrue(SettingsStore(context).authenticates(pending))
     }
+    @Test fun anIncompleteBluetoothSetupCanBeForgottenBeforeAppEnrollment() = isolated { context ->
+        val store = SettingsStore(context)
+        store.companion("AA:BB:CC:DD:EE:FF", 7)
+        store.enableConnection(true)
+        assertNull(store.pairedName()) // no credential exchange succeeded
+        assertTrue(store.hasHeadset()) // Forget remains available
+        store.forget()
+        assertFalse(store.hasHeadset())
+        assertFalse(store.connectionEnabled())
+        assertNull(store.bluetoothAddress())
+    }
     @Test fun replacementDoesNotDiscardWorkingVerifierBeforeAcknowledgment() = isolated { context ->
         val store = SettingsStore(context)
         val old = "b".repeat(64)

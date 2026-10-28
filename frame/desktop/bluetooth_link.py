@@ -377,6 +377,7 @@ class BluetoothLink:
                     owner.display_confirmation(device, passkey, address)
                 except (OSError, ValueError):
                     owner.trace('pairing rejected by saved-phone policy')
+                    owner.status = 'Pairing blocked — use Forget phone on Frame to start over'
                     raise DBusError('org.bluez.Error.Rejected', 'Forget the saved phone before pairing another device')
                 state = ' '.join(f'{key}={bool(values[key].value)}' for key in
                                  ('Paired', 'Bonded', 'Connected', 'ServicesResolved') if key in values)
