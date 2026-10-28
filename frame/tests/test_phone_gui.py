@@ -90,9 +90,11 @@ def connected_ui():
                 panel.notify("bluetooth_pairing", request)
                 until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())
                 assert panel.pairing_number.get() == "012345"
-                panel.answer_pairing(True)
-                assert request["event"].is_set() and request["accepted"]
-                assert not panel.pairing_panel.winfo_ismapped()
+                assert not panel.pairing_accept.winfo_ismapped()
+                assert not panel.pairing_reject.winfo_ismapped()
+                assert not request["event"].is_set(), "displaying the code must not require a headset click"
+                panel.notify("bluetooth_pairing_closed", request)
+                until(root, panel, lambda: not panel.pairing_panel.winfo_ismapped())
                 replacement = dict(kind="replace", passkey="", accepted=False, event=threading.Event())
                 panel.notify("bluetooth_pairing", replacement)
                 until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())

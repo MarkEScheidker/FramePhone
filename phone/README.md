@@ -27,8 +27,10 @@ Android 12+; application ID `com.example.framephone`. See
 
 Run FramePhone on Frame with Bluetooth enabled before tapping Pair headset on Android.
 After the initial permissions, select Steam Frame in the system companion picker
-and approve the same six-digit number on the phone and in FramePhone on the
-headset. Bonding completes before protected GATT setup begins. Trust and the Wi-Fi endpoint
+and check the six-digit number against Frame's display. Tap Pair on the phone;
+there is no headset confirmation button. Frame accepts new pairing only when
+it has no saved phone, or when repairing the saved phone's bond. Use Forget phone
+on Frame before switching phones. Bonding completes before protected GATT setup begins. Trust and the Wi-Fi endpoint
 travel over authenticated BLE. Existing Wi-Fi pairings migrate using their verifier;
 a new pair no longer needs a separate LAN fingerprint enrollment.
 

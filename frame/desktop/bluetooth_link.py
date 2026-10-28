@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -36,6 +37,7 @@ class BluetoothLink:
         self.bond_approvals = {}
         self.setup_errors = {}
         self.control_reads = {}
+        self.device_addresses = {}
 
     def trace(self, message):
         """Only callers' fixed event names/statuses, never radio payloads or keys."""
@@ -47,25 +49,52 @@ class BluetoothLink:
             self.thread = threading.Thread(target=self._run, name='bluetooth', daemon=True)
             self.thread.start()
 
-    async def confirm_pairing(self, device, passkey=None, kind='bond'):
+    def pairing_allowed(self, address):
+        """Radio address limits admission; saved application keys still prove identity."""
+        if not isinstance(address, str) or not re.fullmatch(r'(?:[0-9A-F]{2}:){5}[0-9A-F]{2}', address):
+            return False
+        saved = self.store.load()
+        return not saved or saved.get('bluetooth_address') == address
+
+    def display_confirmation(self, device, passkey, address):
+        with self.lock:
+            now = time.monotonic()
+            self.bond_approvals = {peer: deadline for peer, deadline in self.bond_approvals.items() if deadline > now}
+            if (type(passkey) is not int or not 0 <= passkey <= 999999 or
+                    self.stopped.is_set() or not self.pairing_allowed(address) or
+                    any(peer != device for peer in self.bond_approvals) or
+                    (self.pairing and (self.pairing['device'] != device or self.pairing['kind'] != 'bond'))):
+                raise ValueError('Forget the saved phone on Steam Frame before pairing a different phone')
+            self.finish_display(device)
+            request = dict(device=device, kind='bond', passkey=f'{passkey:06d}', automatic=True,
+                           accepted=True, event=threading.Event(), deadline=now+90)
+            self.pairing = request
+            self.bond_approvals[device] = now+120
+        self.status = 'Check the number on your phone and tap Pair'
+        self.trace('number displayed; headset side approved by pairing policy')
+        self.notify('bluetooth_pairing', request)
+
+    def finish_display(self, device):
+        with self.lock:
+            if self.pairing and self.pairing['device'] == device and self.pairing['kind'] == 'bond':
+                request, self.pairing = self.pairing, None
+                self.notify('bluetooth_pairing_closed', request)
+
+    async def confirm_pairing(self, device, kind='enroll'):
+        """Explicit app-trust recovery for a surviving bond, after radio pairing."""
         with self.lock:
             if self.pairing is not None or self.stopped.is_set():
                 return False
-            request = dict(device=device, kind=kind, passkey=f'{passkey:06d}' if passkey is not None else '',
+            request = dict(device=device, kind=kind, passkey='',
                            accepted=False, event=threading.Event())
             self.pairing = request
-            if kind == 'bond':
-                self.bond_approvals.pop(device, None)
-        self.status = 'Confirm the Bluetooth number on both devices' if kind == 'bond' else 'Confirm phone pairing on Steam Frame'
+        self.status = 'Confirm phone pairing on Steam Frame'
         self.notify('bluetooth_pairing', request)
         try:
             deadline = time.monotonic()+90
             while not request['event'].is_set() and not self.stopped.is_set() and time.monotonic() < deadline:
                 await asyncio.sleep(.05)
             accepted = request['event'].is_set() and request['accepted'] and not self.stopped.is_set()
-            if accepted and kind == 'bond':
-                with self.lock:
-                    self.bond_approvals[device] = time.monotonic()+120
             self.status = ('Bluetooth pairing approved — completing encryption' if accepted else
                            'Bluetooth pairing cancelled — retry connection from your phone')
             self.trace(f'{kind} confirmation accepted={accepted}')
@@ -79,6 +108,11 @@ class BluetoothLink:
     def cancel_pairing(self):
         with self.lock:
             if self.pairing:
+                if self.pairing['kind'] == 'bond':
+                    device = self.pairing['device']
+                    self.bond_approvals.pop(device, None)
+                    self.finish_display(device)
+                    return
                 self.pairing['accepted'] = False
                 self.pairing['event'].set()
 
@@ -154,13 +188,17 @@ class BluetoothLink:
                 except ValueError:
                     if not saved:
                         raise
+                    if 'credential' in message:
+                        candidate = bootstrap(message, challenge[0], self.address, None, enroll=True)
+                    if not saved.get('bluetooth_address') or saved['bluetooth_address'] != self.device_addresses.get(device):
+                        self.setup_errors[device] = 'headset_paired'
+                        return
                     if 'credential' not in message:
                         self.setup_errors[device] = 'pairing_mismatch'
                         return
                     # A reinstall may have a new certificate and verifier. Only
                     # a valid new-credential proof may offer replacement, never
                     # an invalid/replayed message or an unverified route.
-                    candidate = bootstrap(message, challenge[0], self.address, None, enroll=True)
                     raise PairingApprovalRequired(candidate, saved)
                 if not saved and time.monotonic() >= self.bond_approvals.get(device, 0):
                     raise PairingApprovalRequired(candidate, None)
@@ -181,12 +219,18 @@ class BluetoothLink:
     def commit_bootstrap(self, device, candidate, previous, replace=False):
         with self.lock:
             current = self.store.load()
-            identity = lambda record: (record['pin'], record['credential']) if record else None
+            identity = lambda record: (record['pin'], record['credential'], record.get('bluetooth_address')) if record else None
             if identity(current) != identity(previous) or self.stopped.is_set():
                 raise ValueError('Pairing changed while confirmation was open; try again')
+            if previous and replace and (not previous.get('bluetooth_address') or
+                    previous['bluetooth_address'] != self.device_addresses.get(device)):
+                raise ValueError('Forget the saved phone before replacing it')
             candidate = dict(candidate, bluetooth=True)
+            if device in self.device_addresses:
+                candidate['bluetooth_address'] = self.device_addresses[device]
             self.store.save(candidate)
             self.bond_approvals.pop(device, None)
+            self.finish_display(device)
             if replace:
                 self.expected = None
                 self.notify('bluetooth_replaced', None)
@@ -225,6 +269,7 @@ class BluetoothLink:
                 self.bond_approvals.clear()
                 self.setup_errors.clear()
                 self.control_reads.clear()
+                self.device_addresses.clear()
             for _ in range(30):
                 if self.stopped.is_set():
                     return
@@ -239,6 +284,22 @@ class BluetoothLink:
         service_path = base+'/service0'
         released = asyncio.Event()
         traced_devices = deque(maxlen=8)
+
+        async def resolve_device(device):
+            reply = await bus.call(Message(destination='org.bluez', path=device,
+                interface='org.freedesktop.DBus.Properties', member='GetAll', signature='s',
+                body=['org.bluez.Device1']))
+            if reply.message_type == MessageType.ERROR:
+                raise ValueError('Bluetooth peer identity is unavailable')
+            values = reply.body[0]
+            address = values.get('Address', Variant('s', '')).value.upper()
+            if not re.fullmatch(r'(?:[0-9A-F]{2}:){5}[0-9A-F]{2}', address):
+                raise ValueError('Invalid Bluetooth peer identity')
+            with owner.lock:
+                if device not in owner.device_addresses and len(owner.device_addresses) >= 8:
+                    owner.device_addresses.pop(next(iter(owner.device_addresses)))
+                owner.device_addresses[device] = address
+            return address, values
 
         class Service(ServiceInterface):
             def __init__(self):
@@ -263,9 +324,11 @@ class BluetoothLink:
                 return (['read', 'write', 'encrypt-authenticated-read', 'encrypt-authenticated-write'] if self.control
                         else ['write-without-response', 'encrypt-authenticated-write'])
             @method()
-            def ReadValue(self, options: 'a{sv}') -> 'ay':
+            async def ReadValue(self, options: 'a{sv}') -> 'ay':
                 if not self.control: raise DBusError('org.bluez.Error.NotPermitted', 'Write-only pose')
                 try:
+                    if not options.get('offset', Variant('q', 0)).value:
+                        await resolve_device(options['device'].value)
                     if options['device'].value not in traced_devices:
                         traced_devices.append(options['device'].value)
                     if options['device'].value not in owner.control_reads:
@@ -283,6 +346,7 @@ class BluetoothLink:
                     try:
                         (owner.control if self.control else owner.pose)(device, bytes(value))
                     except PairingApprovalRequired as proposal:
+                        owner.finish_display(device)
                         kind = 'replace' if proposal.previous else 'enroll'
                         if await owner.confirm_pairing(device, kind=kind):
                             owner.commit_bootstrap(device, proposal.candidate, proposal.previous, replace=True)
@@ -308,15 +372,15 @@ class BluetoothLink:
                     traced_devices.append(device)
                 # A surviving BlueZ bond does not mean the phone retained its
                 # keys. Capture this state before the new confirmation begins.
-                reply = await bus.call(Message(destination='org.bluez', path=device,
-                    interface='org.freedesktop.DBus.Properties', member='GetAll', signature='s',
-                    body=['org.bluez.Device1']))
-                values = reply.body[0] if reply.message_type != MessageType.ERROR else {}
+                try:
+                    address, values = await resolve_device(device)
+                    owner.display_confirmation(device, passkey, address)
+                except (OSError, ValueError):
+                    owner.trace('pairing rejected by saved-phone policy')
+                    raise DBusError('org.bluez.Error.Rejected', 'Forget the saved phone before pairing another device')
                 state = ' '.join(f'{key}={bool(values[key].value)}' for key in
                                  ('Paired', 'Bonded', 'Connected', 'ServicesResolved') if key in values)
                 owner.trace('number comparison requested; '+(state or 'peer state unavailable'))
-                if not await owner.confirm_pairing(device, passkey):
-                    raise DBusError('org.bluez.Error.Rejected', 'Bluetooth number comparison rejected')
             @method()
             def RequestAuthorization(self, device: 'o'):
                 owner.trace('Just Works authorization requested (rejected)')
@@ -371,10 +435,17 @@ class BluetoothLink:
                         message.interface == 'org.freedesktop.DBus.Properties' and message.member == 'PropertiesChanged' and
                         message.body and message.body[0] == 'org.bluez.Device1'):
                     values = message.body[1]
+                    if 'Address' in values and message.path in owner.device_addresses:
+                        address = values['Address'].value.upper()
+                        if re.fullmatch(r'(?:[0-9A-F]{2}:){5}[0-9A-F]{2}', address):
+                            with owner.lock:
+                                owner.device_addresses[message.path] = address
                     state = ' '.join(f'{key}={bool(values[key].value)}' for key in
                                      ('Paired', 'Bonded', 'Connected', 'ServicesResolved') if key in values)
                     if state and message.path in traced_devices:
                         owner.trace('peer state changed; '+state)
+                    if any(key in values and values[key].value for key in ('Paired', 'Bonded')):
+                        owner.finish_display(message.path)
                     lost = any(key in values and not values[key].value for key in ('Connected', 'Paired'))
                     if lost:
                         with owner.lock:
@@ -429,15 +500,20 @@ class BluetoothLink:
             bus.export(base+'/agent', Agent())
             agents = bus.get_proxy_object('org.bluez', '/org/bluez', await bus.introspect('org.bluez', '/org/bluez'))
             agent_manager = agents.get_interface('org.bluez.AgentManager1')
-            # Incoming phone-initiated bonding needs a default agent with actual
-            # display/confirmation capability, not the host's possible NoIO agent.
+            # Keep numeric comparison on Android. The application displays the
+            # number and approves locally only under its saved-phone policy.
             await agent_manager.call_register_agent(base+'/agent', 'DisplayYesNo')
             agent_registered = True
             await agent_manager.call_request_default_agent(base+'/agent')
             await manager.call_register_application(base, {})
             await advertiser.call_register_advertisement(base+'/advertisement', {})
-            self.status = 'Bluetooth ready — pair from Android'
+            self.status = ('Bluetooth ready — waiting for saved phone' if self.store.load() else
+                           'Bluetooth ready — pair from Android')
             while not self.stopped.is_set() and bus.connected and not released.is_set():
+                with owner.lock:
+                    if (owner.pairing and owner.pairing['kind'] == 'bond' and
+                            time.monotonic() >= owner.pairing['deadline']):
+                        owner.cancel_pairing()
                 await asyncio.sleep(.2)
         finally:
             owner.cancel_pairing()

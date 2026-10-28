@@ -189,7 +189,7 @@ private class BleClient(private val context: Context, private val address: Strin
     private fun awaitBond(device: BluetoothDevice, create: Boolean) {
         begin("bond")
         if (bondStartedAt == 0L) bondStartedAt = SystemClock.elapsedRealtime()
-        BluetoothPose.status = "Compare and approve the Bluetooth number on both devices"
+        BluetoothPose.status = "Check the number shown on Steam Frame, then tap Pair on this phone"
         if (create) BluetoothPose.record("createBond requested; device type=${device.type}")
         if (create && !device.createBond()) {
             when (bondState(device)) {
@@ -330,6 +330,7 @@ private class BleClient(private val context: Context, private val address: Strin
                         bootstrapHost = ""; setupAttempted = false; waitingBootstrapReady = false; needsRead = true
                         BluetoothPose.status = "Confirm replacement of the saved phone on Steam Frame"
                     } else applicationFailed(when (message.optString("code")) {
+                        "headset_paired" -> "Steam Frame has another saved phone — use Forget phone on Steam Frame first"
                         "pairing_rejected" -> "Pairing declined on Steam Frame — tap Retry connection to try again"
                         "saved_pairing_invalid" -> "Saved pairing is unreadable on Steam Frame — use Forget phone there, then retry"
                         "pairing_storage_failed" -> "Steam Frame could not save pairing — check its configuration permissions"
@@ -412,7 +413,7 @@ private class BleClient(private val context: Context, private val address: Strin
                 if (bondGate.waiting && now-bondStartedAt > 95_000) securityFailed("Bluetooth pairing timed out")
                 if (flight != null && now-flightAt > timeout) {
                     if (now-flightAt <= 95_000 && bondGate.waiting)
-                        BluetoothPose.status = "Compare and approve the Bluetooth number on both devices"
+                        BluetoothPose.status = "Check the number shown on Steam Frame, then tap Pair on this phone"
                     else if (flight == "mtu") {
                         // Optional packet-size optimization cannot restart a
                         // successful bond. Small packets still bootstrap TLS.

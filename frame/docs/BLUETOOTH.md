@@ -11,8 +11,10 @@ or video dependency is included in this milestone.
 2. On Android enter dimensions and tap Pair headset. Grant Bluetooth, notifications,
    camera and overlay permissions, then select Steam Frame in Android's companion
    picker. Location Services may need to be enabled for the system picker.
-3. Approve the same six-digit number on the phone and in the FramePhone desktop
-   app. Either device may be confirmed first. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
+3. Check the six-digit number on Frame against Android's pairing prompt, then
+   tap **Pair on the phone**. Frame displays the number and approves its side
+   automatically under the saved-phone policy below; it has no numeric-confirmation
+   buttons. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
    Android completes a new bond before opening GATT, then discovers services and
    negotiates MTU. If keys change on an existing connection, it opens a fresh
    GATT connection before exchanging application credentials. GATT
@@ -33,6 +35,21 @@ Disconnect on Android disables background reconnection until Connect is used
 again. Forget also removes the companion association; removing the OS Bluetooth
 bond is a separate settings action. Frame stays available while its app runs; Forget phone removes its saved trust.
 Android force-stop is not bypassed.
+
+FramePhone accepts new Bluetooth pairing while it has no saved phone. Once a
+phone is saved, only that phone's BlueZ-resolved Bluetooth address is eligible
+for another code exchange; use **Forget phone** on Frame to switch phones.
+The address is an admission filter, not proof of app identity: the existing
+credential and certificate pin still authenticate every app reconnect. A different
+already-bonded phone cannot replace the saved app record through bootstrap.
+Advertising remains enabled so the saved phone can discover and reconnect.
+
+Existing records gain the Bluetooth address on their next successful authenticated
+reconnect. A record without that address cannot approve an unknown radio pairing;
+reconnect the still-bonded saved phone once, or use Forget phone on Frame if its
+Bluetooth bond is already gone. An app reinstall on the same known Bluetooth
+device still requires explicit app-trust recovery on Frame; this is separate
+from the phone-only Bluetooth number confirmation.
 
 Bluetooth is the only pairing path. Both apps show Bluetooth status directly;
 there is no transport selection, IP entry, LAN scan or Wi-Fi enrollment. The
@@ -71,8 +88,12 @@ the renderer's intentional smoothing delay.
 The host uses the existing BlueZ daemon through system D-Bus. It registers a
 local LE GATT service and advertisement as the desktop user; it does not install
 another daemon, change adapter power, alter D-Bus policy or require a root radio
-helper. While running, it registers a BlueZ DisplayYesNo default agent so incoming
-phone pairing gets an actual number-comparison UI. The agent is unregistered on
+helper. While running, it registers a BlueZ DisplayYesNo default agent. Its
+[RequestConfirmation](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Agent.rst)
+handler checks the saved-phone policy, displays the number and immediately
+returns approval; the user compares and confirms on Android. The number stays
+visible until bond completion, app setup, cancellation or a 90-second display
+timeout. NoInputNoOutput/Just Works is not used. The agent is unregistered on
 shutdown; no persistent Bluetooth configuration is changed. Registration/default
 agent permission failures are reported, rather than creating a weaker bond. BlueZ may deny registration or
 lack peripheral/advertising support; that is a visible setup failure.
@@ -119,16 +140,16 @@ any of them. Recovery is explicit when it changes which device is trusted:
 | Situation | Behavior |
 | --- | --- |
 | Both app records and bond are valid | Reconnect automatically with a fresh challenge/session binding; no new prompt. |
-| Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. Retry pairing completes the new bond before opening GATT. Saved app keys may be reused after secure bonding. When Frame retains its old bond, two number comparisons are still required on the owner's devices; see diagnostics below. |
+| Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. The saved radio identity may pair again, with confirmation only on Android. Bonding completes before GATT/key exchange. The reported repeated-code issue still needs hardware verification with this flow. |
 | Authentication error after confirmation | Stop a failed security attempt with Retry connection; keep saved keys. A transport retry never starts another bond while confirmation is pending or forgets an observed completed bond. Genuine OS key loss may require system repair, but Frame's Forget is not a connection-retry step. |
-| Android app reinstalled/reset, but OS bond survives | Create a new app credential; Frame offers Replace saved phone. Approval ends the old TLS/binding before using the new identity. Rejection preserves old trust. |
+| Android app reinstalled/reset, but OS bond survives | Only the saved Bluetooth device may propose replacement app credentials. Frame offers Replace saved phone. Approval ends the old TLS/binding before using the new identity. Rejection preserves old trust. A different device must first be forgotten on Frame. |
 | Frame app record lost/reset, but phone/bond remain | Phone proposes a fresh credential over encrypted BLE. Frame asks Connect this phone; no OS unpair is required. |
-| Frame explicitly forgets a phone | Clear trust, old binding, pending requests and recent bond approval. The existing OS bond cannot silently re-enroll; reconnect needs confirmation. |
+| Frame explicitly forgets a phone | Reopen pairing for a new phone; clear app trust, old binding, pending requests and recent bond approval. An existing OS bond cannot silently re-enroll; restoring app trust needs confirmation. |
 | Both records exist but credentials differ | Return a specific app-trust mismatch, then offer a fresh verified credential proposal and confirmation. Do not mislabel this as an OS encryption failure. |
 | App stops or an acknowledgment is lost during enrollment | Retain the same pending proposal across restart; a repeated valid proof completes without replacing a newer record or prompting twice. |
-| Transport disconnect during number comparison | Keep the same pending number; it is a bond transaction, not a GATT connection. Only BlueZ Agent.Cancel/Release, explicit rejection, shutdown or timeout cancels it. Both acceptance orders are valid. |
+| Transport disconnect during number comparison | Keep the displayed number for Android's confirmation. BlueZ Cancel/Release, shutdown or display timeout clears it. There is no headset approval to wait for. |
 | App trust proposal disconnects, or an approval is rejected/times out | Cancel that proposal and preserve prior trust. Retry connection resumes using saved keys without silently replacing them. |
-| Another phone tries pairing while a prompt is open | Reject the second request; it cannot replace the device/number being confirmed. |
+| Another phone tries pairing | Reject when a saved phone exists or another device's code is currently displayed. Forget phone on Frame reopens enrollment. |
 | Saved trust changes while confirmation is open | Reject the stale approval instead of overwriting the newer record. |
 | User switches to another companion address | Drop the old peer's pending secret/verifier and close its active connection. Never share a pending credential between headsets. |
 | Wi-Fi changes address, drops, or is unavailable | Keep Bluetooth/app trust and retry routes/TLS with bounded backoff, including on screen-on/unlock. |
@@ -168,9 +189,10 @@ These changes affect connection setup, not steady-state pose cadence.
 
 Reconnecting with valid OS bonds and restoring app trust work on the test devices.
 Removing Steam Frame in Android's Bluetooth settings while Frame retains its bond
-still reproducibly requires two number comparisons on the owner's headset. Opening
-GATT after bonding did not resolve this. The radio-level cause is not yet confirmed;
-passing lifecycle tests does not validate OS key replacement.
+reproducibly required two number comparisons with the previous two-device approval
+flow. Opening GATT after bonding did not resolve this. The current phone-only
+confirmation flow needs a new hardware trial; the radio-level cause remains
+unconfirmed. Passing lifecycle tests does not validate OS key replacement.
 
 After reproducing the first failure, open Android **Details → Share connection log**.
 The bounded in-memory log records bond transitions, pairing prompt variants, GATT

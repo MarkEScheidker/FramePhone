@@ -34,9 +34,11 @@ The app uses the headset's installed SteamVR for its automatic VR display.
    phone marker. Approve desktop camera authorization if prompted.
 2. On Android enter width and height and tap **Pair headset**. Grant Bluetooth,
    notification, camera and overlay access. Select **Steam Frame** in Android's
-   companion picker and approve Bluetooth numeric comparison on both devices,
-   in either order.
-   Bluetooth exchanges application trust and the Wi-Fi route; Frame connects.
+   companion picker. Check that the number matches the one displayed on Frame,
+   then tap **Pair on the phone**. Frame approves its side automatically when
+   unpaired or reconnecting its saved phone. Use **Forget phone** on Frame to
+   pair a different phone. After Bluetooth pairing completes, the apps exchange
+   application keys and the Wi-Fi route; Frame connects.
 3. Briefly show the automatic marker to the front cameras. After alignment the
    marker hides and ARCore drives the VR rectangle. Live poses use Bluetooth LE,
    with Wi-Fi diagnostics/control and a backup pose path.

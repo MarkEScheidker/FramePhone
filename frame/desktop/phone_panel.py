@@ -37,9 +37,10 @@ class PhonePanel:
         ttk.Label(self.pairing_panel, textvariable=self.pairing_number, font=("monospace", 20, "bold")).pack(anchor="w")
         self.pairing_hint = tk.StringVar()
         ttk.Label(self.pairing_panel, textvariable=self.pairing_hint, wraplength=600).pack(anchor="w")
-        self.pairing_accept = ttk.Button(self.pairing_panel, text="Numbers match", command=lambda: self.answer_pairing(True))
+        self.pairing_accept = ttk.Button(self.pairing_panel, text="Connect phone", command=lambda: self.answer_pairing(True))
         self.pairing_accept.pack(side="left")
-        ttk.Button(self.pairing_panel, text="Reject", command=lambda: self.answer_pairing(False)).pack(side="left", padx=6)
+        self.pairing_reject = ttk.Button(self.pairing_panel, text="Reject", command=lambda: self.answer_pairing(False))
+        self.pairing_reject.pack(side="left", padx=6)
         self.telemetry_panel = ttk.Frame(panel)
         self.telemetry_panel.pack(fill="x")
         for col, name in enumerate(SENSORS):
@@ -154,10 +155,16 @@ class PhonePanel:
                 self.pairing_panel.configure(text="Pair phone with Steam Frame" if kind == 'bond' else "Confirm phone pairing")
                 self.pairing_number.set(value['passkey'] if kind == 'bond' else
                                         "Replace saved phone?" if kind == 'replace' else "Connect this phone?")
-                self.pairing_hint.set("Confirm this number matches your phone." if kind == 'bond' else
-                                      "Approve if you reinstalled/reset the phone app or are pairing another phone." if kind == 'replace' else
+                self.pairing_hint.set("Check this number on your phone, then tap Pair there." if kind == 'bond' else
+                                      "Approve if you reinstalled or reset your saved phone's app. Use Forget phone to switch devices." if kind == 'replace' else
                                       "This restores the app connection over the existing Bluetooth bond.")
-                self.pairing_accept.configure(text="Numbers match" if kind == 'bond' else "Replace phone" if kind == 'replace' else "Connect phone")
+                self.pairing_accept.configure(text="Replace phone" if kind == 'replace' else "Connect phone")
+                if kind == 'bond':
+                    self.pairing_accept.pack_forget()
+                    self.pairing_reject.pack_forget()
+                else:
+                    self.pairing_accept.pack(side="left")
+                    self.pairing_reject.pack(side="left", padx=6)
                 self.pairing_panel.pack(fill="x", pady=6, before=self.telemetry_panel)
             elif kind == "bluetooth_pairing_closed":
                 if self.pairing_request is value:
