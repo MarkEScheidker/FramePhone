@@ -10,11 +10,13 @@ object BleProtocol {
     val CONTROL: UUID = UUID.fromString("f7a10002-81a6-4c44-9c79-99ac54174901")
     val POSE: UUID = UUID.fromString("f7a10003-81a6-4c44-9c79-99ac54174901")
     const val POSE_BYTES = 116
+    const val MAX_ATTRIBUTE_BYTES = 512
     data class Gyro(val time: Long, val value: FloatArray)
     fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
     fun fragments(message: ByteArray, mtu: Int, id: Int): List<ByteArray> {
         require(message.size in 1..32768 && mtu >= 23)
-        val size = mtu-9
+        // ATT writes have a three-byte overhead and attribute values are capped at 512 bytes.
+        val size = minOf(mtu-3, MAX_ATTRIBUTE_BYTES)-6
         return message.toList().chunked(size).mapIndexed { index, part ->
             ByteBuffer.allocate(6+part.size).order(ByteOrder.LITTLE_ENDIAN)
                 .putShort(id.toShort()).putShort((index*size).toShort()).putShort(message.size.toShort())

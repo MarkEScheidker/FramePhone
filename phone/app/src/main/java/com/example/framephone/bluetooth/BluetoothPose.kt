@@ -211,17 +211,19 @@ private class BleClient(private val context: Context, private val address: Strin
         }
     }
     private val callback = object : BluetoothGattCallback() {
-        private fun current(value: BluetoothGatt, block: () -> Unit) = handler.post {
-            if (!closed && gatt === value) runCatching(block).onFailure { fail("Secure Bluetooth failed (${it.javaClass.simpleName})") }
+        private fun current(value: BluetoothGatt, operation: String, block: () -> Unit) = handler.post {
+            if (!closed && gatt === value) runCatching(block).onFailure {
+                fail("Secure Bluetooth failed during $operation (${it.javaClass.simpleName})")
+            }
         }
-        override fun onConnectionStateChange(value: BluetoothGatt, status: Int, state: Int) { current(value) {
+        override fun onConnectionStateChange(value: BluetoothGatt, status: Int, state: Int) { current(value, "connection") {
             if (status != BluetoothGatt.GATT_SUCCESS || state == BluetoothProfile.STATE_DISCONNECTED) fail("Bluetooth disconnected ($status)")
             else if (state == BluetoothProfile.STATE_CONNECTED) {
                 begin("services")
                 if (!value.discoverServices()) fail("Bluetooth service discovery failed")
             }
         } }
-        override fun onServicesDiscovered(value: BluetoothGatt, status: Int) { current(value) {
+        override fun onServicesDiscovered(value: BluetoothGatt, status: Int) { current(value, "service discovery") {
             if (flight != "services") return@current
             val service = value.getService(BleProtocol.SERVICE)
             control = service?.getCharacteristic(BleProtocol.CONTROL)
@@ -232,11 +234,11 @@ private class BleClient(private val context: Context, private val address: Strin
                 begin("mtu"); if (!value.requestMtu(517)) flight = null
             }
         } }
-        override fun onMtuChanged(value: BluetoothGatt, size: Int, status: Int) { current(value) {
+        override fun onMtuChanged(value: BluetoothGatt, size: Int, status: Int) { current(value, "MTU negotiation") {
             if (status == 0) mtu = size.coerceIn(23, 517)
             if (flight == "mtu") flight = null
         } }
-        private fun read(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) { current(value) {
+        private fun read(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) { current(value, "TLS read") {
             if (characteristic.uuid != BleProtocol.CONTROL || flight != "read") return@current
             flight = null
             if (status != 0) fail("Bluetooth read failed ($status)")
@@ -249,7 +251,7 @@ private class BleClient(private val context: Context, private val address: Strin
             read(value, characteristic, characteristic.value ?: byteArrayOf(), status)
         override fun onCharacteristicRead(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, bytes: ByteArray, status: Int) =
             read(value, characteristic, bytes, status)
-        override fun onCharacteristicWrite(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) { current(value) {
+        override fun onCharacteristicWrite(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) { current(value, "Bluetooth write") {
             if (flight !in listOf("write", "pose")) return@current
             flight = null
             if (status != 0) fail("Bluetooth write failed ($status)")
@@ -263,6 +265,7 @@ private class BleClient(private val context: Context, private val address: Strin
     private val tick = object : Runnable {
         override fun run() {
             if (closed) return
+            var operation = "connection"
             runCatching {
                 val now = SystemClock.elapsedRealtime()
                 if (flight != null && now-flightAt > if (flight == "bond") 90000 else if (flight == "mtu") 2000 else 10000) {
@@ -286,27 +289,33 @@ private class BleClient(private val context: Context, private val address: Strin
                         }
                     } else retryAt = now+2000
                 }
+                operation = "TLS setup"
                 if (control != null && tls == null && tlsContext != null) tls = BluetoothTls(tlsContext!!)
                 if (flight == null && control != null && tls != null) {
                     if (writes.isNotEmpty()) {
+                        operation = "Bluetooth write"
                         begin("write")
                         if (!write(control!!, writes.removeFirst(), true)) fail("Bluetooth write busy")
                     } else if (!blocked && authenticated && sentHost != host) {
+                        operation = "secure route update"
                         send(JSONObject().put("op", "route").put("host", host)); sentHost = host
                     } else if (!blocked && authenticated && session != null && !bound && now >= bindAt) {
+                        operation = "secure session binding"
                         bindAt = now+500
                         send(JSONObject().put("op", "bind").put("session", session))
                     } else if (!blocked && now >= readAt) {
+                        operation = "Bluetooth read"
                         readAt = now+if (authenticated) 500 else 100
                         begin("read")
                         if (gatt?.readCharacteristic(control) != true) fail("Bluetooth read busy")
                     } else if (!blocked && isBound() && pose != null) {
+                        operation = "pose encoding"
                         val value = session?.let(latest)
                         val encoded = value?.toString()
                         if (value != null && encoded != lastPose && value.getString("session") == session) {
                             tls!!.send(byteArrayOf(1)+BleProtocol.pose(value, BluetoothPose.samples(), mtu-68))
                             val bytes = tls!!.take()
-                            if (bytes.size <= mtu-3) {
+                            if (bytes.size <= minOf(mtu-3, BleProtocol.MAX_ATTRIBUTE_BYTES)) {
                                 begin("pose")
                                 if (!write(pose!!, bytes, false)) fail("Bluetooth pose busy")
                             } else writes.addAll(BleProtocol.fragments(bytes, mtu, ++messageId))
@@ -314,7 +323,7 @@ private class BleClient(private val context: Context, private val address: Strin
                         }
                     }
                 }
-            }.onFailure { fail("Secure Bluetooth failed (${it.javaClass.simpleName})") }
+            }.onFailure { fail("Secure Bluetooth failed during $operation (${it.javaClass.simpleName})") }
             handler.postDelayed(this, if (isBound() || writes.isNotEmpty()) 4 else 50)
         }
     }
