@@ -1,8 +1,4 @@
 """BLE wire and trust boundary; no D-Bus, GUI or radio dependencies."""
-import hashlib
-import hmac
-import ipaddress
-import json
 import math
 import struct
 import time
@@ -15,36 +11,6 @@ HEADER = struct.Struct('<4sBBBB16s16s16sQQQQ7f')
 GYRO = struct.Struct('<Q3f')
 STATES = ('tracking', 'paused', 'error', 'stopped')
 REASONS = ('', 'headset_not_worn', 'user_dismissed', 'screen_locked', 'camera_in_use')
-
-
-def transcript(challenge, address, pin, host):
-    return f'framephone-bt-bootstrap-v1\n{challenge}\n{address.upper()}\n{pin}\n{host}\n47643\n'.encode('ascii')
-
-
-def bootstrap(message, challenge, address, saved, enroll):
-    """The caller guarantees authenticated/encrypted GATT writes and a fresh challenge."""
-    if message.get('op') != 'bootstrap' or message.get('challenge') != challenge:
-        raise ValueError('Invalid Bluetooth bootstrap challenge')
-    pin, proof, host = (message.get(k) for k in ('pin', 'proof', 'host'))
-    if any(not isinstance(x, str) or len(x) != 64 or any(c not in '0123456789abcdef' for c in x)
-           for x in (pin, proof)):
-        raise ValueError('Invalid Bluetooth identity/proof')
-    route = ipaddress.IPv4Address(host)
-    if route.is_loopback or route.is_multicast or route.is_unspecified or route.is_link_local:
-        raise ValueError('Invalid LAN route')
-    credential = saved['credential'] if saved else message.get('credential', '')
-    if not saved and not enroll:
-        raise ValueError('Open Bluetooth pairing on Frame first')
-    if (not isinstance(credential, str) or len(credential) != 64 or
-            any(c not in '0123456789abcdef' for c in credential)):
-        raise ValueError('Invalid application credential')
-    if saved and not hmac.compare_digest(pin, saved['pin']):
-        raise ValueError('Phone identity changed; explicit new pairing required')
-    key = hashlib.sha256(credential.encode('ascii')).digest()
-    expected = hmac.new(key, transcript(challenge, address, pin, host), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, proof):
-        raise ValueError('Bluetooth application authentication failed')
-    return dict(saved or {}, pin=pin, credential=credential, host=host)
 
 
 def decode_pose(data):
@@ -90,7 +56,7 @@ class ControlFragments:
         if len(value) < 6:
             raise ValueError('Invalid Bluetooth control fragment')
         ident, offset, total = struct.unpack_from('<HHH', value)
-        if not 0 < total <= 1024 or offset+len(value)-6 > total:
+        if not 0 < total <= 32768 or offset+len(value)-6 > total:
             raise ValueError('Bluetooth control size exceeds limit')
         if offset == 0:
             if device not in self.pending and len(self.pending) >= 4:
@@ -101,9 +67,7 @@ class ControlFragments:
             raise ValueError('Out-of-order Bluetooth control fragment')
         entry[3].extend(value[6:])
         if len(entry[3]) != total:
+            self.pending[device] = (now, ident, total, entry[3])
             return None
         del self.pending[device]
-        message = json.loads(entry[3])
-        if not isinstance(message, dict):
-            raise ValueError('Expected Bluetooth control object')
-        return message
+        return bytes(entry[3])

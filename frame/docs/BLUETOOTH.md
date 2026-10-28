@@ -1,275 +1,122 @@
-# Bluetooth companion and pose transport
+# Bluetooth connection
 
-Implemented for device testing; radio throughput, Frame peripheral permissions
-and Android cold-start behavior still need a phone/headset run. No screen capture
-or video dependency is included in this milestone.
+Bluetooth bonding and app trust are separate. The OS bond uses **Just Works**
+without a verification number. After bonding, the apps establish **TLS 1.3 over
+Bluetooth**, compare a hash, and save an application credential only after both
+users approve. All application messages and motion packets travel inside TLS.
 
-## Setup and daily use
+## First connection
 
-1. Rebuild/install both apps. Enable Bluetooth on both devices and keep them on
-   the same reachable Wi-Fi LAN. Run FramePhone on Frame first.
-2. On Android enter dimensions and tap Pair headset. Grant Bluetooth, notifications,
-   camera and overlay permissions, then select Steam Frame in Android's companion
-   picker. Location Services may need to be enabled for the system picker.
-3. Check the six-digit number on Frame against Android's pairing prompt, then
-   tap **Pair on the phone**. Frame displays the number and approves its side
-   automatically under the saved-phone policy below; it has no numeric-confirmation
-   buttons. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
-   Android completes a new bond before opening GATT, then discovers services and
-   negotiates MTU. If keys change on an existing connection, it opens a fresh
-   GATT connection before exchanging application credentials. GATT
-   characteristics require authenticated encryption; there is no Just Works
-   downgrade. Connection retries keep both the OS bond and the saved app trust.
-4. Bluetooth transfers the application trust information and current LAN route.
-   Frame verifies the phone's complete saved certificate pin before sending a
-   Wi-Fi credential. It then connects automatically; no IP entry is needed.
-5. A previous Wi-Fi pairing migrates using its existing credential verifier.
-   New pairing establishes the credential over the approved Bluetooth bond.
-6. On later runs, the Frame app advertises; Android's companion presence service
-   can wake the connection service while the setup activity stays closed.
-   Camera tracking resumes automatically when the existing camera service is
-   still available. If Android blocks a cold background camera start, tap the
-   Resume tracking notification action. This action does not open the setup UI.
+1. Run FramePhone on Frame with Bluetooth enabled. An app with no remembered
+   phone accepts the first phone connecting to its service.
+2. On Android tap **Pair headset** and select **Steam Frame**. Android may ask
+   for ordinary Pair consent; there is no Bluetooth code to compare or enter.
+3. After OS bonding completes, both apps display the same hash. Compare the whole
+   hash and select **Hashes match on both devices**. Either may approve first;
+   the hash remains visible until enrollment completes. Reject cancels setup.
+4. Only then is the application credential saved. The phone sends its LAN route
+   over the verified TLS connection, and Frame connects over pinned Wi-Fi TLS.
+   Both devices must already be on the same reachable network.
+5. Later connections authenticate using the saved certificate and credential.
+   There is no new hash prompt during an ordinary reconnect.
 
-Disconnect on Android disables background reconnection until Connect is used
-again. Forget also removes the companion association; removing the OS Bluetooth
-bond is a separate settings action. Frame stays available while its app runs; Forget phone removes its saved trust.
-Android force-stop is not bypassed.
+**Forget headset** on Android and **Forget phone** on Frame clear application
+trust. The next connection needs a fresh hash approval on both devices. The
+existing OS Bluetooth bond can remain; it is not the app's trust credential.
+Frame rejects other radio identities while it remembers a phone. A forgotten or
+reset app on the same Bluetooth device can enroll again with both hash approvals.
 
-FramePhone accepts new Bluetooth pairing while it has no saved phone. Once a
-phone is saved, only that phone's BlueZ-resolved Bluetooth address is eligible
-for another code exchange; use **Forget phone** on Frame to switch phones.
-The address is an admission filter, not proof of app identity: the existing
-credential and certificate pin still authenticate every app reconnect. A different
-already-bonded phone cannot replace the saved app record through bootstrap.
-Advertising remains enabled so the saved phone can discover and reconnect.
+Disconnect stops Android's automatic connection service. Connect starts a fresh
+attempt using saved app trust. Forget remains available after incomplete setup.
+The upgrade from the former Bluetooth protocol requires one new hash exchange;
+old application enrollment is not silently migrated.
 
-Existing records gain the Bluetooth address on their next successful authenticated
-reconnect. A record without that address cannot approve an unknown radio pairing;
-reconnect the still-bonded saved phone once, or use Forget phone on Frame if its
-Bluetooth bond is already gone. An app reinstall on the same known Bluetooth
-device still requires explicit app-trust recovery on Frame; this is separate
-from the phone-only Bluetooth number confirmation.
+## Transport and security
 
-Bluetooth is the only pairing path. Both apps show Bluetooth status directly;
-there is no transport selection, IP entry, LAN scan or Wi-Fi enrollment. The
-phone accepts only pinned reconnect authentication on its Wi-Fi listener.
-Wi-Fi failures retry automatically, including the first failed attempt. Every
-screen-on/unlock while disconnected requests another authenticated route exchange,
-even if the phone's address is unchanged. Both devices must already be on a
-reachable Wi-Fi LAN; the app does not provision the network itself.
+Frame registers a BlueZ `NoInputNoOutput` agent and an LE GATT service while the
+app runs. The encrypted GATT permissions are `encrypt-read` / `encrypt-write`,
+without a numeric-comparison or MITM requirement. This OS encryption is **not**
+the application's authentication boundary.
 
-Camera trace collection, image copies and preview detectors stay idle without a
-fresh phone marker-visible signal. After ARCore handoff, optical work sleeps
-again. The already-authorized broker keeps its attachment and ring so acquisition
-can resume without another authorization prompt; headset tracking is unaffected.
+Python's `ssl.MemoryBIO` and Android's `SSLEngine` carry standard TLS 1.3 over the
+GATT byte transport. The existing phone Keystore identity serves both Bluetooth
+TLS and Wi-Fi TLS. No custom cipher, key agreement or nonce scheme is implemented.
 
-## Responsibilities
-
-| Path | Content |
-| --- | --- |
-| Authenticated BLE setup characteristic | First application credential/public certificate pin, verifier proof, LAN route, session binding. |
-| BLE pose characteristic | Latest ARCore position/orientation/state plus bounded bias-corrected gyro history. |
-| Pinned TLS on Wi-Fi | Reliable session/marker/wearer control, four-timestamp clock probes, raw sensor diagnostics and backup poses. |
-| Future Wi-Fi video | Separate capture/encoding/streaming work; not implemented. |
-
-The current session still needs Wi-Fi for control and clock mapping. Once BLE
-binds, Wi-Fi pose traffic reduces to 5 Hz plus state changes as a backup; if BLE
-is not bound, Wi-Fi retains its original rate. Frame selects BLE while its last
-valid receipt is at most 150 ms old and Wi-Fi has no newer phone timestamp;
-otherwise it selects the Wi-Fi pose mailbox. Both paths
-retain original phone timestamps and use the same verified phone clock epoch.
-The dashboard identifies the selected pose transport. Radio delay must be measured;
-BLE is not assumed to outperform Wi-Fi, and changing transport does not remove
-the renderer's intentional smoothing delay.
-
-## Trust and key exchange
-
-The host uses the existing BlueZ daemon through system D-Bus. It registers a
-local LE GATT service and advertisement as the desktop user; it does not install
-another daemon, change adapter power, alter D-Bus policy or require a root radio
-helper. While running, it registers a BlueZ DisplayYesNo default agent. Its
-[RequestConfirmation](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Agent.rst)
-handler checks the saved-phone policy, displays the number and immediately
-returns approval; the user compares and confirms on Android. The number stays
-visible until bond completion, app setup, cancellation or a 90-second display
-timeout. NoInputNoOutput/Just Works is not used. The agent is unregistered on
-shutdown; no persistent Bluetooth configuration is changed. Registration/default
-agent permission failures are reported, rather than creating a weaker bond. BlueZ may deny registration or
-lack peripheral/advertising support; that is a visible setup failure.
-
-Sensitive characteristics require encrypt-authenticated-read/write flags. The
-application also rejects direct D-Bus reads/writes whose sender is not the current
-BlueZ daemon owner, so local callers cannot fake a radio device option.
-
-The setup read returns a fresh, per-device, 15-second challenge and the adapter
-identity address. The phone writes its public certificate SHA-256 pin, IPv4 route,
-challenge and an HMAC proof. The canonical ASCII transcript is:
+During enrollment, Frame sends a fresh 256-bit nonce through TLS, and the phone
+returns another. Both compute SHA-256 over this ASCII transcript:
 
 ```
-framephone-bt-bootstrap-v1\nCHALLENGE\nUPPERCASE_ADAPTER_ADDRESS\nPIN\nIPV4\n47643\n
+framephone-link-v2\nPHONE_CERTIFICATE_SHA256\nFRAME_NONCE\nPHONE_NONCE\n
 ```
 
-The HMAC key is SHA-256 of the existing ASCII reconnect credential. Android already
-stores this verifier, so migration does not require recovering the original
-credential on the phone. New enrollment generates a 256-bit credential and sends
-it only through authenticated BLE; Frame saves it in its existing private pairing
-file. Android retains its current verifier and a separate pending enrollment
-credential until the authenticated ready response acknowledges the new trust.
-Lost acknowledgments retry the same pending credential. A successful ready response
-commits the new verifier atomically. Switching companion addresses drops the old
-peer's verifier and proposal; Forget removes both. Changed identities/credentials
-require explicit replacement approval on Frame; failed proofs never overwrite trust. While TLS
-is absent, Android refreshes its LAN route and retries setup reads. Ready reads
-also contain a fresh challenge so an address change can authenticate a new route
-even when the previous TLS attempt failed before session creation.
+The first 128 bits are displayed as eight groups of four hexadecimal digits.
+The certificate and both nonces are included in the comparison. Until approval
+on both sides, no credential is persisted, LAN route accepted, or motion delivered.
+The phone generates a random 256-bit application credential after both approvals
+and transfers it only through TLS. Frame saves its complete certificate pin and
+credential atomically in a mode-0600 pairing file. Android stores a credential
+verifier and stages an unacknowledged credential for interrupted enrollment.
 
-After bootstrap, an encrypted read returns a fresh binding UUID and 256-bit token.
-The phone binds its TLS session UUID by HMAC(token, ASCII session UUID). Frame
-accepts poses only from that Bluetooth device, binding and the exact session
-registered by its authenticated TLS client. TLS disconnect revokes the binding.
-Challenges are consumed; incomplete control messages and client counts are bounded.
-Neither private certificate keys nor Wi-Fi passwords are transferred.
+On reconnect, Frame compares the TLS certificate with its saved pin **before
+sending its credential**. Android authenticates the credential. If either app
+forgot its trust or the certificate changed, a new hash exchange is required;
+trust is never silently replaced. A rejected exchange preserves existing trust.
+BLE pose delivery also requires binding to the exact authenticated Wi-Fi session.
 
-## Pairing recovery
-
-Bluetooth bond keys, Android's companion association, the phone's Keystore identity
-and the application credential are separate state. Network errors never erase
-any of them. Recovery is explicit when it changes which device is trusted:
-
-| Situation | Behavior |
-| --- | --- |
-| Both app records and bond are valid | Reconnect automatically with a fresh challenge/session binding; no new prompt. |
-| Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. The saved radio identity may pair again, with confirmation only on Android. Bonding completes before GATT/key exchange. The reported repeated-code issue still needs hardware verification with this flow. |
-| Authentication error after confirmation | Stop the failed security attempt and keep saved keys. Disconnect followed by Connect creates a fresh Android connection worker. Forget headset remains available even before first enrollment. Transport retries cannot start a second bond while confirmation is pending. Genuine OS key loss may require system repair. |
-| Android app reinstalled/reset, but OS bond survives | Only the saved Bluetooth device may propose replacement app credentials. Frame offers Replace saved phone. Approval ends the old TLS/binding before using the new identity. Rejection preserves old trust. A different device must first be forgotten on Frame. |
-| Frame app record lost/reset, but phone/bond remain | Phone proposes a fresh credential over encrypted BLE. Frame asks Connect this phone; no OS unpair is required. |
-| Frame explicitly forgets a phone | Reopen pairing for a new phone; clear app trust, old binding, pending requests and recent bond approval. An existing OS bond cannot silently re-enroll; restoring app trust needs confirmation. |
-| Both records exist but credentials differ | Return a specific app-trust mismatch, then offer a fresh verified credential proposal and confirmation. Do not mislabel this as an OS encryption failure. |
-| App stops or an acknowledgment is lost during enrollment | Retain the same pending proposal across restart; a repeated valid proof completes without replacing a newer record or prompting twice. |
-| Transport disconnect during number comparison | Keep the displayed number for Android's confirmation. BlueZ Cancel/Release, shutdown or display timeout clears it. There is no headset approval to wait for. |
-| App trust proposal disconnects, or an approval is rejected/times out | Cancel that proposal and preserve prior trust. Disconnect and Connect resume using saved keys without silently replacing them. |
-| Another phone tries pairing | Reject when a saved phone exists or another device's code is currently displayed. Forget phone on Frame reopens enrollment. |
-| Saved trust changes while confirmation is open | Reject the stale approval instead of overwriting the newer record. |
-| User switches to another companion address | Drop the old peer's pending secret/verifier and close its active connection. Never share a pending credential between headsets. |
-| Wi-Fi changes address, drops, or is unavailable | Keep Bluetooth/app trust and retry routes/TLS with bounded backoff, including on screen-on/unlock. |
-| MTU is too small for motion packets | Complete Bluetooth setup; use Wi-Fi for motion automatically. |
-
-Initial app enrollment can reuse a just-approved number comparison for two minutes,
-for that device only. An existing OS bond without an app record needs explicit
-Connect confirmation. This prevents Forget being immediately undone by background
-reconnection. Application proposals are verified before prompting, and stored
-identity is checked again after approval. No saved trust is replaced by a rejected, expired,
-replayed or stale request. Pending secrets, tokens and comparison numbers are not
-written to diagnostics.
-
-The app uses supported Android bond APIs; it does not remove bonds by reflection
-or discard other Bluetooth devices. Android force-stop/permission revocation and
-host Bluetooth policy still require user action. Hardware trials remain necessary
-for actual OS bonding, privacy-address resolution and radio interruption behavior.
-
-Android uses reported bond-state broadcasts rather than re-reading a potentially
-lagging cached getter. It retains the in-progress bond across GATT disconnects;
-no second createBond call is allowed while waiting. Duplicate callbacks cannot
-restart setup, and an observed completed bond survives ordinary transport retries.
-When Android has no bond, it completes bonding before opening GATT. A key change
-on an already-open GATT connection retires that connection after bond completion;
-its pending callbacks cannot advance the replacement connection. This avoids
-reusing a connection opened while the two devices had different bond keys.
-After connecting, a 1.6-second settling interval allows encryption/service-change
-processing before discovery; this follows the ordering described by
-[Nordic's BLE manager](https://github.com/NordicSemiconductor/Android-BLE-Library/blob/main/ble/src/main/java/no/nordicsemi/android/ble/BleManager.java).
-Discovery precedes MTU optimization. Unsolicited MTU/discovery callbacks cannot
-advance setup during bonding; optional MTU timeout falls back to small-packet
-bootstrap rather than disconnecting a valid bond. Connection/PHY optimization
-happens after binding. Details retains the last failure stage until setup succeeds.
-These changes affect connection setup, not steady-state pose cadence.
-
-### Diagnosing repeated number comparisons
-
-Reconnecting with valid OS bonds and restoring app trust work on the test devices.
-Removing Steam Frame in Android's Bluetooth settings while Frame retains its bond
-reproducibly required two number comparisons with the previous two-device approval
-flow. Opening GATT after bonding did not resolve this. The current phone-only
-confirmation flow needs a new hardware trial; the radio-level cause remains
-unconfirmed. Passing lifecycle tests does not validate OS key replacement.
-
-After reproducing the first failure, open Android **Details → Share connection log**.
-The bounded in-memory log records bond transitions, pairing prompt variants, GATT
-errors and operation names. Android 16/API 36 also reports encryption transport
-(LE or Classic), status and missing-key events. Sharing opens Android's normal
-share sheet; nothing is uploaded automatically. Both failed and successful attempts
-are retained until the 48-entry limit or process restart. No comparison numbers,
-addresses, payloads, credentials or keys are recorded.
-
-On Frame, the existing **Activity log** and
-`~/.local/state/framephone/desktop.log` (or `$XDG_STATE_HOME/framephone/desktop.log`)
-record BlueZ's paired/bonded/connected state when a number is requested, explicit
-cancellations/rejections and the transport of the first protected setup read.
-These events help distinguish a second transport/security procedure from an app
-credential failure; they are not a raw radio capture. Diagnostic events do not
-change pairing decisions or delete OS bonds.
+The radio address only limits which remembered phone can reconnect. It is not
+used as cryptographic identity. The Bluetooth bond may survive an application
+Forget. If OS bond keys are manually removed from only one side, the platform may
+require removing the stale bond on the other side too; the app does not modify
+BlueZ's global repairing policy or use hidden Android bond-removal APIs.
 
 ## Wire format
 
-Service UUID: `f7a10001-81a6-4c44-9c79-99ac54174901`.
-Setup characteristic ends `0002`, pose characteristic ends `0003`, with the same
-remaining UUID suffix. Setup supports acknowledged read/write; poses use write
-without response. JSON setup messages are at most 1024 bytes. Each application
-fragment starts with little-endian uint16 message ID, offset and total size;
-fragments must arrive in order and expire after three seconds.
+Service UUID: `f7a10001-81a6-4c44-9c79-99ac54174901`. Control ends `0002`, pose ends
+`0003`. Control reads carry up to 480 TLS bytes. GATT read-blob offsets use a
+consistent snapshot. An empty read means no pending TLS output.
 
-Pose header is 116 bytes. Integers/floats are little endian; UUIDs are canonical
-RFC 4122 byte order:
+Control writes carry fragments with little-endian uint16 message ID, offset and
+total length. An assembled fragment contains raw TLS bytes, not plaintext JSON.
+Writes are ordered, bounded to 32 KiB and expire after three seconds without
+progress. Pose writes
+carry TLS bytes directly when they fit the negotiated MTU; larger TLS output uses
+the same control fragmentation. TLS supplies integrity and replay protection.
 
-| Field | Bytes |
-| --- | ---: |
-| Magic FPBT, version, flags, state/reason, gyro count | 8 |
-| Connection session, anchor generation, acquisition UUIDs | 48 |
-| Sequence, update time, original ARCore frame time, optional capture time | 32 |
-| Translation xyz and quaternion xyzw, float32 | 28 |
-| Each gyro sample: phone time uint64, corrected xyz float32 | 20 |
+Inside TLS, each application message is a big-endian uint32 length, a one-byte
+type, then payload. Type 0 is JSON control; type 1 is the existing binary pose
+packet. Messages are bounded to 64 KiB. The control exchange is:
 
-Flag bit 0 is marker-required; bit 1 validates capture time. State low nibble is
-tracking/paused/error/stopped (0–3). Reason high nibble is empty/headset-not-worn/
-user-dismissed/screen-locked/camera-in-use (0–4). Unknown detailed ARCore failure
-text remains on the reliable diagnostic path. Up to 19 gyro samples fit a packet.
-Reserved bits, malformed UUID/session data, nonfinite transforms, reordered
-poses and invalid timestamps are rejected. Raw phone sensor recording is retained.
-Pose evidence records identify Bluetooth/Wi-Fi transport; backup traffic can contain
-the same sequence on both paths.
+- `hello` / `verification` / `confirm`: nonce exchange and explicit hash consent.
+- `paired` / `enrolled` / `ready`: credential exchange, durable acknowledgment,
+  and successful app authentication. Reconnect uses `hello(mode=reconnect)`.
+- `route`: a refreshed LAN address, accepted only after authentication.
+- `bind` / `bound`: association with the authenticated Wi-Fi session UUID.
 
-Android requests MTU 517, high connection priority and 2M PHY. These are requests;
-the negotiated MTU determines packet size. An MTU smaller than 119 cannot carry
-the base pose, so setup completes over Bluetooth and Wi-Fi carries motion. One GATT operation can be
-in flight and only the latest unsent pose is retained; old motion never forms
-an application FIFO. Small MTUs still support secure bootstrap through bounded
-fragments and consistent long-read snapshots; pose traffic automatically stays on
-Wi-Fi when the negotiated MTU cannot carry a base pose. BLE reads its source independently of the Wi-Fi writer,
-so a blocked Wi-Fi send cannot hold up Bluetooth pose submission. Pose writes timing out after 300 ms reconnect, and retry
-backoff caps at five seconds. Frame also re-registers after adapter/daemon release.
+The binary pose format remains `FPBT` version 1: state/reason, session/generation/
+acquisition UUIDs, sequence and timestamps, translation, quaternion, and up to 19
+bias-corrected gyro samples. Original phone clocks and source sequences remain
+intact. The exact count fits the negotiated MTU after TLS overhead. Small MTUs
+complete setup normally and use Wi-Fi for motion. The latest unsent pose replaces
+older motion; there is no application pose FIFO.
 
-## Background limitations and tests
+## Background behavior and validation
 
-Companion association/presence can start the connected-device foreground service;
-it does not automatically grant camera access from a cold background process.
-The camera start is attempted and platform rejection produces an actionable
-notification. Camera service permissions and MediaProjection consent are separate.
-No hidden activity, accessibility service, root workaround or permission bypass
-is used. Test screen-off/unlock, Home, process recreation and force-stop explicitly.
+Companion presence can wake the connection service. Camera permissions and cold
+background camera starts retain Android's normal restrictions; the Resume tracking
+notification remains available. Camera tracking stays idle until authentication
+and the existing wearer/marker conditions permit it. No video is implemented.
 
-Tests cover cross-language wire bytes, authenticated enrollment and migration,
-wrong proof/pin/session/device rejection, fragmentation bounds, freshness fallback,
-and actual service/advertisement registration on a private D-Bus with simulated
-BlueZ. This does not validate Bluetooth controller behavior or Android presence.
-Native development needs python3-dbus-next; the executable bundles Ubuntu's package
-and its license. CI tests use a private dbus-daemon, never the host BlueZ service.
+The former bond/recovery tests were removed with that implementation. The new
+protocol tests exercise real TLS records, two-sided consent, reconnect, Forget,
+wrong identity, encrypted routes/motion, session binding and tampering. The Android
+TLS adapter is tested with fragmented TLS 1.3 records. These checks do not replace
+physical Bluetooth and Android lifecycle testing.
 
-References: [Android GATT status codes](https://android.googlesource.com/platform/packages/modules/Bluetooth/+/refs/heads/main/system/stack/include/gatt_api.h),
-[Android asynchronous bonding](https://developer.android.com/reference/android/bluetooth/BluetoothDevice#createBond()),
-[BlueZ pairing agent](https://bluez.readthedocs.io/en/latest/agent-api/),
-[companion pairing](https://developer.android.com/develop/connectivity/bluetooth/companion-device-pairing),
-[background BLE](https://developer.android.com/develop/connectivity/bluetooth/ble/background),
-[foreground/camera restrictions](https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start),
-[BlueZ GATT](https://bluez.readthedocs.io/en/latest/gatt-api/),
-[BlueZ advertising](https://bluez.readthedocs.io/en/latest/advertising-api/).
+Native desktop development needs `python3-dbus-next`; the packaged executable
+bundles it. TLS uses the standard Python/OpenSSL and Android providers already
+used by the Wi-Fi connection. No new runtime package is required.
+
+References: [BlueZ agent](https://github.com/bluez/bluez/blob/master/doc/org.bluez.Agent.rst),
+[BlueZ capabilities](https://github.com/bluez/bluez/blob/master/doc/org.bluez.AgentManager.rst),
+[Python MemoryBIO](https://docs.python.org/3/library/ssl.html#memory-bio-support),
+[Android SSLEngine](https://developer.android.com/reference/javax/net/ssl/SSLEngine).

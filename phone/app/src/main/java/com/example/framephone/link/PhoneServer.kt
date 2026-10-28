@@ -51,6 +51,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             update("Checking this phone's TLS identity…")
             val tls = identity.context()
             TlsSelfCheck.verify(tls, identity.pin)
+            BluetoothPose.identity(tls, identity.pin, "")
             if (!running) return@thread
             stage = "LAN listener"
             val listener = tls.serverSocketFactory.createServerSocket(Protocol.PORT) as SSLServerSocket
@@ -68,7 +69,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                     .sortedBy { if (it.name.startsWith("wlan")) 0 else 1 }
                     .flatMap { it.inetAddresses.toList() }.firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
                     ?.hostAddress.orEmpty()
-                BluetoothPose.identity(identity.pin, endpoint)
+                BluetoothPose.identity(tls, identity.pin, endpoint)
                 if (endpoint.isEmpty() && !status.message.startsWith("Wi-Fi unavailable"))
                     update("Wi-Fi unavailable — connect both devices to the same network")
                 else if (endpoint.isNotEmpty() && status.message.startsWith("Wi-Fi unavailable"))

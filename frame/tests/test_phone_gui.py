@@ -69,7 +69,7 @@ def connected_ui():
             radio = SimpleNamespace(status="Bluetooth authenticated", revoke=lambda *_: None, forget=lambda: panel.store.forget())
             panel = PhonePanel(root, Path(directory), bluetooth=radio)
             try:
-                # Simulate only the authenticated BLE enrollment boundary. The
+                # Simulate only the verified Bluetooth TLS enrollment boundary. The
                 # real pinned TLS exchange and telemetry rendering run unchanged.
                 panel.store.save({"pin": TLSTests.pin, "credential": "b"*64, "host": "127.0.0.1", "bluetooth": True})
                 panel.startup()
@@ -86,21 +86,18 @@ def connected_ui():
                 assert not any(w.winfo_class() in ("TEntry", "TCombobox") for w in controls)
                 buttons = [w.cget("text") for w in controls if w.winfo_class() == "TButton" and w.winfo_ismapped()]
                 assert buttons == ["Forget phone"], buttons
-                request = dict(passkey="012345", accepted=False, event=threading.Event())
+                request = dict(code="ABCD 1234 ABCD 1234 ABCD 1234 ABCD 1234", accepted=False, event=threading.Event())
                 panel.notify("bluetooth_pairing", request)
                 until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())
-                assert panel.pairing_number.get() == "012345"
-                assert not panel.pairing_accept.winfo_ismapped()
-                assert not panel.pairing_reject.winfo_ismapped()
-                assert not request["event"].is_set(), "displaying the code must not require a headset click"
-                panel.notify("bluetooth_pairing_closed", request)
-                until(root, panel, lambda: not panel.pairing_panel.winfo_ismapped())
-                replacement = dict(kind="replace", passkey="", accepted=False, event=threading.Event())
-                panel.notify("bluetooth_pairing", replacement)
-                until(root, panel, lambda: panel.pairing_panel.winfo_ismapped())
-                assert panel.pairing_accept.cget("text") == "Replace phone"
+                assert panel.pairing_code.get() == request['code']
+                assert panel.pairing_accept.winfo_ismapped() and panel.pairing_reject.winfo_ismapped()
+                assert panel.pairing_accept.cget("text") == "Hashes match"
+                panel.answer_pairing(True)
+                root.update()
+                assert panel.pairing_panel.winfo_ismapped(), 'the other device still needs to see the hash'
+                assert panel.pairing_accept.instate(['disabled'])
                 panel.answer_pairing(False)
-                assert replacement["event"].is_set() and not replacement["accepted"]
+                assert request["event"].is_set() and not request["accepted"]
                 assert not panel.link.stopped.is_set(), "rejection disconnected the working phone"
                 stop.set()
                 panel.forget()

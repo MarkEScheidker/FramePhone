@@ -25,34 +25,22 @@ Android 12+; application ID `com.example.framephone`. See
 
 ## Bluetooth connection
 
-Run FramePhone on Frame with Bluetooth enabled before tapping Pair headset on Android.
-After the initial permissions, select Steam Frame in the system companion picker
-and check the six-digit number against Frame's display. Tap Pair on the phone;
-there is no headset confirmation button. Frame accepts new pairing only when
-it has no saved phone, or when repairing the saved phone's bond. Use Forget phone
-on Frame before switching phones. Bonding completes before protected GATT setup begins. Trust and the Wi-Fi endpoint
-travel over authenticated BLE. Existing Wi-Fi pairings migrate using their verifier;
-a new pair no longer needs a separate LAN fingerprint enrollment.
+Run FramePhone on Frame, then tap Pair headset on Android and select Steam Frame.
+Bluetooth uses no-code Just Works bonding; Android may still ask for Pair consent.
+After bonding, compare the hash displayed in both apps and tap **Hashes match on
+both devices**. The application credential and Wi-Fi route are exchanged through
+TLS 1.3 over Bluetooth. Future connections use saved trust automatically.
 
-The associated Frame can wake the connection service with setup closed. Android
-may still require the Resume tracking notification action for a cold camera
-start. Disconnect disables automatic wake until Connect is used again; Forget
-also removes FramePhone's companion associations. Forget headset is visible beside
-the main connection control, even if Bluetooth setup never reached app enrollment.
-It is available while setup is pending or the connection has failed. Force-stop is
-not bypassed. Authentication failures stop retrying; Disconnect followed by Connect
-starts a fresh connection worker using the saved keys. App reinstalls or mismatched app
-keys use a Connect/Replace confirmation on Frame rather than requiring OS unpair.
-A transport handoff retains the pending confirmation and completed bonds.
-Forget is reserved for deliberately removing app trust; Android's OS Bluetooth
-bond is managed separately in system settings. Details retains the
-last Bluetooth failure and its setup stage.
+Forget headset is visible outside Details, including after incomplete setup.
+Forgetting either app requires a new hash exchange; the OS Bluetooth bond can
+remain. Disconnect stops automatic wake; Connect starts a fresh attempt. The
+headset accepts a different phone only after Forget phone.
 
-Bluetooth is the only pairing method. Wi-Fi connects and retries automatically;
-screen-on/unlock requests another attempt while disconnected. Both devices must
-already share a reachable Wi-Fi network. No manual IP or transport selection is
-needed. [Bluetooth setup and validation](../frame/docs/BLUETOOTH.md) covers the
-protocol, permissions and platform limitations. Rebuild both apps.
+Companion presence can wake the service, but Android may require Resume tracking
+for a cold background camera start. Force-stop and camera permissions are not
+bypassed. Both devices must already share a reachable Wi-Fi network; no manual IP
+or transport selection is needed. Rebuild both apps together for the new protocol.
+See [Bluetooth setup and protocol](../frame/docs/BLUETOOTH.md).
 
 ## Tracking
 

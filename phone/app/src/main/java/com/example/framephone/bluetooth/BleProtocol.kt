@@ -4,8 +4,6 @@ import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 object BleProtocol {
     val SERVICE: UUID = UUID.fromString("f7a10001-81a6-4c44-9c79-99ac54174901")
@@ -14,18 +12,8 @@ object BleProtocol {
     const val POSE_BYTES = 116
     data class Gyro(val time: Long, val value: FloatArray)
     fun hex(bytes: ByteArray) = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
-    fun unhex(text: String): ByteArray {
-        require(text.matches(Regex("[0-9a-f]{64}")))
-        return text.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    }
-    fun proof(key: ByteArray, text: String): String = hex(Mac.getInstance("HmacSHA256").run {
-        init(SecretKeySpec(key, "HmacSHA256")); doFinal(text.toByteArray(Charsets.US_ASCII))
-    })
-    fun bootstrapText(challenge: String, address: String, pin: String, host: String) =
-        "framephone-bt-bootstrap-v1\n$challenge\n${address.uppercase()}\n$pin\n$host\n47643\n"
-
     fun fragments(message: ByteArray, mtu: Int, id: Int): List<ByteArray> {
-        require(message.size in 1..1024 && mtu >= 23)
+        require(message.size in 1..32768 && mtu >= 23)
         val size = mtu-9
         return message.toList().chunked(size).mapIndexed { index, part ->
             ByteBuffer.allocate(6+part.size).order(ByteOrder.LITTLE_ENDIAN)

@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.example.framephone.link.PhoneDimensions
@@ -198,7 +199,7 @@ class MainActivity : ComponentActivity() {
         var timedOut by remember { mutableStateOf(false) }
         var bluetoothFailure by remember { mutableStateOf(BluetoothPose.lastFailure) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
-        var bluetoothEvents by remember { mutableStateOf(BluetoothPose.pairingEvents) }
+        var verification by remember { mutableStateOf(BluetoothPose.verification) }
         var remembered by remember { mutableStateOf(store.pairedName()) }
         var hasHeadset by remember { mutableStateOf(store.hasHeadset()) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
@@ -207,7 +208,7 @@ class MainActivity : ComponentActivity() {
                 tracking = ArPoseState.status
                 bluetoothStatus = BluetoothPose.status
                 bluetoothFailure = BluetoothPose.lastFailure
-                bluetoothEvents = BluetoothPose.pairingEvents
+                verification = BluetoothPose.verification
                 remembered = store.pairedName()
                 hasHeadset = store.hasHeadset()
                 trackingDetail = ArPoseState.detail
@@ -248,6 +249,19 @@ class MainActivity : ComponentActivity() {
                 pendingConnect = false; waiting = ""; notice = ""; connectionDetail = ""
                 command("forget")
             }) { Text("Forget headset") }
+            verification?.let { request ->
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Verify connection", style = MaterialTheme.typography.titleMedium)
+                        Text(request.code, style = MaterialTheme.typography.titleLarge, fontFamily = FontFamily.Monospace)
+                        Text(if (request.approved) "Waiting for headset approval" else "Check that this hash matches the headset.")
+                        if (!request.approved) Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(onClick = { BluetoothPose.confirm(request.id, true) }) { Text("Hashes match") }
+                            TextButton(onClick = { BluetoothPose.confirm(request.id, false) }) { Text("Reject") }
+                        }
+                    }
+                }
+            }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {
                 TextButton(onClick = {
@@ -261,16 +275,6 @@ class MainActivity : ComponentActivity() {
             if (details) {
                 Text(status.message)
                 if (bluetoothFailure.isNotEmpty()) Text("Last Bluetooth error: $bluetoothFailure")
-                if (bluetoothEvents.isNotEmpty()) Text(bluetoothEvents, style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = {
-                    val report = "FramePhone Bluetooth; Android API ${Build.VERSION.SDK_INT}\n" +
-                        "$bluetoothStatus\nLast error: $bluetoothFailure\n\n$bluetoothEvents"
-                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "FramePhone Bluetooth pairing")
-                        putExtra(Intent.EXTRA_TEXT, report)
-                    }, "Share connection log"))
-                }) { Text("Share connection log") }
                 if (status.address.isNotEmpty()) Text("IP: ${status.address}")
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)

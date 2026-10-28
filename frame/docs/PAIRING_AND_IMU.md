@@ -1,8 +1,8 @@
 # Pinned Wi-Fi control and sensor link v1
 
 Pairing is exclusively [Bluetooth](BLUETOOTH.md). The phone's TLS listener accepts
-only reconnect authentication with the credential established over the approved
-Bluetooth bond. UDP discovery, manual IP entry and LAN enrollment have been
+only reconnect authentication with the credential established over verified TLS carried by
+Bluetooth. UDP discovery, manual IP entry and LAN enrollment have been
 removed from the applications.
 
 ## Connection lifecycle
@@ -24,18 +24,18 @@ the OS Bluetooth bond separately in system settings when needed.
 
 The phone serves TLS 1.3 on TCP port 47643 with a persistent P-256 identity in
 Android Keystore. Frame checks the complete saved SHA-256 certificate hash before
-sending the reconnect credential. New trust and endpoint hints arrive only over
-authenticated encrypted BLE. Existing Wi-Fi records can migrate using their
-verifier, but cannot enroll another device over Wi-Fi. Reinstalled or desynchronized
+sending the reconnect credential. New trust and endpoint hints arrive over TLS 1.3 carried by Bluetooth.
+First enrollment requires matching hashes approved on both devices after OS
+bonding; Wi-Fi cannot enroll another device. Reinstalled or desynchronized
 apps recover over Bluetooth with Frame confirmation; see the
-[pairing recovery table](BLUETOOTH.md#pairing-recovery). An OS bond must still exist
+[Bluetooth enrollment flow](BLUETOOTH.md#first-connection). An OS bond must still exist
 for a new TLS authentication. Manual unpairing closes the active phone connection.
 
 Frame stores the pin and credential atomically in a private mode-0600 pairing
 file. Android keeps the SHA-256 verifier in private preferences; its temporary
 Bluetooth enrollment secret is removed after acknowledgment. One paired headset
 and one active TLS connection are supported. See the Bluetooth contract for
-challenge proofs, session binding and background camera restrictions.
+TLS enrollment, session binding and background camera restrictions.
 
 Networking runs as the desktop user. Camera authorization is separate and may
 appear once on startup. Camera interception/AprilTag previews remain idle unless

@@ -79,7 +79,7 @@ The desktop uses one dashboard. Its fixed front pair is declared in
 front_cameras.py; saved camera assignments are not loaded and no camera selectors
 are exposed. Startup launches wearer monitoring, camera authorization and
 Bluetooth advertising. Pairing is exclusively through Android's companion picker
-and authenticated Bluetooth bond. Wi-Fi connects automatically from the verified
+and a verified TLS connection over the Bluetooth bond. Wi-Fi connects automatically from the verified
 Bluetooth route, with capped retry backoff and another route exchange on phone
 screen-on/unlock while disconnected. There are no IP fields, LAN scans or
 transport buttons. Bluetooth status is always visible; the only headset pairing
@@ -95,9 +95,11 @@ The renderer measures cadence and age independently from UI refresh.
 
 ## Bluetooth companion transport
 
-The BlueZ integration lives in bluetooth_link.py and bluetooth_protocol.py;
-it owns an asyncio thread and only passes validated poses to PhoneLink's mailbox.
+The BlueZ integration lives in bluetooth_link.py; bluetooth_tls.py provides a
+transport-independent TLS 1.3 byte stream and bluetooth_protocol.py the pose codec. It
+owns an asyncio thread and only passes validated poses to PhoneLink's mailbox.
 Android bluetooth/ owns association/presence, GATT lifecycle and the shared binary
 contract. ArPoseService remains the producer; SensorFeed retains raw diagnostics.
-BLE authenticates and bootstraps the pinned LAN route before normal Wi-Fi connection.
+After no-code OS bonding, TLS over BLE and a hash approved on both devices
+establish app trust. Saved trust authenticates subsequent sessions and their LAN route.
 Video is a future separate path. See [Bluetooth contract](BLUETOOTH.md).
