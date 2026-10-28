@@ -102,7 +102,8 @@ class Window:
         from bluetooth_link import BluetoothLink
         from phone_link import PairingStore
         self.bluetooth = BluetoothLink(PairingStore(self.config.parent / "phone-pairing.json"),
-                                       lambda kind, value: self.phone_panel.notify(kind, value))
+                                       lambda kind, value: self.phone_panel.notify(kind, value),
+                                       diagnostic=lambda value: self.events.put(("line", "bluetooth", value)))
         self.phone_panel = PhonePanel(phone_area, self.config.parent, bluetooth=self.bluetooth)
         from fiducial_panel import FiducialPanel
         self.tracking_panel = FiducialPanel(tracking_area, self)

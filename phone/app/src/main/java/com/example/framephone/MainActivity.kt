@@ -198,12 +198,14 @@ class MainActivity : ComponentActivity() {
         var pairingNeedsAttention by remember { mutableStateOf(BluetoothPose.pairingNeedsAttention) }
         var bluetoothFailure by remember { mutableStateOf(BluetoothPose.lastFailure) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
+        var bluetoothEvents by remember { mutableStateOf(BluetoothPose.pairingEvents) }
         var overlayAllowed by remember { mutableStateOf(Settings.canDrawOverlays(this)) }
         LaunchedEffect(Unit) {
             while (true) {
                 tracking = ArPoseState.status
                 bluetoothStatus = BluetoothPose.status
                 bluetoothFailure = BluetoothPose.lastFailure
+                bluetoothEvents = BluetoothPose.pairingEvents
                 pairingNeedsAttention = BluetoothPose.pairingNeedsAttention
                 trackingDetail = ArPoseState.detail
                 trackingReady = ArPoseState.running && !ArPoseState.failed
@@ -250,6 +252,16 @@ class MainActivity : ComponentActivity() {
             if (details) {
                 Text(status.message)
                 if (bluetoothFailure.isNotEmpty()) Text("Last Bluetooth error: $bluetoothFailure")
+                if (bluetoothEvents.isNotEmpty()) Text(bluetoothEvents, style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = {
+                    val report = "FramePhone Bluetooth; Android API ${Build.VERSION.SDK_INT}\n" +
+                        "$bluetoothStatus\nLast error: $bluetoothFailure\n\n$bluetoothEvents"
+                    startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_SUBJECT, "FramePhone Bluetooth pairing")
+                        putExtra(Intent.EXTRA_TEXT, report)
+                    }, "Share connection log"))
+                }) { Text("Share connection log") }
                 if (status.address.isNotEmpty()) Text("IP: ${status.address}")
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)

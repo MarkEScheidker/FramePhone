@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 
 from bluetooth_protocol import SERVICE, CONTROL, POSE, ControlFragments, bootstrap, decode_pose
 
@@ -19,8 +20,9 @@ class PairingApprovalRequired(ValueError):
 
 
 class BluetoothLink:
-    def __init__(self, store, notify):
+    def __init__(self, store, notify, diagnostic=None):
         self.store, self.notify = store, notify
+        self.diagnostic = diagnostic
         self.status = 'Bluetooth starting'
         self.address = None
         self.lock = threading.RLock()
@@ -34,6 +36,11 @@ class BluetoothLink:
         self.bond_approvals = {}
         self.setup_errors = {}
         self.control_reads = {}
+
+    def trace(self, message):
+        """Only callers' fixed event names/statuses, never radio payloads or keys."""
+        if self.diagnostic:
+            self.diagnostic(f'{time.monotonic():.3f}s {message}')
 
     def start(self):
         if self.thread is None:
@@ -61,6 +68,7 @@ class BluetoothLink:
                     self.bond_approvals[device] = time.monotonic()+120
             self.status = ('Bluetooth pairing approved — completing encryption' if accepted else
                            'Bluetooth pairing cancelled — retry connection from your phone')
+            self.trace(f'{kind} confirmation accepted={accepted}')
             return accepted
         finally:
             with self.lock:
@@ -230,6 +238,7 @@ class BluetoothLink:
         base = '/com/framephone/bluetooth'
         service_path = base+'/service0'
         released = asyncio.Event()
+        traced_devices = deque(maxlen=8)
 
         class Service(ServiceInterface):
             def __init__(self):
@@ -257,6 +266,11 @@ class BluetoothLink:
             def ReadValue(self, options: 'a{sv}') -> 'ay':
                 if not self.control: raise DBusError('org.bluez.Error.NotPermitted', 'Write-only pose')
                 try:
+                    if options['device'].value not in traced_devices:
+                        traced_devices.append(options['device'].value)
+                    if options['device'].value not in owner.control_reads:
+                        link = options.get('link', Variant('s', 'unknown')).value
+                        owner.trace('protected setup read via '+(link if link in ('LE', 'BR/EDR') else 'unknown'))
                     return owner.read_control(options['device'].value, options.get('offset', Variant('q', 0)).value)
                 except (ValueError, KeyError) as error:
                     raise DBusError('org.bluez.Error.NotAuthorized', str(error))
@@ -290,10 +304,22 @@ class BluetoothLink:
                 super().__init__('org.bluez.Agent1')
             @method()
             async def RequestConfirmation(self, device: 'o', passkey: 'u'):
+                if device not in traced_devices:
+                    traced_devices.append(device)
+                # A surviving BlueZ bond does not mean the phone retained its
+                # keys. Capture this state before the new confirmation begins.
+                reply = await bus.call(Message(destination='org.bluez', path=device,
+                    interface='org.freedesktop.DBus.Properties', member='GetAll', signature='s',
+                    body=['org.bluez.Device1']))
+                values = reply.body[0] if reply.message_type != MessageType.ERROR else {}
+                state = ' '.join(f'{key}={bool(values[key].value)}' for key in
+                                 ('Paired', 'Bonded', 'Connected', 'ServicesResolved') if key in values)
+                owner.trace('number comparison requested; '+(state or 'peer state unavailable'))
                 if not await owner.confirm_pairing(device, passkey):
                     raise DBusError('org.bluez.Error.Rejected', 'Bluetooth number comparison rejected')
             @method()
             def RequestAuthorization(self, device: 'o'):
+                owner.trace('Just Works authorization requested (rejected)')
                 raise DBusError('org.bluez.Error.Rejected', 'Number comparison is required; Just Works is not supported')
             @method()
             def RequestPinCode(self, device: 'o') -> 's':
@@ -312,7 +338,9 @@ class BluetoothLink:
                 if uuid.lower() != SERVICE:
                     raise DBusError('org.bluez.Error.Rejected', 'This agent only authorizes FramePhone')
             @method()
-            def Cancel(self): owner.cancel_pairing()
+            def Cancel(self):
+                owner.trace('BlueZ cancelled pairing')
+                owner.cancel_pairing()
             @method()
             def Release(self):
                 owner.cancel_pairing()
@@ -343,6 +371,10 @@ class BluetoothLink:
                         message.interface == 'org.freedesktop.DBus.Properties' and message.member == 'PropertiesChanged' and
                         message.body and message.body[0] == 'org.bluez.Device1'):
                     values = message.body[1]
+                    state = ' '.join(f'{key}={bool(values[key].value)}' for key in
+                                     ('Paired', 'Bonded', 'Connected', 'ServicesResolved') if key in values)
+                    if state and message.path in traced_devices:
+                        owner.trace('peer state changed; '+state)
                     lost = any(key in values and not values[key].value for key in ('Connected', 'Paired'))
                     if lost:
                         with owner.lock:

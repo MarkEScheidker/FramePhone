@@ -3,7 +3,7 @@ package com.example.framephone.bluetooth
 /** Bond lifetime is independent of the GATT connection carrying setup traffic. */
 internal class BondGate {
     enum class Bond { NONE, BONDING, BONDED }
-    enum class Action { WAIT, CREATE_BOND, NEGOTIATE, RETRY, BLOCK }
+    enum class Action { WAIT, CREATE_BOND, CONNECT, NEGOTIATE, RETRY, BLOCK }
     var blocked = false
         private set
     var waiting = false
@@ -12,6 +12,19 @@ internal class BondGate {
         private set
     private var connected = false
     private var lastBond = Bond.NONE
+
+    /** Finish key exchange before opening a GATT connection with those keys. */
+    fun prepare(bond: Bond): Action {
+        if (blocked) return Action.BLOCK
+        if (waiting || connected) return Action.WAIT
+        if (lastBond != Bond.BONDED) lastBond = bond
+        waiting = lastBond != Bond.BONDED
+        return when (lastBond) {
+            Bond.NONE -> Action.CREATE_BOND
+            Bond.BONDING -> Action.WAIT
+            Bond.BONDED -> Action.CONNECT
+        }
+    }
 
     fun connected(bond: Bond): Action {
         if (blocked) return Action.BLOCK

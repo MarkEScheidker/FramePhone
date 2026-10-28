@@ -13,7 +13,9 @@ or video dependency is included in this milestone.
    picker. Location Services may need to be enabled for the system picker.
 3. Approve the same six-digit number on the phone and in the FramePhone desktop
    app. Either device may be confirmed first. The BLE advertisement is named **Steam Frame**, while the app is FramePhone.
-   Android waits for bond completion before MTU/services and protected reads. GATT
+   Android completes a new bond before opening GATT, then discovers services and
+   negotiates MTU. If keys change on an existing connection, it opens a fresh
+   GATT connection before exchanging application credentials. GATT
    characteristics require authenticated encryption; there is no Just Works
    downgrade. Connection retries keep both the OS bond and the saved app trust.
 4. Bluetooth transfers the application trust information and current LAN route.
@@ -117,7 +119,7 @@ any of them. Recovery is explicit when it changes which device is trusted:
 | Situation | Behavior |
 | --- | --- |
 | Both app records and bond are valid | Reconnect automatically with a fresh challenge/session binding; no new prompt. |
-| Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. Retry pairing starts a fresh bond flow. Saved app keys may be reused after secure bonding. |
+| Phone manually removes its OS bond | Stop BLE/TLS and tracking; do not silently re-pair. Retry pairing completes the new bond before opening GATT. Saved app keys may be reused after secure bonding. When Frame retains its old bond, two number comparisons are still required on the owner's devices; see diagnostics below. |
 | Authentication error after confirmation | Stop a failed security attempt with Retry connection; keep saved keys. A transport retry never starts another bond while confirmation is pending or forgets an observed completed bond. Genuine OS key loss may require system repair, but Frame's Forget is not a connection-retry step. |
 | Android app reinstalled/reset, but OS bond survives | Create a new app credential; Frame offers Replace saved phone. Approval ends the old TLS/binding before using the new identity. Rejection preserves old trust. |
 | Frame app record lost/reset, but phone/bond remain | Phone proposes a fresh credential over encrypted BLE. Frame asks Connect this phone; no OS unpair is required. |
@@ -149,7 +151,11 @@ Android uses reported bond-state broadcasts rather than re-reading a potentially
 lagging cached getter. It retains the in-progress bond across GATT disconnects;
 no second createBond call is allowed while waiting. Duplicate callbacks cannot
 restart setup, and an observed completed bond survives ordinary transport retries.
-After bonding, a 1.6-second settling interval allows encryption/service-change
+When Android has no bond, it completes bonding before opening GATT. A key change
+on an already-open GATT connection retires that connection after bond completion;
+its pending callbacks cannot advance the replacement connection. This avoids
+reusing a connection opened while the two devices had different bond keys.
+After connecting, a 1.6-second settling interval allows encryption/service-change
 processing before discovery; this follows the ordering described by
 [Nordic's BLE manager](https://github.com/NordicSemiconductor/Android-BLE-Library/blob/main/ble/src/main/java/no/nordicsemi/android/ble/BleManager.java).
 Discovery precedes MTU optimization. Unsolicited MTU/discovery callbacks cannot
@@ -157,6 +163,30 @@ advance setup during bonding; optional MTU timeout falls back to small-packet
 bootstrap rather than disconnecting a valid bond. Connection/PHY optimization
 happens after binding. Details retains the last failure stage until setup succeeds.
 These changes affect connection setup, not steady-state pose cadence.
+
+### Diagnosing repeated number comparisons
+
+Reconnecting with valid OS bonds and restoring app trust work on the test devices.
+Removing Steam Frame in Android's Bluetooth settings while Frame retains its bond
+still reproducibly requires two number comparisons on the owner's headset. Opening
+GATT after bonding did not resolve this. The radio-level cause is not yet confirmed;
+passing lifecycle tests does not validate OS key replacement.
+
+After reproducing the first failure, open Android **Details → Share connection log**.
+The bounded in-memory log records bond transitions, pairing prompt variants, GATT
+errors and operation names. Android 16/API 36 also reports encryption transport
+(LE or Classic), status and missing-key events. Sharing opens Android's normal
+share sheet; nothing is uploaded automatically. Both failed and successful attempts
+are retained until the 48-entry limit or process restart. No comparison numbers,
+addresses, payloads, credentials or keys are recorded.
+
+On Frame, the existing **Activity log** and
+`~/.local/state/framephone/desktop.log` (or `$XDG_STATE_HOME/framephone/desktop.log`)
+record BlueZ's paired/bonded/connected state when a number is requested, explicit
+cancellations/rejections and the transport of the first protected setup read.
+These events help distinguish a second transport/security procedure from an app
+credential failure; they are not a raw radio capture. Diagnostic events do not
+change pairing decisions or delete OS bonds.
 
 ## Wire format
 

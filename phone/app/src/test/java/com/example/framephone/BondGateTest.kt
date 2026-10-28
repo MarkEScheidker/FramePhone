@@ -7,6 +7,45 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class BondGateTest {
+    @Test fun newBondCompletesBeforeGattIsOpened() {
+        val gate = BondGate()
+        assertEquals(CREATE_BOND, gate.prepare(NONE))
+        repeat(10) { assertEquals(WAIT, gate.prepare(NONE)) }
+        gate.changed(BONDING)
+        assertEquals(WAIT, gate.prepare(BONDING))
+        assertFalse(gate.ready)
+        assertEquals(RETRY, gate.changed(BONDED))
+        assertEquals(CONNECT, gate.prepare(NONE))
+        assertFalse(gate.ready)
+        assertEquals(NEGOTIATE, gate.connected(BONDED))
+        assertTrue(gate.ready)
+        assertEquals(WAIT, gate.prepare(BONDED))
+    }
+    @Test fun oneSidedUnpairRepairsWithoutReusingThePreviousGattConnection() {
+        val gate = BondGate()
+        assertEquals(CONNECT, gate.prepare(BONDED))
+        gate.connected(BONDED)
+        assertEquals(BLOCK, gate.changed(NONE))
+        gate.disconnected()
+        gate.retry()
+        assertEquals(CREATE_BOND, gate.prepare(NONE))
+        gate.changed(BONDING)
+        assertEquals(RETRY, gate.changed(BONDED))
+        assertEquals(CONNECT, gate.prepare(BONDED))
+        assertEquals(NEGOTIATE, gate.connected(BONDED))
+        gate.disconnected()
+        assertEquals(CONNECT, gate.prepare(BONDED))
+    }
+    @Test fun preflightJoinsAnExistingBondAndHonorsCancellation() {
+        val gate = BondGate()
+        assertEquals(WAIT, gate.prepare(BONDING))
+        assertTrue(gate.waiting)
+        assertEquals(BLOCK, gate.changed(NONE))
+        repeat(10) { assertEquals(BLOCK, gate.prepare(NONE)) }
+        gate.retry()
+        assertEquals(CREATE_BOND, gate.prepare(NONE))
+    }
+
     @Test fun setupWaitsForBondCompletionAndIgnoresDuplicates() {
         val gate = BondGate()
         assertEquals(CREATE_BOND, gate.connected(NONE))

@@ -26,6 +26,16 @@ async def check(address):
         def Address(self)->'s':return 'AA:BB:CC:DD:EE:FF'
         @dbus_property(access=PropertyAccess.READ)
         def Powered(self)->'b':return True
+    class Device(ServiceInterface):
+        def __init__(self):super().__init__('org.bluez.Device1')
+        @dbus_property(access=PropertyAccess.READ)
+        def Paired(self)->'b':return True
+        @dbus_property(access=PropertyAccess.READ)
+        def Bonded(self)->'b':return True
+        @dbus_property(access=PropertyAccess.READ)
+        def Connected(self)->'b':return True
+        @dbus_property(access=PropertyAccess.READ)
+        def ServicesResolved(self)->'b':return False
     class Manager(ServiceInterface):
         def __init__(self):super().__init__('org.bluez.GattManager1')
         @method()
@@ -50,10 +60,11 @@ async def check(address):
         def UnregisterAgent(self,path:'o'):
             assert path==remote['agent'];remote['unregistered'].add('agent')
     radio.export('/org/bluez',Agents())
+    radio.export('/org/bluez/hci0/dev_phone',Device())
     for interface in (Adapter(),Manager(),Advertising()):radio.export('/org/bluez/hci0',interface)
     with tempfile.TemporaryDirectory() as d:
-        events=[]
-        link=BluetoothLink(PairingStore(Path(d)/'pairing.json'),lambda *v:events.append(v))
+        events=[];diagnostics=[]
+        link=BluetoothLink(PairingStore(Path(d)/'pairing.json'),lambda *v:events.append(v),diagnostic=diagnostics.append)
         task=asyncio.create_task(link._serve())
         try:
             for _ in range(100):
@@ -97,10 +108,12 @@ async def check(address):
             await confirmation(False)
             await confirmation(True,phone_first=False)
             await confirmation(True,phone_first=True)
+            assert any('Paired=True Bonded=True Connected=True ServicesResolved=False' in line for line in diagnostics)
+            assert any('bond confirmation accepted=True' in line for line in diagnostics)
             try:await agent.call_request_authorization(device)
             except DBusError as error:assert error.type=='org.bluez.Error.Rejected'
             else:raise AssertionError('Just Works was silently accepted')
-            options={'device':Variant('o','/org/bluez/hci0/dev_phone')}
+            options={'device':Variant('o','/org/bluez/hci0/dev_phone'),'link':Variant('s','LE')}
             challenge=json.loads(await control.call_read_value(options))['challenge']
             for part in fragments(hello(challenge=challenge)):await control.call_write_value(part,options)
             ready=json.loads(await control.call_read_value(options));session=str(uuid.UUID(int=1));received=[]
@@ -110,6 +123,9 @@ async def check(address):
             pose=radio.get_proxy_object(name,base+'/service0/pose',await radio.introspect(name,base+'/service0/pose')).get_interface('org.bluez.GattCharacteristic1')
             await pose.call_write_value(GOLDEN,options)
             assert len(received)==1 and received[0][0]['seq']==17
+            assert any('protected setup read via LE' in line for line in diagnostics)
+            assert all('012345' not in line and 'dev_phone' not in line and challenge not in line and
+                       ready['token'] not in line and 'b'*64 not in line for line in diagnostics)
             async def propose(accepted, disconnected=False):
                 before=link.store.load()
                 challenge=json.loads(await control.call_read_value(options))['challenge']
