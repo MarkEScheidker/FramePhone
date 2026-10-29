@@ -215,6 +215,7 @@ class Telemetry:
         self.gaps, self.count, self.dropped = 0, 0, 0
         self.probes = deque(maxlen=30)
         self.offset_ns, self.rtt_ns = None, None
+        self.clock_rtt_limit_ns = 40_000_000
         self.arcore_enabled = profile.get("arcore_pose_v1") is True
         self.arcore_poses = deque(maxlen=90)
         self.arcore_received_ns = 0
@@ -355,14 +356,15 @@ class Telemetry:
         span = recent[-1]["t_ns"]-recent[0]["t_ns"] if len(recent)>1 else 0
         return {"schema": "framephone-arcore-v1", "session": self.session,
                 "clock_valid": bool(self.probes and 0 <= now-self.probes[-1][0] <= 10_000_000_000
-                                    and self.rtt_ns <= 40_000_000),
+                                    and self.rtt_ns <= self.clock_rtt_limit_ns),
                 "received_host_monotonic_ns": self.arcore_received_ns,
                 "pose_hz": (len(recent)-1)*1e9/span if span else 0,
                 "source_hz": (recent[-1]["seq"]-recent[0]["seq"])*1e9/span if span else 0,
                 "poses": mapped,
                 "gyro": [dict(host_t_ns=round(p["t_ns"]-self.offset_ns), w_rad_s=list(p["w_rad_s"]))
                          for p in list(self.gyro_history)[-64:]]
-                        if (self.offset_ns is not None and latest and latest["state"] == "tracking"
+                        if (self.offset_ns is not None and self.rtt_ns is not None and self.rtt_ns <= 40_000_000
+                            and latest and latest["state"] == "tracking"
                             and not latest["marker_required"] and "capture_t_ns" in latest) else []}
 
     def snapshot(self, now):
@@ -408,6 +410,9 @@ class PhoneLink:
 
     def start_bluetooth(self, profile):
         state = Telemetry(profile)
+        # BLE control polling can take longer than Wi-Fi. Preserve the stricter
+        # gyro prediction gate while allowing bounded timestamped pose handoff.
+        state.clock_rtt_limit_ns = 80_000_000
         with self.lock:
             self.telemetry = self.ble_telemetry = state
             self.profile = profile

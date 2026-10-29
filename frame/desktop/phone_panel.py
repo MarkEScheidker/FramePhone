@@ -228,6 +228,11 @@ class PhonePanel:
             transport = "Bluetooth LE" if snapshot.get("pose_transport") == "bluetooth" else "Wi-Fi backup"
             rtt = snapshot["rtt_ms"]
             clock = "clock syncing" if rtt is None else f"{'Bluetooth' if self.link.bluetooth_only else 'Wi-Fi'} RTT {rtt:.2f} ms"
+            if self.link.bluetooth_only and rtt is not None:
+                if rtt > 80:
+                    clock += " · clock too uncertain for tracking"
+                elif rtt > 40:
+                    clock += " · gyro prediction paused"
             self.health.set(f"Pose: {transport} · {clock} · {snapshot['dropped']} sensor samples dropped")
         else:
             for row in self.rows.values():

@@ -95,7 +95,7 @@ private class BleClient(private val context: Context, private val address: Strin
     private var flight: String? = null
     private var flightAt = 0L
     private var retryAt = 0L
-    private var readAt = 0L
+    private val controlReads = ControlReadSchedule()
     private var bindAt = 0L
     private var gyroAt = 0L
     private var lastGyro = 0L
@@ -108,7 +108,7 @@ private class BleClient(private val context: Context, private val address: Strin
     fun identity(context: SSLContext, identity: String, endpoint: String) { handler.post {
         tlsContext = context; pin = identity; host = endpoint
     } }
-    fun refreshRoute() { handler.post { sentHost = ""; readAt = 0 } }
+    fun refreshRoute() { handler.post { sentHost = ""; controlReads.reset() } }
     fun session(value: String?) { handler.post {
         if (standalone) return@post
         session = value; bound = false; gyroStream = false; lastPose = ""; bindAt = 0; lastGyro = 0
@@ -139,6 +139,7 @@ private class BleClient(private val context: Context, private val address: Strin
         writes.clear(); mtu = 23; bound = false; authenticated = false
         sentHost = ""; lastPose = ""; nonce = ""
         gyroStream = false; gyroAt = 0; lastGyro = 0
+        controlReads.reset()
         standalone = false; session = null; markerAt = 0; sensorAt = 0
         phoneApproved = false; frameApproved = false; credentialSent = false
         if (!closed) BluetoothPose.verification = null
@@ -302,6 +303,7 @@ private class BleClient(private val context: Context, private val address: Strin
             else {
                 tls!!.receive(bytes).forEach { message(it) }
                 flush()
+                controlReads.completed(SystemClock.elapsedRealtime(), authenticated, standalone)
             }
         } }
         override fun onCharacteristicRead(value: BluetoothGatt, characteristic: BluetoothGattCharacteristic, status: Int) =
@@ -349,6 +351,7 @@ private class BleClient(private val context: Context, private val address: Strin
                 operation = "TLS setup"
                 if (control != null && tls == null && tlsContext != null) tls = BluetoothTls(tlsContext!!)
                 if (flight == null && control != null && tls != null) {
+                    val yieldedRead = controlReads.mustYield()
                     if (writes.isNotEmpty()) {
                         operation = "Bluetooth write"
                         begin("write")
@@ -360,9 +363,8 @@ private class BleClient(private val context: Context, private val address: Strin
                         operation = "secure session binding"
                         bindAt = now+500
                         send(JSONObject().put("op", "bind").put("session", session))
-                    } else if (!blocked && now >= readAt) {
+                    } else if (!blocked && controlReads.shouldRead(now)) {
                         operation = "Bluetooth read"
-                        readAt = now+if (authenticated && standalone) 20 else if (authenticated) 500 else 100
                         begin("read")
                         if (gatt?.readCharacteristic(control) != true) fail("Bluetooth read busy")
                     } else if (!blocked && standalone && bound && now >= markerAt) {
@@ -406,6 +408,7 @@ private class BleClient(private val context: Context, private val address: Strin
                             }
                         }
                     }
+                    if (yieldedRead) controlReads.outgoingTurn()
                 }
             }.onFailure { fail("Secure Bluetooth failed during $operation (${it.javaClass.simpleName})") }
             handler.postDelayed(this, if (isBound() || writes.isNotEmpty()) 4 else 50)

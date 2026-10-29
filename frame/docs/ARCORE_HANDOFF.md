@@ -157,6 +157,12 @@ Compatible Bluetooth peers also send recent gyro samples between ARCore poses;
 the phone aims for batches no more often than every 10 ms. Sample delivery and
 renderer cadence are hardware-dependent and do not imply 200 Hz display updates.
 
+The Bluetooth-only clock permits up to 80 ms round-trip time for pose handoff;
+Wi-Fi remains limited to 40 ms. Higher Bluetooth RTT implies greater uncertainty
+in the phone-to-headset clock offset and can reduce alignment accuracy during
+motion. Gyro prediction remains disabled when clock RTT exceeds 40 ms. The
+dashboard reports when gyro prediction is paused or clock timing is too uncertain.
+
 Between ARCore frames the renderer predicts rotation using bias-corrected gyro
 samples after the verified camera exposure time. Missing/old samples, unknown
 clock epochs or gaps disable this correction. Integration is capped at 80 ms

@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
@@ -93,6 +94,28 @@ class ArcoreLinkTests(unittest.TestCase):
                        {"capture_t_ns": 700_000_000, "capture_time_source": "camera2_realtime_center_exposure"}):
             with self.assertRaises(ValueError):
                 self.telemetry().receive(dict(pose_message(), **fields), 2_000_000_000)
+
+    def test_bluetooth_clock_allows_64ms_rtt_but_disables_gyro_prediction(self):
+        radio = SimpleNamespace(authorize=lambda *_: None, send_tracking=lambda *_: False, revoke=lambda *_: None)
+        link = PhoneLink(None, None, None, bluetooth=radio)
+        link.start_bluetooth(dict(profile(), arcore_pose_v1=True))
+        try:
+            state = link.telemetry
+            h0 = 1_900_000_000
+            state.clock_reply(dict(session='test-session', h0=h0, p1=h0+32_000_000,
+                                   p2=h0+32_000_000), h0+64_000_000, {h0})
+            state.receive(dict(pose_message(), marker_required=False, capture_t_ns=980_000_000,
+                               capture_time_source='camera2_realtime_center_exposure'), 2_000_000_000)
+            state.gyro_history.append(dict(t_ns=1_000_000_000, w_rad_s=[1, 0, 0]))
+            packet = state.pose_packet(2_000_000_000)
+            self.assertTrue(packet['clock_valid'])
+            self.assertEqual(packet['gyro'], [], 'high RTT must not enable IMU prediction')
+            state.probes.clear()
+            state.clock_reply(dict(session='test-session', h0=h0, p1=h0+41_000_000,
+                                   p2=h0+41_000_000), h0+82_000_000, {h0})
+            self.assertFalse(state.pose_packet(2_000_000_000)['clock_valid'])
+        finally:
+            link.stop()
 
     def test_source_sequence_rate_distinguishes_skipped_delivery(self):
         state = self.telemetry()
