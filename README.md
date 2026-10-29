@@ -2,7 +2,7 @@
 
 An experimental Android companion for Valve Steam Frame. The phone shows one
 screen-width AprilTag overlay when alignment is needed and sends motion telemetry
-over a Bluetooth companion connection with pinned Wi-Fi control and fallback.
+over an authenticated Bluetooth companion connection.
 Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An automatic SteamVR display follows the tracked
 screen as a flat rectangle.
@@ -29,27 +29,26 @@ in file Properties. Runtime libraries, desktop controls and the camera broker ar
 bundled. Docker/Podman is required only for building; Frametop is not required.
 The app uses the headset's installed SteamVR for its automatic VR display.
 
-1. Enable Bluetooth and Wi-Fi on both devices; launch FramePhone on Frame first.
+1. Enable Bluetooth on both devices; launch FramePhone on Frame first.
    Bluetooth advertising starts automatically; camera processing waits for the
    phone marker. Approve desktop camera authorization if prompted.
 2. On Android enter width and height and tap **Pair headset**. Grant Bluetooth,
    notification, camera and overlay access. Select **Steam Frame** in Android's
    companion picker and accept Android's Pair prompt if shown. Bluetooth bonding
    uses no verification code. After bonding, compare the hash shown in both apps
-   and select **Hashes match on both devices**. App keys and the Wi-Fi route then
-   travel through TLS over Bluetooth; Frame connects automatically. Use **Forget**
+   and select **Hashes match on both devices**. App keys and tracking messages
+   travel through TLS over Bluetooth. Use **Forget**
    in either app to require a fresh hash exchange, keeping the OS bond if desired.
 3. Briefly show the automatic marker to the front cameras. After alignment the
-   marker hides and ARCore drives the VR rectangle. Live poses use Bluetooth LE,
-   with Wi-Fi diagnostics/control and a backup pose path.
+   marker hides and ARCore drives the VR rectangle over Bluetooth LE.
 4. Subsequent headset advertisements can wake Android's connection service
    without opening setup. If Android requires user action to restart its camera,
    tap **Resume tracking** in the notification. **Disconnect** disables automatic
    phone reconnection until Connect is used again.
 
 See [Bluetooth setup and limits](frame/docs/BLUETOOTH.md), including migration
-of existing Wi-Fi pairings. Bluetooth is the only pairing path; Wi-Fi connects
-and retries automatically, including on phone screen-on/unlock if disconnected.
+of existing Wi-Fi pairings. Updated peers use Bluetooth for the tracking session;
+older peers retain the Wi-Fi-based control path.
 Actual radio latency and cold background behavior require device testing;
 smoothing delay is separate.
 

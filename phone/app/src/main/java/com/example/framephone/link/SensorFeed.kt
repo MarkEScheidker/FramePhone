@@ -72,6 +72,15 @@ class SensorFeed(context: Context) : SensorEventListener {
         JSONObject().put("type", "samples").put("session", session)
             .put("dropped", dropped).put("samples", samples)
     }
+    fun latestBatch(session: String): JSONObject = synchronized(queue) {
+        val latest = mutableMapOf<String, JSONObject>()
+        while (queue.isNotEmpty()) {
+            val sample = queue.removeFirst()
+            latest[sample.getString("sensor")] = sample
+        }
+        JSONObject().put("type", "samples").put("session", session)
+            .put("dropped", dropped).put("samples", JSONArray(latest.values.toList()))
+    }
     fun close() {
         manager.unregisterListener(this)
         worker.quitSafely()

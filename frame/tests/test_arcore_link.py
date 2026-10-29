@@ -102,6 +102,42 @@ class ArcoreLinkTests(unittest.TestCase):
         self.assertEqual(packet["pose_hz"], 50)
         self.assertEqual(packet["source_hz"], 100)
 
+    def test_independent_gyro_requires_fresh_matching_tracking_pose(self):
+        state = self.telemetry()
+        link = PhoneLink(None, None, None)
+        link.ble_telemetry = state
+        pose = dict(pose_message(), marker_required=False)
+        link.receive_bluetooth(pose, [], 2_000_000_000)
+        message = dict(type='gyro_samples', session='test-session', generation='anchor-1', acquisition='scan-1')
+        samples = [dict(t_ns=1_005_000_000, w_rad_s=[.1, .2, .3]),
+                   dict(t_ns=1_010_000_000, w_rad_s=[.2, .3, .4])]
+        link.receive_bluetooth(message, samples, 2_010_000_000)
+        link.receive_bluetooth(message, samples, 2_020_000_000)
+        self.assertEqual(len(state.gyro_history), 2, 'overlapping batches must not duplicate samples')
+        self.assertEqual(state.arcore_received_ns, 2_000_000_000, 'gyro must not refresh the ARCore pose')
+        self.assertEqual(state.arcore_poses[-1]['seq'], 1)
+        new = [dict(t_ns=1_020_000_000, w_rad_s=[0, 0, 0])]
+        for bad in (dict(message, session='other'), dict(message, generation='old'),
+                    dict(message, acquisition='old')):
+            link.receive_bluetooth(bad, new, 2_030_000_000)
+        link.receive_bluetooth(message, new, 2_150_000_001)
+        self.assertEqual(len(state.gyro_history), 2)
+
+    def test_bluetooth_diagnostics_do_not_skip_inertial_samples(self):
+        from test_phone_link import batch
+        state = self.telemetry()
+        link = PhoneLink(None, None, None)
+        link.telemetry = link.ble_telemetry = state
+        link.bluetooth_only = True
+        state.receive(dict(pose_message(), marker_required=False), 2_000_000_000)
+        link.receive_bluetooth(batch(timestamp=1_020_000_000), [], 2_020_000_000)
+        self.assertFalse(state.gyro_history)
+        message = dict(type='gyro_samples', session='test-session', generation='anchor-1', acquisition='scan-1')
+        samples = [dict(t_ns=1_005_000_000, w_rad_s=[.1, .2, .3]),
+                   dict(t_ns=1_010_000_000, w_rad_s=[.2, .3, .4])]
+        link.receive_bluetooth(message, samples, 2_030_000_000)
+        self.assertEqual([sample['t_ns'] for sample in state.gyro_history], [1_005_000_000, 1_010_000_000])
+
     def test_malformed_unannounced_reordered_poses_rejected(self):
         with self.assertRaises(ValueError):
             Telemetry(profile()).receive(pose_message(), 2_000_000_000)

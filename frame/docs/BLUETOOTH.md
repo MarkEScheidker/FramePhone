@@ -14,9 +14,9 @@ users approve. All application messages and motion packets travel inside TLS.
 3. After OS bonding completes, both apps display the same hash. Compare the whole
    hash and select **Hashes match on both devices**. Either may approve first;
    the hash remains visible until enrollment completes. Reject cancels setup.
-4. Only then is the application credential saved. The phone sends its LAN route
-   over the verified TLS connection, and Frame connects over pinned Wi-Fi TLS.
-   Both devices must already be on the same reachable network.
+4. Only then is the application credential saved. Compatible peers establish
+   their tracking session directly over the verified Bluetooth TLS connection;
+   a Wi-Fi network is not needed.
 5. Later connections authenticate using the saved certificate and credential.
    There is no new hash prompt during an ordinary reconnect.
 
@@ -61,7 +61,7 @@ On reconnect, Frame compares the TLS certificate with its saved pin **before
 sending its credential**. Android authenticates the credential. If either app
 forgot its trust or the certificate changed, a new hash exchange is required;
 trust is never silently replaced. A rejected exchange preserves existing trust.
-BLE pose delivery also requires binding to the exact authenticated Wi-Fi session.
+BLE pose delivery also requires binding to the authenticated tracking session.
 
 The radio address only limits which remembered phone can reconnect. It is not
 used as cryptographic identity. The Bluetooth bond may survive an application
@@ -106,21 +106,40 @@ carry TLS bytes directly when they fit the negotiated MTU; larger TLS output use
 the same control fragmentation. TLS supplies integrity and replay protection.
 
 Inside TLS, each application message is a big-endian uint32 length, a one-byte
-type, then payload. Type 0 is JSON control; type 1 is the existing binary pose
-packet. Messages are bounded to 64 KiB. The control exchange is:
+type, then payload. Type 0 is JSON control; type 1 is the binary pose packet;
+type 2 is a gyro batch. Messages are bounded to 64 KiB. The control exchange is:
 
 - `hello` / `verification` / `confirm`: nonce exchange and explicit hash consent.
 - `paired` / `enrolled` / `ready`: credential exchange, durable acknowledgment,
   and successful app authentication. Reconnect uses `hello(mode=reconnect)`.
 - `route`: a refreshed LAN address, accepted only after authentication.
-- `bind` / `bound`: association with the authenticated Wi-Fi session UUID.
+- `tracking_profile` / `tracking`: Bluetooth session profile and clock, marker,
+  wearer and alignment messages when standalone tracking is negotiated.
+- `bind` / `bound`: association with the authenticated tracking session UUID; a
+  `gyro_stream` capability in the response enables independent gyro batches.
 
 The binary pose format remains `FPBT` version 1: state/reason, session/generation/
 acquisition UUIDs, sequence and timestamps, translation, quaternion, and up to 19
 bias-corrected gyro samples. Original phone clocks and source sequences remain
 intact. The exact count fits the negotiated MTU after TLS overhead. Small MTUs
-complete setup normally and use Wi-Fi for motion. The latest unsent pose replaces
+fragment pose messages over the control characteristic. The latest unsent pose replaces
 older motion; there is no application pose FIFO.
+
+When negotiated, a type 2 `FPIM` version 1 packet carries session, generation
+and acquisition UUIDs, a sample count, and up to 19 timestamped gyro vectors in
+the same little-endian format as the pose packet. While tracking is active, the
+phone sends recent samples at intervals of at least 10 ms, with a short overlap
+so missed batches can be recovered. The receiver deduplicates samples and accepts
+them only for the current authenticated session and fresh tracking acquisition;
+gyro traffic never refreshes a pose timestamp. Actual radio and renderer rates
+depend on the devices. Older peers continue using gyro samples in pose packets
+and the previous Wi-Fi session path. Standalone tracking does not currently
+switch to Wi-Fi if Bluetooth disconnects.
+
+Standalone sensor diagnostics send the latest raw reading for each available
+sensor twice per second. The higher-rate gyro batches are separate and continue
+to support rotation prediction. At small MTUs, fragmented poses can arrive too
+slowly for tracking even though the connection itself succeeds.
 
 ## Background behavior and validation
 

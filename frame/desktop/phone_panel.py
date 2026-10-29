@@ -168,6 +168,21 @@ class PhonePanel:
                     self.answer_pairing(False)
             elif kind == "bluetooth_replaced":
                 self.disconnect()
+            elif kind == "bluetooth_tracking_profile":
+                if self.closed or self.forget_pending:
+                    continue
+                try:
+                    self.disconnect()
+                    self.link = PhoneLink(self.store, self.notify, lambda *_: False, bluetooth=self.bluetooth)
+                    self.link.start_bluetooth(value)
+                    self.status.set("Bluetooth tracking connected")
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    self.status.set("Bluetooth tracking unavailable: " + str(error))
+            elif kind == "bluetooth_tracking_lost":
+                if self.link and self.link.bluetooth_only:
+                    self.link.stop()
+                    self.link = None
+                    self.status.set("Waiting for phone over Bluetooth…")
             elif kind == "bluetooth_endpoint":
                 try:
                     if not self.closed and not self.forget_pending and self.store.load():
@@ -212,7 +227,7 @@ class PhonePanel:
                 self.rows[name].set(text)
             transport = "Bluetooth LE" if snapshot.get("pose_transport") == "bluetooth" else "Wi-Fi backup"
             rtt = snapshot["rtt_ms"]
-            clock = "clock syncing" if rtt is None else f"Wi-Fi RTT {rtt:.2f} ms"
+            clock = "clock syncing" if rtt is None else f"{'Bluetooth' if self.link.bluetooth_only else 'Wi-Fi'} RTT {rtt:.2f} ms"
             self.health.set(f"Pose: {transport} · {clock} · {snapshot['dropped']} sensor samples dropped")
         else:
             for row in self.rows.values():

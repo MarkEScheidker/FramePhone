@@ -12,8 +12,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'desktop'))
 from bluetooth_link import BluetoothLink
 from bluetooth_protocol import ControlFragments
 from bluetooth_tls import TlsStream, verification_code
-from phone_link import PairingStore
+from phone_link import PairingStore, PhoneLink
 import test_phone_link as fixtures
+import time
 
 ADDRESS = '11:22:33:44:55:66'
 DEVICE = '/org/bluez/hci0/dev_phone'
@@ -21,8 +22,9 @@ CREDENTIAL = 'b'*64
 
 
 class Connection:
-    def __init__(self, link, credential=None):
+    def __init__(self, link, credential=None, standalone=False):
         self.link, self.credential = link, credential
+        self.standalone = standalone
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(str(fixtures.TLSTests.root/'cert.pem'), str(fixtures.TLSTests.root/'key.pem'))
         self.tls = TlsStream(context, server=True)
@@ -46,12 +48,14 @@ class Connection:
                     self.code = verification_code(fixtures.TLSTests.pin, message['nonce'], self.nonce)
                     self.send(op='verification', nonce=self.nonce)
                 elif message['credential'] == self.credential:
-                    self.send(op='ready', host='192.168.1.10')
+                    self.send(op='ready', host='' if self.standalone else '192.168.1.10',
+                              standalone_tracking=self.standalone)
                 else:
                     self.send(op='pair_required')
             elif message['op'] == 'enrolled':
                 self.credential = CREDENTIAL
-                self.send(op='ready', host='192.168.1.10')
+                self.send(op='ready', host='' if self.standalone else '192.168.1.10',
+                          standalone_tracking=self.standalone)
         data = self.tls.take(32768)
         if data:
             self.wire.extend(data)
@@ -89,8 +93,8 @@ class BluetoothTlsTests(unittest.TestCase):
         self.link = BluetoothLink(self.store, lambda *event: self.events.append(event))
     def tearDown(self): self.temp.cleanup()
 
-    def enroll(self):
-        connection = Connection(self.link)
+    def enroll(self, standalone=False):
+        connection = Connection(self.link, standalone=standalone)
         connection.until(lambda: self.link.pairing is not None)
         self.assertEqual(connection.code, self.link.pairing['code'])
         self.assertIsNone(self.store.load())
@@ -229,6 +233,7 @@ class BluetoothTlsTests(unittest.TestCase):
         self.link.authorize(session, lambda *values: received.append(values))
         connection.send(op='bind', session=session)
         connection.until(lambda: self.link.peer.bound_session == session)
+        self.assertTrue(next(m for m in reversed(connection.messages) if m['op'] == 'bound')['gyro_stream'])
         packet = struct.pack('<4sBBBB16s16s16sQQQQ7f', b'FPBT', 1, 0, 0, 0,
             uuid.UUID(session).bytes, uuid.UUID(int=2).bytes, uuid.UUID(int=3).bytes,
             1, 1000, 900, 0, 0, 0, -.4, 0, 0, 0, 1)
@@ -236,6 +241,71 @@ class BluetoothTlsTests(unittest.TestCase):
         connection.until(lambda: bool(received))
         self.assertEqual(received[0][0]['seq'], 1)
         self.assertAlmostEqual(received[0][0]['translation_m'][2], -.4)
+        gyro = struct.pack('<4sB16s16s16sBQ3f', b'FPIM', 1, uuid.UUID(session).bytes,
+                           uuid.UUID(int=2).bytes, uuid.UUID(int=3).bytes, 1, 1010, .1, .2, .3)
+        connection.tls.send(b'\2'+gyro)
+        connection.until(lambda: len(received) == 2)
+        self.assertEqual(received[1][0]['type'], 'gyro_samples')
+        self.assertEqual(received[1][1][0]['t_ns'], 1010)
+        self.assertNotIn(gyro, connection.wire)
+        wrong_session = bytearray(gyro)
+        wrong_session[5:21] = uuid.UUID(int=5).bytes
+        connection.tls.send(b'\2'+wrong_session)
+        with self.assertRaises(ValueError): connection.step()
+
+    def test_gyro_packet_validation(self):
+        from bluetooth_protocol import decode_gyro
+        ids = uuid.UUID(int=1).bytes*3
+        packet = struct.pack('<4sB16s16s16sBQ3f', b'FPIM', 1, ids[:16], ids[16:32], ids[32:], 1, 9, 0, 0, 1)
+        self.assertEqual(decode_gyro(packet)[1][0]['t_ns'], 9)
+        for bad in (packet[:-1], packet[:4]+b'\2'+packet[5:],
+                    packet[:-4]+struct.pack('<f', float('nan'))):
+            with self.assertRaises(ValueError): decode_gyro(bad)
+
+    def test_tracking_session_operates_without_a_wifi_socket(self):
+        connection = self.enroll(standalone=True)
+        session = str(uuid.UUID(int=7))
+        fiducial = dict(family='tag36h11', id=0, black_edge_m=.06, origin='black_square_center',
+                        axes='right_up_front', size_source='android_display_dpi',
+                        screen_width_px=1080, screen_height_px=2400, black_edge_px=864)
+        profile = dict(fixtures.profile(), session=session, arcore_pose_v1=True, fiducial=fiducial,
+                       headset_presence_v1=True, automatic_marker_v1=True)
+        self.assertFalse(any(kind == 'bluetooth_endpoint' for kind, _ in self.events))
+        connection.send(op='tracking_profile', profile=profile)
+        connection.until(lambda: any(kind == 'bluetooth_tracking_profile' for kind, _ in self.events))
+        phone = PhoneLink(self.store, lambda *_: None, lambda *_: False, bluetooth=self.link)
+        phone.start_bluetooth(profile)
+        connection.send(op='bind', session=session)
+        connection.until(lambda: self.link.peer.bound_session == session)
+        now = time.monotonic_ns()
+        phone.headset_presence(True, now)
+        phone.pump_bluetooth()
+        connection.until(lambda: any(m.get('op') == 'tracking' and m['message']['type'] == 'ping'
+                                     for m in connection.messages))
+        ping = next(m['message'] for m in connection.messages
+                    if m.get('op') == 'tracking' and m['message']['type'] == 'ping')
+        connection.send(op='tracking', message=dict(type='pong', session=session, h0=ping['h0'],
+                                                   p1=ping['h0'], p2=ping['h0']))
+        connection.send(op='tracking', message=dict(type='marker_state', session=session, displayed=True,
+                                                   fiducial=fiducial))
+        connection.until(lambda: phone.telemetry.marker_state_ns is not None and phone.telemetry.rtt_ns is not None)
+        self.assertTrue(phone.snapshot()['marker_state_fresh'])
+        self.assertTrue(phone.snapshot()['marker_displayed'])
+        stamp = time.monotonic_ns()
+        packet = struct.pack('<4sBBBB16s16s16sQQQQ7f', b'FPBT', 1, 0, 0, 0,
+            uuid.UUID(session).bytes, uuid.UUID(int=2).bytes, uuid.UUID(int=3).bytes,
+            1, stamp, stamp, 0, 0, 0, -.4, 0, 0, 0, 1)
+        connection.tls.send(b'\1'+packet)
+        connection.until(lambda: bool(phone.telemetry.arcore_poses))
+        self.assertIsNone(phone.sock)
+        self.assertTrue(phone.pose_packet()['clock_valid'])
+        self.assertTrue(phone.alignment_command('alignment_accepted', str(uuid.UUID(int=2)), str(uuid.UUID(int=3))))
+        phone.pump_bluetooth()
+        connection.until(lambda: any(m.get('op') == 'tracking' and m['message']['type'] == 'alignment_accepted'
+                                     for m in connection.messages))
+        self.link.disconnected(DEVICE)
+        self.assertTrue(any(kind == 'bluetooth_tracking_lost' for kind, _ in self.events))
+        phone.stop()
 
     def test_fragment_bounds_and_order(self):
         fragments = ControlFragments()

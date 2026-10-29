@@ -9,7 +9,7 @@ import threading
 import time
 import uuid
 
-from bluetooth_protocol import SERVICE, CONTROL, POSE, ControlFragments, decode_pose
+from bluetooth_protocol import SERVICE, CONTROL, POSE, ControlFragments, decode_pose, decode_gyro
 from bluetooth_tls import TlsStream, verification_code
 
 
@@ -27,6 +27,7 @@ class Peer:
         self.nonce = ''
         self.mode = None
         self.bound_session = None
+        self.standalone = False
         self.snapshot = b''
         self.deadline = time.monotonic()+120
 
@@ -64,6 +65,19 @@ class BluetoothLink:
                 if self.peer:
                     self.peer.bound_session = None
 
+    def send_tracking(self, message):
+        with self.lock:
+            peer = self.peer
+            if not peer or not peer.authenticated or not peer.standalone or not self.expected:
+                return False
+            if message.get('session') != self.expected[0] or peer.bound_session != self.expected[0]:
+                return False
+            try:
+                peer.tls.send_json(dict(op='tracking', message=message))
+            except ValueError:
+                return False
+            return True
+
     def _clear_prompt(self):
         if self.pairing:
             request, self.pairing = self.pairing, None
@@ -86,6 +100,8 @@ class BluetoothLink:
             if not ((self.peer and self.peer.device == device) or (self.candidate and self.candidate[0] == device)):
                 return
             if self.peer and self.peer.device == device:
+                if self.peer.standalone:
+                    self.notify('bluetooth_tracking_lost', None)
                 self._clear_prompt()
                 self.peer = None
             self.fragments.pending.pop(device, None)
@@ -124,16 +140,16 @@ class BluetoothLink:
                 # A stored pin is checked before its credential ever enters TLS.
                 if saved and hmac.compare_digest(saved['pin'], peer.tls.pin):
                     peer.mode = 'reconnect'
-                    peer.tls.send_json(dict(op='hello', version=2, mode='reconnect', credential=saved['credential']))
+                    peer.tls.send_json(dict(op='hello', version=2, mode='reconnect', credential=saved['credential'], standalone_tracking=True))
                 else:
                     self._begin_pairing(peer)
             for message in messages:
                 if not message:
                     raise ValueError('Empty Bluetooth TLS message')
-                if message[0] == 1:
+                if message[0] in (1, 2):
                     if not peer.authenticated or not self.expected or peer.bound_session != self.expected[0]:
                         raise ValueError('Unverified Bluetooth pose')
-                    pose, gyro = decode_pose(message[1:])
+                    pose, gyro = (decode_pose if message[0] == 1 else decode_gyro)(message[1:])
                     if pose['session'] != peer.bound_session:
                         raise ValueError('Bluetooth pose belongs to another session')
                     self.expected[1](pose, gyro, time.monotonic_ns())
@@ -147,7 +163,7 @@ class BluetoothLink:
         peer.bound_session = None
         peer.nonce = os.urandom(32).hex()
         peer.mode = 'pair'
-        peer.tls.send_json(dict(op='hello', version=2, mode='pair', nonce=peer.nonce))
+        peer.tls.send_json(dict(op='hello', version=2, mode='pair', nonce=peer.nonce, standalone_tracking=True))
 
     def _message(self, peer, message):
         if not isinstance(message, dict):
@@ -186,15 +202,26 @@ class BluetoothLink:
             if not saved or saved['pin'] != peer.tls.pin:
                 raise ValueError('Pairing not verified')
             peer.authenticated = True
-            self.status = 'Bluetooth secure — waiting for Wi-Fi'
+            peer.standalone = message.get('standalone_tracking') is True
+            self.status = 'Bluetooth secure — starting tracking' if peer.standalone else 'Bluetooth secure — waiting for Wi-Fi'
             self._route(peer, message.get('host', ''))
+        elif op == 'tracking_profile' and peer.authenticated and peer.standalone:
+            profile = message.get('profile')
+            if not isinstance(profile, dict):
+                raise ValueError('Invalid Bluetooth tracking profile')
+            self.notify('bluetooth_tracking_profile', profile)
+        elif op == 'tracking' and peer.authenticated and peer.standalone and self.expected:
+            data = message.get('message')
+            if not isinstance(data, dict) or data.get('session') != self.expected[0] or peer.bound_session != self.expected[0]:
+                raise ValueError('Invalid Bluetooth tracking session')
+            self.expected[1](data, [], time.monotonic_ns())
         elif op == 'route' and peer.authenticated:
             self._route(peer, message.get('host', ''))
         elif op == 'bind' and peer.authenticated:
             session = str(uuid.UUID(message['session']))
             accepted = bool(self.expected and self.expected[0] == session)
             peer.bound_session = session if accepted else None
-            peer.tls.send_json(dict(op='bound', accepted=accepted, session=session))
+            peer.tls.send_json(dict(op='bound', accepted=accepted, session=session, gyro_stream=True))
             if accepted:
                 self.status = 'Tracking over encrypted Bluetooth'
         else:
@@ -211,7 +238,8 @@ class BluetoothLink:
             raise ValueError('Pairing changed')
         saved.update(host=host, bluetooth_address=peer.address)
         self.store.save(saved)
-        self.notify('bluetooth_endpoint', host)
+        if not peer.standalone:
+            self.notify('bluetooth_endpoint', host)
 
     def poll(self):
         with self.lock:
@@ -444,6 +472,8 @@ class BluetoothLink:
             self._disconnect_radio = None
             with owner.lock:
                 owner._clear_prompt()
+                if owner.peer and owner.peer.standalone:
+                    owner.notify('bluetooth_tracking_lost', None)
                 owner.peer = owner.candidate = None
                 owner.fragments = ControlFragments()
             for unregister, path in reversed(managers):

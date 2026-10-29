@@ -22,7 +22,7 @@ class PoseSmoothing {
         const double seconds = double(now - stamp_) / 1e9;
         stamp_ = now;
         const auto motion = log_rotation(compose(inverse(raw_), target));
-        const double derivative_alpha = alpha(1., seconds);
+        const double derivative_alpha = alpha(2., seconds);
         for (int k = 0; k < 3; ++k) {
             velocity_[k] +=
                 derivative_alpha * ((target[k * 4 + 3] - raw_[k * 4 + 3]) / seconds - velocity_[k]);
@@ -32,10 +32,9 @@ class PoseSmoothing {
         const double speed = std::hypot(velocity_[0], velocity_[1], velocity_[2]);
         const double spin =
             std::hypot(angular_velocity_[0], angular_velocity_[1], angular_velocity_[2]);
-        // Resting time constants ~106/133ms; motion still retains >=40ms of
-        // smoothing. The owner explicitly prefers steadiness over minimal lag.
-        const double position_alpha = alpha(std::min(4., 1.5 + speed), seconds);
-        const double rotation_alpha = alpha(std::min(4., 1.2 + .6 * spin), seconds);
+        // Favor the measured ARCore pose while retaining light, adaptive smoothing.
+        const double position_alpha = alpha(std::min(10., 4. + 2. * speed), seconds);
+        const double rotation_alpha = alpha(std::min(10., 3.5 + 1.2 * spin), seconds);
         const auto error = log_rotation(compose(inverse(*previous_), target));
         auto out = compose(*previous_, angular_step(error, rotation_alpha));
         for (int k = 0; k < 3; ++k)

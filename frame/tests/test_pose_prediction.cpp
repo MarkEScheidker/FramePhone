@@ -86,7 +86,7 @@ int main() {
                 check(std::abs(compose(inverse(smoothed), smoothed)[0] - 1) < 1e-10,
                       "smoothing must preserve rigid rotation");
             }
-            check(error / hz < .0005, "stationary jitter should be reduced");
+            check(error / hz < .001, "stationary jitter should be reduced");
             filter.reset();
             target = identity();
             filter.update(target, t);
@@ -94,8 +94,20 @@ int main() {
                 target[3] += 1. / hz;
                 t += 1'000'000'000 / hz;
                 const auto smoothed = filter.update(target, t);
-                check(target[3] - smoothed[3] < .085,
-                      "motion lag must stay bounded despite stronger smoothing");
+                check(target[3] - smoothed[3] < .045,
+                      "motion lag must stay bounded with light smoothing");
+            }
+            filter.reset();
+            target = identity();
+            filter.update(target, t);
+            for (unsigned i = 1; i <= hz; ++i) {
+                target = angular_step({0, 0, 1}, double(i) / hz);
+                t += 1'000'000'000 / hz;
+                const auto smoothed = filter.update(target, t);
+                const auto delta = compose(inverse(smoothed), target);
+                const double error =
+                    std::acos(std::clamp((delta[0] + delta[5] + delta[10] - 1) / 2, -1., 1.));
+                check(error < .055, "rotational lag must stay bounded with light smoothing");
             }
             filter.reset();
             target[3] = 10;
@@ -119,7 +131,7 @@ int main() {
                 if (tick >= 90)
                     jitter += std::abs(smoothed[3]);
             }
-            check(jitter / 90 < .0013, "sparse pose arrivals must not bypass smoothing");
+            check(jitter / 90 < .0022, "sparse pose arrivals must still be smoothed");
         }
         data = packet(stamp, 0, 0);
         data["poses"] = Json::array();

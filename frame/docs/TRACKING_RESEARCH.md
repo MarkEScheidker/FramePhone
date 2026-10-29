@@ -31,9 +31,9 @@ findings; they do not establish that every observed wobble has this cause.
 The [1 Euro filter](https://gery.casiez.net/1euro/) provides a suitable pattern:
 filter the derivative, then adapt the signal cutoff to speed. FramePhone now uses
 that principle for translation and SO(3) rotation, with signed derivative filtering
-at 1 Hz. Position cutoff starts at 1.5 Hz; rotation at 1.2 Hz. Motion raises either
-to at most 4 Hz. These engineering defaults deliberately add roughly 40–133 ms of
-filter time constant, not a guaranteed end-to-end delay.
+at 2 Hz. Position cutoff starts at 4 Hz; rotation at 3.5 Hz. Motion raises either
+to at most 10 Hz. These settings correspond to roughly 16–45 ms of filter time
+constant, not a guaranteed end-to-end delay.
 
 Velocity now fits up to six measured poses within 100 ms, requiring three samples
 and at least 20 ms span. Large fit residuals disable translation prediction.

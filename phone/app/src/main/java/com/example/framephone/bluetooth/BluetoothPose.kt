@@ -14,9 +14,13 @@ import android.os.HandlerThread
 import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import com.example.framephone.SettingsStore
+import com.example.framephone.Fiducial
+import com.example.framephone.link.SensorFeed
+import com.example.framephone.tracking.ArPoseState
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.ArrayDeque
+import java.util.UUID
 import javax.net.ssl.SSLContext
 
 /** Bluetooth is a byte transport. TLS and explicit hash approval establish app trust. */
@@ -31,10 +35,11 @@ object BluetoothPose {
     private var client: BleClient? = null
     private val gyro = ArrayDeque<BleProtocol.Gyro>()
 
-    @Synchronized fun start(context: Context, latest: (String) -> JSONObject?, bondLost: () -> Unit = {}) {
+    @Synchronized fun start(context: Context, latest: (String) -> JSONObject?, bondLost: () -> Unit = {},
+                            trackingChanged: (Boolean) -> Unit = {}) {
         if (client != null || context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) return
         val address = SettingsStore(context).bluetoothAddress() ?: return
-        client = BleClient(context.applicationContext, address, latest, bondLost)
+        client = BleClient(context.applicationContext, address, latest, bondLost, trackingChanged)
     }
     @Synchronized fun close() {
         client?.close(); client = null; verification = null
@@ -46,6 +51,7 @@ object BluetoothPose {
     @Synchronized fun confirm(id: String, accepted: Boolean) { client?.confirm(id, accepted) }
     @Synchronized fun session(value: String?) { client?.session(value) }
     @Synchronized fun isBound() = client?.isBound() == true
+    @Synchronized fun standalone() = client?.isStandalone() == true
     fun gyro(time: Long, value: FloatArray) {
         if (value.size != 3 || value.any { !it.isFinite() } || value.sumOf { it.toDouble()*it } > 1225) return
         synchronized(gyro) {
@@ -60,12 +66,16 @@ object BluetoothPose {
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION")
 private class BleClient(private val context: Context, private val address: String,
-                        private val latest: (String) -> JSONObject?, private val bondLost: () -> Unit) {
+                        private val latest: (String) -> JSONObject?, private val bondLost: () -> Unit,
+                        private val trackingChanged: (Boolean) -> Unit) {
     private val worker = HandlerThread("phone-bluetooth").apply { start() }
     private val handler = Handler(worker.looper)
     private val store = SettingsStore(context)
     @Volatile private var closed = false
     @Volatile private var bound = false
+    @Volatile private var standalone = false
+    private var feed: SensorFeed? = null
+    private var gyroStream = false
     private var blocked = false
     private var gatt: BluetoothGatt? = null
     private var control: BluetoothGattCharacteristic? = null
@@ -87,6 +97,10 @@ private class BleClient(private val context: Context, private val address: Strin
     private var retryAt = 0L
     private var readAt = 0L
     private var bindAt = 0L
+    private var gyroAt = 0L
+    private var lastGyro = 0L
+    private var markerAt = 0L
+    private var sensorAt = 0L
     private var mtu = 23
     private var messageId = 0
     private val writes = ArrayDeque<ByteArray>()
@@ -96,9 +110,11 @@ private class BleClient(private val context: Context, private val address: Strin
     } }
     fun refreshRoute() { handler.post { sentHost = ""; readAt = 0 } }
     fun session(value: String?) { handler.post {
-        session = value; bound = false; lastPose = ""; bindAt = 0
+        if (standalone) return@post
+        session = value; bound = false; gyroStream = false; lastPose = ""; bindAt = 0; lastGyro = 0
     } }
-    fun isBound() = !closed && bound && mtu >= BleProtocol.POSE_BYTES+68
+    fun isBound() = !closed && bound && (standalone || mtu >= BleProtocol.POSE_BYTES+68)
+    fun isStandalone() = !closed && standalone && bound
     fun confirm(id: String, accepted: Boolean) { handler.post {
         val request = BluetoothPose.verification
         if (closed || request?.id != id || request.approved) return@post
@@ -116,12 +132,17 @@ private class BleClient(private val context: Context, private val address: Strin
 
     private fun begin(operation: String) { flight = operation; flightAt = SystemClock.elapsedRealtime() }
     private fun release() {
+        val wasStandalone = standalone && bound
+        feed?.close(); feed = null
         runCatching { gatt?.disconnect() }; runCatching { gatt?.close() }
         gatt = null; control = null; pose = null; tls = null; flight = null
         writes.clear(); mtu = 23; bound = false; authenticated = false
         sentHost = ""; lastPose = ""; nonce = ""
+        gyroStream = false; gyroAt = 0; lastGyro = 0
+        standalone = false; session = null; markerAt = 0; sensorAt = 0
         phoneApproved = false; frameApproved = false; credentialSent = false
         if (!closed) BluetoothPose.verification = null
+        if (wasStandalone) trackingChanged(false)
     }
     private fun fail(message: String, stop: Boolean = false) {
         if (closed) return
@@ -148,9 +169,23 @@ private class BleClient(private val context: Context, private val address: Strin
         authenticated = true
         BluetoothPose.verification = null
         BluetoothPose.lastFailure = ""
-        BluetoothPose.status = "Bluetooth secure — Wi-Fi connecting"
-        send(JSONObject().put("op", "ready").put("host", host))
+        BluetoothPose.status = if (standalone) "Bluetooth secure — starting tracking" else "Bluetooth secure — Wi-Fi connecting"
+        send(JSONObject().put("op", "ready").put("host", host).put("standalone_tracking", standalone))
         sentHost = host
+        if (standalone) {
+            val dimensions = store.dimensions() ?: error("Phone dimensions unavailable")
+            val sensors = SensorFeed(context).also { feed = it }
+            val id = UUID.randomUUID().toString()
+            session = id
+            val profile = JSONObject().put("type", "profile").put("version", 1)
+                .put("session", id).put("dimensions", dimensions.json())
+                .put("clock", "android_elapsed_realtime_ns").put("axes", "android_natural_device")
+                .put("sensors", sensors.capabilities).put("marker_state_v1", true)
+                .put("headset_presence_v1", true).put("arcore_pose_v1", true)
+                .put("automatic_marker_v1", true)
+                .apply { runCatching { Fiducial.currentProfile(context) }.getOrNull()?.let { put("fiducial", it) } }
+            send(JSONObject().put("op", "tracking_profile").put("profile", profile))
+        }
     }
     private fun message(bytes: ByteArray) {
         require(bytes.isNotEmpty() && bytes[0] == 0.toByte())
@@ -158,6 +193,7 @@ private class BleClient(private val context: Context, private val address: Strin
         when (value.getString("op")) {
             "hello" -> {
                 require(value.getInt("version") == 2)
+                standalone = value.optBoolean("standalone_tracking", false)
                 if (value.getString("mode") == "reconnect") {
                     val credential = value.getString("credential")
                     if (store.authenticates(credential)) {
@@ -187,8 +223,29 @@ private class BleClient(private val context: Context, private val address: Strin
                 ready()
             }
             "bound" -> {
-                if (value.getString("session") == session) bound = value.getBoolean("accepted")
+                if (value.getString("session") == session) {
+                    val wasBound = bound
+                    bound = value.getBoolean("accepted")
+                    gyroStream = bound && value.optBoolean("gyro_stream", false)
+                    if (standalone && wasBound != bound) trackingChanged(bound)
+                }
                 if (bound) BluetoothPose.status = if (isBound()) "Tracking over encrypted Bluetooth" else "Bluetooth secure — motion uses Wi-Fi"
+            }
+            "tracking" -> {
+                val command = value.getJSONObject("message")
+                require(standalone && bound && command.getString("session") == session)
+                when (command.getString("type")) {
+                    "ping" -> {
+                        val received = SystemClock.elapsedRealtimeNanos()
+                        send(JSONObject().put("op", "tracking").put("message", JSONObject()
+                            .put("type", "pong").put("session", session).put("h0", command.getLong("h0"))
+                            .put("p1", received).put("p2", SystemClock.elapsedRealtimeNanos())))
+                    }
+                    "headset_presence" -> ArPoseState.headsetPresence(command.getBoolean("worn"))
+                    "alignment_accepted" -> ArPoseState.acknowledge(command)
+                    "alignment_lost" -> ArPoseState.alignmentLost(command)
+                    else -> error("Unsupported tracking command")
+                }
             }
             else -> error("Unexpected Bluetooth message")
         }
@@ -305,21 +362,48 @@ private class BleClient(private val context: Context, private val address: Strin
                         send(JSONObject().put("op", "bind").put("session", session))
                     } else if (!blocked && now >= readAt) {
                         operation = "Bluetooth read"
-                        readAt = now+if (authenticated) 500 else 100
+                        readAt = now+if (authenticated && standalone) 20 else if (authenticated) 500 else 100
                         begin("read")
                         if (gatt?.readCharacteristic(control) != true) fail("Bluetooth read busy")
+                    } else if (!blocked && standalone && bound && now >= markerAt) {
+                        val marker = JSONObject().put("type", "marker_state").put("session", session)
+                            .put("displayed", Fiducial.displayed)
+                            .apply { runCatching { Fiducial.currentProfile(context) }.getOrNull()?.let { put("fiducial", it) } }
+                        send(JSONObject().put("op", "tracking").put("message", marker))
+                        markerAt = now+250
+                    } else if (!blocked && standalone && bound && now >= sensorAt && feed != null) {
+                        send(JSONObject().put("op", "tracking").put("message", feed!!.latestBatch(session!!)))
+                        sensorAt = now+500
                     } else if (!blocked && isBound() && pose != null) {
                         operation = "pose encoding"
                         val value = session?.let(latest)
                         val encoded = value?.toString()
                         if (value != null && encoded != lastPose && value.getString("session") == session) {
-                            tls!!.send(byteArrayOf(1)+BleProtocol.pose(value, BluetoothPose.samples(), mtu-68))
+                            tls!!.send(byteArrayOf(1)+BleProtocol.pose(value, BluetoothPose.samples(), maxOf(BleProtocol.POSE_BYTES, mtu-68)))
                             val bytes = tls!!.take()
                             if (bytes.size <= minOf(mtu-3, BleProtocol.MAX_ATTRIBUTE_BYTES)) {
                                 begin("pose")
                                 if (!write(pose!!, bytes, false)) fail("Bluetooth pose busy")
                             } else writes.addAll(BleProtocol.fragments(bytes, mtu, ++messageId))
                             lastPose = encoded!!
+                        } else if (value != null && gyroStream && mtu >= BleProtocol.POSE_BYTES+68 && now >= gyroAt &&
+                            value.optString("session") == session && value.optString("state") == "tracking" &&
+                            !value.optBoolean("marker_required", true)) {
+                            val sampleNow = SystemClock.elapsedRealtimeNanos()
+                            val samples = BluetoothPose.samples().filter {
+                                sampleNow-it.time in 0..30_000_000L
+                            }
+                            if (samples.isNotEmpty() && samples.last().time > lastGyro) {
+                                operation = "gyro encoding"
+                                tls!!.send(byteArrayOf(2)+BleProtocol.gyro(value, samples, mtu-68))
+                                val bytes = tls!!.take()
+                                if (bytes.size <= minOf(mtu-3, BleProtocol.MAX_ATTRIBUTE_BYTES)) {
+                                    begin("pose")
+                                    if (!write(pose!!, bytes, false)) fail("Bluetooth gyro busy")
+                                } else writes.addAll(BleProtocol.fragments(bytes, mtu, ++messageId))
+                                lastGyro = samples.last().time
+                                gyroAt = now+10
+                            }
                         }
                     }
                 }

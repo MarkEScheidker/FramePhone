@@ -199,6 +199,7 @@ class MainActivity : ComponentActivity() {
         var timedOut by remember { mutableStateOf(false) }
         var bluetoothFailure by remember { mutableStateOf(BluetoothPose.lastFailure) }
         var bluetoothStatus by remember { mutableStateOf(BluetoothPose.status) }
+        var bluetoothTracking by remember { mutableStateOf(BluetoothPose.standalone()) }
         var verification by remember { mutableStateOf(BluetoothPose.verification) }
         var remembered by remember { mutableStateOf(store.pairedName()) }
         var hasHeadset by remember { mutableStateOf(store.hasHeadset()) }
@@ -207,6 +208,7 @@ class MainActivity : ComponentActivity() {
             while (true) {
                 tracking = ArPoseState.status
                 bluetoothStatus = BluetoothPose.status
+                bluetoothTracking = BluetoothPose.standalone()
                 bluetoothFailure = BluetoothPose.lastFailure
                 verification = BluetoothPose.verification
                 remembered = store.pairedName()
@@ -224,7 +226,7 @@ class MainActivity : ComponentActivity() {
             Text("FramePhone", style = MaterialTheme.typography.headlineLarge)
             Text(when {
                 !status.running -> if (status.message == "Stopped") "Ready to pair" else status.message
-                !status.connected -> status.message
+                !status.connected && !bluetoothTracking -> status.message
                 timedOut -> "Alignment timed out"
                 !trackingReady -> "Tracking unavailable"
                 else -> tracking

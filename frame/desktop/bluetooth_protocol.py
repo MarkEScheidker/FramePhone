@@ -9,8 +9,27 @@ CONTROL = 'f7a10002-81a6-4c44-9c79-99ac54174901'
 POSE = 'f7a10003-81a6-4c44-9c79-99ac54174901'
 HEADER = struct.Struct('<4sBBBB16s16s16sQQQQ7f')
 GYRO = struct.Struct('<Q3f')
+GYRO_HEADER = struct.Struct('<4sB16s16s16sB')
 STATES = ('tracking', 'paused', 'error', 'stopped')
 REASONS = ('', 'headset_not_worn', 'user_dismissed', 'screen_locked', 'camera_in_use')
+
+
+def decode_gyro(data):
+    if len(data) < GYRO_HEADER.size:
+        raise ValueError('Invalid BLE gyro size')
+    magic, version, session, generation, acquisition, count = GYRO_HEADER.unpack_from(data)
+    if magic != b'FPIM' or version != 1 or not 1 <= count <= 19 or len(data) != GYRO_HEADER.size+count*GYRO.size:
+        raise ValueError('Invalid BLE gyro header')
+    samples = []
+    previous = 0
+    for i in range(count):
+        stamp, *w = GYRO.unpack_from(data, GYRO_HEADER.size+i*GYRO.size)
+        if not previous < stamp < 2**63 or any(not math.isfinite(x) for x in w) or math.hypot(*w) > 35:
+            raise ValueError('Invalid BLE gyro samples')
+        samples.append(dict(t_ns=stamp, w_rad_s=w))
+        previous = stamp
+    return dict(type='gyro_samples', session=str(uuid.UUID(bytes=session)),
+                generation=str(uuid.UUID(bytes=generation)), acquisition=str(uuid.UUID(bytes=acquisition))), samples
 
 
 def decode_pose(data):

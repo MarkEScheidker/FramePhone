@@ -153,6 +153,9 @@ and caches unchanged metadata. During tracking, publications contain up to six m
 ARCore poses and a bounded recent gyro history; acquisition retains a longer
 pose history. Paused packets omit unused gyro data. No queue of stale poses
 builds up, and publication never refreshes capture/receive timestamps.
+Compatible Bluetooth peers also send recent gyro samples between ARCore poses;
+the phone aims for batches no more often than every 10 ms. Sample delivery and
+renderer cadence are hardware-dependent and do not imply 200 Hz display updates.
 
 Between ARCore frames the renderer predicts rotation using bias-corrected gyro
 samples after the verified camera exposure time. Missing/old samples, unknown
@@ -167,9 +170,9 @@ surface rather than continuing to drift.
 
 A visual-only speed-adaptive filter follows prediction, based on the 1 Euro
 principle of smoothing the derivative before adjusting the cutoff. Resting
-cutoffs are 1.5 Hz for position and 1.2 Hz for rotation, rising to at most 4 Hz
-during motion (roughly 40–133 ms filter time constants). Rotation stays on SO(3).
-This deliberately prioritizes steadiness over minimal added lag. Missing poses, long render gaps, large corrections and new
+cutoffs are 4 Hz for position and 3.5 Hz for rotation, rising to at most 10 Hz
+during motion (roughly 16–45 ms filter time constants). Rotation stays on SO(3).
+This light smoothing favors responsiveness. Missing poses, long render gaps, large corrections and new
 acquisitions reset the filter. Neither smoothing nor prediction changes the raw
 alignment/history, and smoothing does not correct accumulated ARCore/world drift.
 

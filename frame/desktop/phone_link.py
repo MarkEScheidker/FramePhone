@@ -239,7 +239,7 @@ class Telemetry:
         recent = [p for p in self.probes if h3 - p[0] <= 10_000_000_000]
         _, self.rtt_ns, self.offset_ns = min(recent, key=lambda p: p[1])
 
-    def receive(self, message, now):
+    def receive(self, message, now, gyro_for_prediction=True):
         if message.get("type") == "arcore_pose":
             if not self.arcore_enabled or message.get("session") != self.session:
                 raise ValueError("Unannounced ARCore pose/session")
@@ -325,7 +325,7 @@ class Telemetry:
             while len(times) > 1 and timestamp - times[0] > 2_000_000_000:
                 times.popleft()
             self.arrivals[name] = now
-            if name == "gyro":
+            if name == "gyro" and gyro_for_prediction:
                 cap = self.capabilities[name]
                 if not cap.get("uncalibrated") or "bias" in sample:
                     bias = sample.get("bias", [0, 0, 0]) if cap.get("uncalibrated") else [0, 0, 0]
@@ -400,6 +400,57 @@ class PhoneLink:
         self.headset = (False, 0)
         self.bluetooth = bluetooth
         self.ble_telemetry = None
+        self.bluetooth_only = False
+        self.clock_pending = set()
+        self.next_clock = self.next_presence = 0
+        self.pump_thread = None
+        self.pump_lock = threading.Lock()
+
+    def start_bluetooth(self, profile):
+        state = Telemetry(profile)
+        with self.lock:
+            self.telemetry = self.ble_telemetry = state
+            self.profile = profile
+            self.profile_received_ns = time.monotonic_ns()
+            self.bluetooth_only = True
+        self.bluetooth.authorize(state.session, self.receive_bluetooth)
+        self.pump_thread = threading.Thread(target=self._pump_bluetooth, name='bluetooth-tracking', daemon=True)
+        self.pump_thread.start()
+
+    def _pump_bluetooth(self):
+        while not self.stopped.wait(.05):
+            self.pump_bluetooth()
+
+    def pump_bluetooth(self):
+        with self.pump_lock:
+            self._send_bluetooth_updates()
+
+    def _send_bluetooth_updates(self):
+        if not self.bluetooth_only or self.stopped.is_set():
+            return
+        now = time.monotonic_ns()
+        presence = self.presence_message(now)
+        if presence and now >= self.next_presence and self.bluetooth.send_tracking(presence):
+            self.next_presence = now+500_000_000
+        if now >= self.next_clock:
+            with self.lock:
+                self.clock_pending.clear()
+                self.clock_pending.add(now)
+                session = self.telemetry.session
+            if self.bluetooth.send_tracking(dict(type='ping', session=session, h0=now)):
+                self.next_clock = now+2_000_000_000
+            else:
+                with self.lock:
+                    self.clock_pending.discard(now)
+        for _ in range(8):
+            try:
+                command = self.commands.get_nowait()
+            except queue.Empty:
+                break
+            if not self.bluetooth.send_tracking(command):
+                try: self.commands.put_nowait(command)
+                except queue.Full: pass
+                break
 
     def headset_presence(self, worn, updated_host_ns):
         """Latest-only wearer state. A frozen UI/monitor cannot renew its timestamp."""
@@ -434,11 +485,23 @@ class PhoneLink:
             if self.stopped.is_set() or state is None:
                 return
             try:
-                state.receive(message, now)
+                if message.get('type') == 'pong' and self.bluetooth_only:
+                    state.clock_reply(message, now, self.clock_pending)
+                elif message.get('type') == 'gyro_samples':
+                    if (message.get('session') != state.session or not state.arcore_poses or
+                            not 0 <= now-state.arcore_received_ns <= 150_000_000):
+                        return
+                    latest = state.arcore_poses[-1]
+                    if (latest['state'] != 'tracking' or latest['marker_required'] or
+                            any(message.get(k) != latest[k] for k in ('generation', 'acquisition'))):
+                        return
+                    gyro = [sample for sample in gyro if -200_000_000 <= sample['t_ns']-latest['t_ns'] <= 250_000_000]
+                else:
+                    state.receive(message, now, gyro_for_prediction=not self.bluetooth_only)
                 for sample in gyro:
                     if not state.gyro_history or sample['t_ns'] > state.gyro_history[-1]['t_ns']:
                         state.gyro_history.append(sample)
-                if self.recording:
+                if self.recording and message.get('type') != 'gyro_samples':
                     self.recording.submit(message, now, transport='bluetooth')
             except (ValueError, KeyError, TypeError):
                 return  # Old/reordered Bluetooth traffic never ends the TLS session.
@@ -474,6 +537,11 @@ class PhoneLink:
 
     def stop(self):
         self.stopped.set()
+        if self.bluetooth_only and self.bluetooth and self.telemetry:
+            self.bluetooth.revoke(self.telemetry.session)
+            self.stop_recording()
+            if self.pump_thread and self.pump_thread is not threading.current_thread():
+                self.pump_thread.join(timeout=1)
         sock = self.sock
         if sock:
             try:
