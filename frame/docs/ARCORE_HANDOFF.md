@@ -5,7 +5,7 @@ establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
 mode remains available for phones without ARCore. Poses use the
 [pinned Wi-Fi path](PAIRING_AND_IMU.md); Bluetooth handles pairing and setup.
-Wi-Fi connects automatically after Bluetooth pairing. Screen streaming is future work.
+Wi-Fi connects automatically after Bluetooth pairing. Screen streaming uses a [separate encrypted video channel](SCREEN_STREAMING.md).
 
 ## Run the test
 
@@ -56,7 +56,7 @@ special-access approval for drawing over other apps. The overlay is hidden on
 lock, disconnect, camera contention or fatal tracking errors. Stop/Retry remain
 available from the notification, and a timeout prevents indefinite screen cover.
 Automatic recovery still uses a fresh marker; trusted marker-free pocket
-relocalization and screen streaming are not implemented.
+relocalization is not implemented. Screen sharing requires Android capture consent.
 
 The camera foreground service owns a small offscreen EGL context and ARCore
 session, so leaving the setup activity does not intentionally pause tracking.
@@ -105,7 +105,7 @@ leaves the marker visible until recovery or timeout.
 
 ARCore loss, stale phone poses, clock failure, anchor/session/acquisition changes,
 invalid headset tracking and reported SteamVR recenter events invalidate the
-offset and start a 500 ms visual fade. An invalid headset pose or tracking-origin
+offset and start a 250 ms visual fade. An invalid headset pose or tracking-origin
 reset clears presentation immediately. Pose freshness is bounded to 250 ms. Reacquisition
 does not silently trust the previous alignment. Drift correction, calibrated
 extrinsics, complete headset exposure timing and trusted marker-free pocket
@@ -170,7 +170,7 @@ requiring three samples, at least 20 ms span and fit RMS at most 1 cm. Predictio
 stops at 40 ms/2 cm. Accelerometer-only
 position integration is not used. Predicted values never feed registration or
 become subsequent measurements. The 250 ms stale-data cutoff invalidates tracking
-and starts a 500 ms fade. During that fade, fresh gyro samples can advance
+and starts a 250 ms fade. During that fade, fresh gyro samples can advance
 orientation frame by frame; gaps, stale samples, an invalid clock or a changed
 phone connection/ARCore generation stop that integration. Position is held. This
 visual continuation never feeds registration or acknowledges an alignment.

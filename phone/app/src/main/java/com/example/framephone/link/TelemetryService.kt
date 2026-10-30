@@ -21,6 +21,8 @@ import com.example.framephone.MainActivity
 import com.example.framephone.SettingsStore
 import com.example.framephone.tracking.ArPoseService
 import com.example.framephone.tracking.ArPoseState
+import com.example.framephone.video.ScreenVideo
+import com.example.framephone.video.ScreenCaptureService
 
 object TelemetryState {
     var status by mutableStateOf(LinkStatus())
@@ -32,6 +34,9 @@ class TelemetryService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val screen = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_USER_PRESENT ||
+                (intent.action == Intent.ACTION_SCREEN_ON && !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked))
+                ScreenVideo.asked = false
             if (intent.action in listOf(Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT) &&
                 SettingsStore(this@TelemetryService).connectionEnabled() && !TelemetryState.status.connected) {
                 BluetoothPose.retryConnection()
@@ -40,10 +45,17 @@ class TelemetryService : Service() {
     }
     override fun onCreate() {
         super.onCreate()
+        main.postDelayed(captureNotice, 500)
         androidx.core.content.ContextCompat.registerReceiver(this, screen, IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_USER_PRESENT)
         }, androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+    private val captureNotice = object : Runnable {
+        override fun run() {
+            ScreenVideo.refresh(this@TelemetryService)
+            main.postDelayed(this, 500)
+        }
     }
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,6 +69,7 @@ class TelemetryService : Service() {
             }
             "stop", "forget" -> {
                 store.enableConnection(false)
+                stopService(Intent(this, ScreenCaptureService::class.java))
                 BluetoothPose.close()
                 if (intent.action == "forget") runCatching { CompanionSetup.forget(this) }
                 ArPoseState.setConnected(false)
@@ -114,6 +127,9 @@ class TelemetryService : Service() {
     }
     override fun onDestroy() {
         unregisterReceiver(screen)
+        main.removeCallbacks(captureNotice)
+        getSystemService(NotificationManager::class.java).cancel(30)
+        stopService(Intent(this, ScreenCaptureService::class.java))
         BluetoothPose.close()
         ArPoseState.setConnected(false)
         stopService(Intent(this, ArPoseService::class.java))

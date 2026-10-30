@@ -397,6 +397,9 @@ class PhoneLink:
         self.commands = queue.Queue(maxsize=8)
         self.retryable = False
         self.headset = (False, 0)
+        self.video = None
+        self.video_endpoint = None
+        self.video_error = ""
 
     def headset_presence(self, worn, updated_host_ns):
         """Latest-only wearer state. A frozen UI/monitor cannot renew its timestamp."""
@@ -425,6 +428,19 @@ class PhoneLink:
         except queue.Full:
             return False
 
+    def start_video(self, metadata):
+        self.stop_video()
+        with self.lock:
+            endpoint = self.video_endpoint
+        if endpoint:
+            from screen_video import ScreenVideo
+            self.video = ScreenVideo(*endpoint, metadata)
+
+    def stop_video(self):
+        video, self.video = self.video, None
+        if video:
+            video.close()
+
     def start_recording(self, path):
         from telemetry_recording import TelemetryRecording
         with self.lock:
@@ -443,6 +459,7 @@ class PhoneLink:
 
     def stop(self):
         self.stopped.set()
+        self.stop_video()
         sock = self.sock
         if sock:
             try:
@@ -459,6 +476,7 @@ class PhoneLink:
             result = self.telemetry.snapshot(now)
             result['arcore'] = self.telemetry.pose_packet(now)
             result['pose_transport'] = 'wifi'
+            result['video_status'] = self.video.status if self.video else self.video_error or 'Screen waiting for tracking'
             return result
 
     def pose_packet(self):
@@ -495,6 +513,7 @@ class PhoneLink:
                     hello = {"type": "hello", "version": 1, "mode": "pair" if pair else "reconnect",
                              "marker_state_v1": True,
                              "arcore_pose_v1": True,
+                             "screen_video_v1": True,
                              "name": socket.gethostname()[:60]}
                     if saved:
                         hello["credential"] = saved["credential"]
@@ -526,6 +545,13 @@ class PhoneLink:
                         self.telemetry = telemetry
                         self.profile = profile
                         self.profile_received_ns = profile_received_ns
+                        capability = profile.get("screen_video_v1")
+                        if capability is not None:
+                            from screen_video import descriptor
+                            try:
+                                self.video_endpoint = (host, pin, telemetry.session, descriptor(capability))
+                            except ValueError:
+                                self.video_error = "Screen video capability rejected"
                     if saved.get("host") != host:
                         saved["host"] = host
                         self.store.save(saved)
@@ -573,8 +599,10 @@ class PhoneLink:
                 else:
                     self.notify("error", str(error) if isinstance(error, (OSError, ValueError)) else "Malformed phone telemetry")
         finally:
+            self.stop_video()
             self.sock = None
             with self.lock:
+                self.video_endpoint = None
                 self.telemetry = None
                 self.profile = None
                 self.profile_received_ns = None

@@ -70,11 +70,22 @@ Width/height preferences and existing pairing survive this update; obsolete
 saved thickness is discarded when dimensions are saved. Rebuild both apps:
 older headset versions do not send the wearer heartbeat required by this phone app.
 
-Gyro/accelerometer and magnetometer diagnostics remain available. Screen capture,
-remote input and video streaming are not implemented. See
+Gyro/accelerometer and magnetometer diagnostics remain available. Screen sharing
+uses Android capture consent and an encrypted Wi-Fi connection. Remote input is
+not implemented. See
 [handoff behavior and limits](../frame/docs/ARCORE_HANDOFF.md) and
 [the LAN protocol](../frame/docs/PAIRING_AND_IMU.md).
 
 The camera session requests 60 FPS where supported. Verified Camera2 exposure
 metadata lets the headset use recent gyro data between ARCore frames; unknown
 camera clocks disable gyro prediction. Actual rates depend on hardware/lighting.
+
+## Screen sharing
+
+After alignment hides the marker, approve Android's full-display sharing prompt.
+If the app is in the background, tap its screen-sharing notification. **Share
+screen** retries approval; **Stop sharing** leaves tracking connected. Capture
+uses a hardware H.264 encoder and a separate authenticated TLS connection. No
+ADB or root is required. Android decides whether capture survives display-off;
+when projection ends, another approval is needed. See [screen streaming](../frame/docs/SCREEN_STREAMING.md)
+for the pipeline, limits and device test.

@@ -5,7 +5,8 @@ screen-width AprilTag overlay when alignment is needed and sends motion telemetr
 over pinned Wi-Fi TLS. Bluetooth handles pairing and automatic connection setup.
 Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An automatic SteamVR display follows the tracked
-screen as a black display inside a rounded dark-grey 3D phone body.
+screen inside a rounded dark-grey 3D phone body. An encrypted screen-streaming
+prototype can mirror Home and other apps after Android capture approval.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
 devices, with stable distance and orientation readings. Both optical and ARCore-driven VR rectangles have
@@ -14,7 +15,8 @@ display DPI; metric accuracy and motion timing still need independent validation
 The automatic brief-marker ARCore handoff now includes bounded motion prediction;
 its origin calibration and exposure timing are provisional. Bluetooth companion
 wake and trust/LAN bootstrap are implemented for device
-testing. Screen streaming is the next milestone.
+testing. Screen streaming is implemented for device testing; video latency and
+quality still need headset measurements.
 
 ## Build and run
 
@@ -42,7 +44,11 @@ The app uses the headset's installed SteamVR for its automatic VR display.
 3. Briefly show the automatic marker to the front cameras. After alignment the
    marker hides and ARCore drives the virtual phone. Live poses, IMU telemetry,
    clock synchronization and tracking commands use Wi-Fi.
-4. Subsequent headset advertisements can wake Android's connection service
+4. After alignment, approve Android's screen-sharing prompt. If the phone app is
+   in the background, tap its screen-sharing notification. Home and other apps
+   stream to the virtual phone over a separate encrypted Wi-Fi connection.
+   Android may require new approval after locking the phone.
+5. Subsequent headset advertisements can wake Android's connection service
    without opening setup. If Android requires user action to restart its camera,
    tap **Resume tracking** in the notification. **Disconnect** disables automatic
    phone reconnection until Connect is used again.
@@ -72,7 +78,7 @@ bash gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 Windows uses `gradlew.bat`. For a native Linux development build:
 
 ```bash
-sudo apt-get install build-essential cmake python3 python3-dbus-next libapriltag-dev libopencv-dev nlohmann-json3-dev
+sudo apt-get install build-essential cmake python3 python3-dbus-next ffmpeg libapriltag-dev libopencv-dev nlohmann-json3-dev
 cmake -S frame -B frame/build/desktop -DCMAKE_BUILD_TYPE=Release
 cmake --build frame/build/desktop --parallel 4
 ctest --test-dir frame/build/desktop --output-on-failure
@@ -87,6 +93,7 @@ have been removed. The supported build and UI use the same single-marker path.
 - [Build](frame/docs/BUILD.md) and [development](docs/DEVELOPMENT.md)
 - [Tracking and replay](frame/docs/FIDUCIAL_TRACKING.md)
 - [VR test display](frame/docs/VR_DISPLAY.md)
+- [Encrypted screen streaming](frame/docs/SCREEN_STREAMING.md)
 - [Brief-marker ARCore test](frame/docs/ARCORE_HANDOFF.md)
 - [Tracking research and decisions](frame/docs/TRACKING_RESEARCH.md)
 - [Bluetooth companion and poses](frame/docs/BLUETOOTH.md)

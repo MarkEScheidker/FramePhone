@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicLong
 import com.example.framephone.Fiducial
 import com.example.framephone.tracking.ArPoseState
 import com.example.framephone.bluetooth.BluetoothPose
+import com.example.framephone.video.ScreenVideo
 import javax.net.ssl.SSLServerSocket
 import javax.net.ssl.SSLSocket
 import kotlin.concurrent.thread
@@ -52,6 +53,9 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
             val tls = identity.context()
             TlsSelfCheck.verify(tls, identity.pin)
             BluetoothPose.identity(tls, identity.pin, "")
+            runCatching { ScreenVideo.start(context, tls) }.onFailure {
+                ScreenVideo.status = "Screen service unavailable: ${it.javaClass.simpleName}"
+            }
             if (!running) return@thread
             stage = "LAN listener"
             val listener = tls.serverSocketFactory.createServerSocket(Protocol.PORT) as SSLServerSocket
@@ -134,6 +138,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
                 .put("headset_presence_v1", true)
+                .apply { if (hello.optBoolean("screen_video_v1") && ScreenVideo.available()) put("screen_video_v1", ScreenVideo.authorize(session)) }
                 .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
                 .put("automatic_marker_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
@@ -208,11 +213,12 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 reader.join(1000)
                 watchdog.join(1000)
             }
-        } finally { feed.close() }
+        } finally { ScreenVideo.endSession(); feed.close() }
     }
     fun close() {
         synchronized(this) { running = false }
         runCatching { client?.close() }
         runCatching { server?.close() }
+        ScreenVideo.close()
     }
 }

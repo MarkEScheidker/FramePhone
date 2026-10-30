@@ -146,6 +146,11 @@ inline bool facing(const Matrix &surface, const std::array<double, 3> &eye) {
 struct Image {
     unsigned width, height;
     std::vector<std::uint8_t> rgba;
+    Image(unsigned w, unsigned h, std::vector<std::uint8_t> pixels)
+        : width(w), height(h), rgba(std::move(pixels)) {
+        if (rgba.size() != std::size_t(w) * h * 4)
+            throw std::invalid_argument("invalid RGBA image size");
+    }
     Image(unsigned w, unsigned h, std::uint8_t grey) : width(w), height(h), rgba(w * h * 4) {
         for (std::size_t i = 0; i < rgba.size(); i += 4) {
             rgba[i] = rgba[i + 1] = rgba[i + 2] = grey;

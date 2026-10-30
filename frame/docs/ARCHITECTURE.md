@@ -16,6 +16,9 @@ flowchart LR
     Pose --> VR[SteamVR phone display]
     ARCore[Anchored phone pose and gyro] --> Predict[Bounded prediction and smoothing]
     Predict --> VR
+    Capture[Android screen capture and H.264] --> Video[Separate pinned TLS video]
+    Video --> Decode[FFmpeg and private RAM frame]
+    Decode --> VR
     Wearer[OpenVR proximity or HMD activity] --> TLS
     Phone --> TLS[Paired TLS: sensors and marker geometry/state]
     TLS --> UI
@@ -31,11 +34,13 @@ flowchart LR
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
 | camera_previews.py / fiducial --preview-ring | Per-camera detection and annotated Gray8 previews with one-frame queues. |
 | framephone-overlay | Convex OpenVR phone shell, rear diagnostics, raw registration, bounded prediction/smoothing and loss fade; separate presence mode reads wearer input before acquisition. |
+| Android video/ | Consent, projection lifecycle, hardware encoder and authenticated video service. |
+| screen_video.py / screen_frames.hpp / screen_surface.hpp | Independent TLS receiver, FFmpeg decode, private RAM latest-frame IPC and buffered screen upload. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
 Only status `measured` supplies a current pose. Ambiguous hypotheses remain
 purely diagnostic. Stopping, hiding the phone marker, changing its profile or
-losing the connection clears the valid pose and fades the VR object over 500 ms.
+losing the connection clears the valid pose and fades the VR object over 250 ms.
 The fade is presentation only and cannot acknowledge alignment. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
@@ -94,7 +99,7 @@ validated post-exposure gyro samples affect rotation, and recent ARCore velocity
 affects translation. Predictions never enter the optical registration/history.
 The renderer measures cadence and age independently from UI refresh.
 `phone_model.hpp` owns physical shell geometry and textures; `tracking_fade.hpp`
-fades tracking in over 250 ms and out over 500 ms, advancing rotation only from fresh,
+fades tracking in over 125 ms and out over 250 ms, advancing rotation only from fresh,
 verified gyro data. Neither presentation component changes registration.
 
 ## Bluetooth companion transport
@@ -106,4 +111,4 @@ Android bluetooth/ owns association/presence, GATT lifecycle and the shared bina
 contract. ArPoseService and SensorFeed publish poses and raw diagnostics over Wi-Fi.
 After no-code OS bonding, TLS over BLE and a hash approved on both devices
 establish app trust. Saved trust authenticates subsequent sessions and their LAN route.
-Video is a future separate path. See [Bluetooth contract](BLUETOOTH.md).
+Screen video uses a separate pinned TLS connection; it never enters the pose/control queue. See [Bluetooth contract](BLUETOOTH.md).

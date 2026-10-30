@@ -93,53 +93,52 @@ int main() {
         Matrix world{0, -1, 0, .2, 1, 0, 0, .1, 0, 0, 1, -.6};
         TrackingFade fade;
         check(!fade.update({}, start, Json::array(), false).pose, "no ghost before first pose");
-        check(fade.update(world, start - 250'000'000, Json::array(), false).opacity == 0,
+        check(fade.update(world, start - 125'000'000, Json::array(), false).opacity == 0,
               "new tracking starts transparent");
-        check(std::abs(fade.update(world, start - 125'000'000, Json::array(), false).opacity - .5) <
+        check(std::abs(fade.update(world, start - 62'500'000, Json::array(), false).opacity - .5) <
                   1e-12,
-              "fade-in midpoint must be 125ms");
+              "fade-in midpoint must be 62.5ms");
         check(fade.update(world, start, Json::array(), false).opacity == 1,
-              "tracking reaches full opacity at 250ms");
+              "tracking reaches full opacity at 125ms");
         const auto first = start + 10'000'000;
         auto held = fade.update({}, first, gyro(first), true);
         check(held.pose && held.opacity == 1 && held.gyro,
               "loss starts full opacity with live gyro");
         auto expected = compose(world, angular_step({0, 1, 0}, .01));
         check(near(*held.pose, expected, 1e-10, 1e-7), "loss gyro must rotate in body axes");
-        for (unsigned i = 2; i <= 26; ++i)
-            held =
-                fade.update({}, start + i * 10'000'000ULL, gyro(start + i * 10'000'000ULL), true);
+        for (unsigned i = 1; i <= 25; ++i)
+            held = fade.update({}, first + i * 5'000'000ULL, gyro(first + i * 5'000'000ULL), true);
         check(std::abs(held.opacity - .5) < 1e-12 && held.gyro &&
-                  near(*held.pose, compose(world, angular_step({0, 1, 0}, .26)), 1e-10, 1e-7),
+                  near(*held.pose, compose(world, angular_step({0, 1, 0}, .135)), 1e-10, 1e-7),
               "fresh IMU must continue beyond normal short prediction horizon during fade");
         check((*held.pose)[3] == world[3] && (*held.pose)[7] == world[7] &&
                   (*held.pose)[11] == world[11],
               "gyro must not invent translation");
-        auto frozen = fade.update({}, start + 270'000'000, gyro(first), true);
+        auto frozen = fade.update({}, start + 145'000'000, gyro(first), true);
         check(!frozen.gyro && near(*held.pose, *frozen.pose, 1e-10, 1e-7),
               "stale gyro freezes motion");
-        auto blocked = fade.update({}, start + 280'000'000, gyro(start + 280'000'000), false);
+        auto blocked = fade.update({}, start + 155'000'000, gyro(start + 155'000'000), false);
         check(!blocked.gyro && near(*blocked.pose, *frozen.pose, 1e-10, 1e-7),
               "invalid epoch or clock must not advance orientation");
         check(!fade.update({}, first + TrackingFade::duration_ns, Json::array(), false).pose,
-              "phone must disappear at half a second, not remain at tiny opacity");
+              "phone must disappear at a quarter second, not remain at tiny opacity");
         check(!fade.update({}, first + TrackingFade::duration_ns + 1, gyro(first), true).pose,
               "gyro alone must never resurrect a faded object");
         check(fade.update(world, start + 2'000'000'000, Json::array(), false).opacity == 0,
               "new measured tracking fades in again");
-        fade.update(world, start + 2'250'000'000, Json::array(), false);
-        fade.update({}, start + 2'260'000'000, Json::array(), false);
-        const auto dim = fade.update({}, start + 2'510'000'000, Json::array(), false);
+        fade.update(world, start + 2'125'000'000, Json::array(), false);
+        fade.update({}, start + 2'135'000'000, Json::array(), false);
+        const auto dim = fade.update({}, start + 2'260'000'000, Json::array(), false);
         check(std::abs(dim.opacity - .5) < 1e-12, "second loss starts a fresh fade");
-        check(std::abs(fade.update(world, start + 2'510'000'000, Json::array(), false).opacity -
+        check(std::abs(fade.update(world, start + 2'260'000'000, Json::array(), false).opacity -
                        .5) < 1e-12,
               "recovery mid-fade must preserve opacity without a flash");
-        check(fade.update(world, start + 2'760'000'000, Json::array(), false).opacity == 1,
-              "recovery completes its quarter-second fade-in");
+        check(fade.update(world, start + 2'385'000'000, Json::array(), false).opacity == 1,
+              "recovery completes its eighth-second fade-in");
         fade.reset();
         check(!fade.update({}, start + 2'010'000'000, Json::array(), false).pose,
               "headset origin reset must clear old presentation");
-        fade.update(world, start - 250'000'000, Json::array(), false);
+        fade.update(world, start - 125'000'000, Json::array(), false);
         fade.update(world, start, Json::array(), false);
         auto gap = gyro(start + 40'000'000);
         gap.erase(gap.begin() + 1, gap.end() - 1);

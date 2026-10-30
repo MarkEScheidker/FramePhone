@@ -133,7 +133,7 @@ Wi-Fi pose stream and does not activate the BLE motion path.
 Companion presence can wake the connection service. Camera permissions and cold
 background camera starts retain Android's normal restrictions; the Resume tracking
 notification remains available. Camera tracking stays idle until authentication
-and the existing wearer/marker conditions permit it. No video is implemented.
+and the existing wearer/marker conditions permit it. Screen video uses a [separate encrypted Wi-Fi channel](SCREEN_STREAMING.md).
 
 The former bond/recovery tests were removed with that implementation. The new
 protocol tests exercise real TLS records, two-sided consent, reconnect, Forget,

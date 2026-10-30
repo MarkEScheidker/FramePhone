@@ -34,7 +34,8 @@ for a new TLS authentication. Manual unpairing closes the active phone connectio
 Frame stores the pin and credential atomically in a private mode-0600 pairing
 file. Android keeps the SHA-256 verifier in private preferences; its temporary
 Bluetooth enrollment secret is removed after acknowledgment. One paired headset
-and one active TLS connection are supported. See the Bluetooth contract for
+and one active control TLS connection are supported. Optional screen video uses
+its own session-authenticated TLS connection; see [screen streaming](SCREEN_STREAMING.md). See the Bluetooth contract for
 TLS enrollment, session binding and background camera restrictions.
 
 Networking runs as the desktop user. Camera authorization is separate and may

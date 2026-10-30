@@ -157,7 +157,7 @@ class TLSTests(unittest.TestCase):
     def tearDownClass(cls):
         cls.temp.cleanup()
 
-    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False, arcore=False, presence=False):
+    def exercise(self, pair=True, wrong_pin=False, approve=True, reject_credential=False, record=False, marker=False, arcore=False, presence=False, video=None):
         errors, received, notices = [], [], []
         ready = threading.Event()
         control_received = threading.Event()
@@ -209,6 +209,9 @@ class TLSTests(unittest.TestCase):
                             capabilities["bluetooth_pose_v1"] = True  # Legacy hint must not select BLE tracking.
                         if presence:
                             capabilities["headset_presence_v1"] = True
+                        if video:
+                            capabilities["screen_video_v1"] = {"version": 1, "port": 47644,
+                                                               "token": "9"*64 if video == "valid" else "bad"}
                         write_message(conn, capabilities)
                         if presence:
                             self.assertEqual(read_message(conn), {"type": "headset_presence",
@@ -276,6 +279,12 @@ class TLSTests(unittest.TestCase):
                     self.assertEqual(client.snapshot()["arcore"]["poses"][-1]["seq"], 20)
                     self.assertEqual(client.snapshot()['pose_transport'], 'wifi')
                     self.assertEqual(len(client.snapshot()['arcore']['poses']), 20)
+                if video == "valid":
+                    self.assertEqual(client.video_endpoint[3]["token"], "9"*64)
+                    self.assertNotIn("9"*64, json.dumps(snapshot))
+                elif video == "invalid":
+                    self.assertIsNone(client.video_endpoint)
+                    self.assertIn("capability rejected", snapshot["video_status"])
                 client.stop()
             client_thread.join(6)
             server_thread.join(6)
@@ -293,7 +302,14 @@ class TLSTests(unittest.TestCase):
                                  ["profile", "pong", "samples"] + (["marker_state"] if marker else []) + (["arcore_pose"]*20 if arcore else []))
                 self.assertTrue(entries[-1]["end"])
                 self.assertNotIn("credential", recording_path.read_text())
+                self.assertNotIn("9"*64, recording_path.read_text())
                 self.assertTrue(all(type(entry["received_host_monotonic_ns"]) is int for entry in entries[:-1]))
+
+    def test_video_capability_is_scoped_and_not_recorded(self):
+        self.exercise(pair=False, video="valid", record=True)
+
+    def test_bad_optional_video_capability_does_not_stop_sensors(self):
+        self.exercise(pair=False, video="invalid")
 
     def test_pair_and_live_telemetry(self):
         self.exercise()

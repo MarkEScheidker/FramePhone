@@ -182,6 +182,11 @@ class FiducialPanel:
         self.busy = True
         if self.config.get("arcore_handoff"):
             self.pose_stream = PoseStream(session / "phone-pose.json", link.pose_packet, self.config["phone_session"])
+        if hasattr(link, 'start_video'):
+            try:
+                link.start_video(session / "screen-video.json")
+            except (OSError, ValueError) as error:
+                self.app.log("[screen] " + str(error))
         self.handoff_active = False
         self.has_results = False
         self.publish_vr(None)
@@ -362,6 +367,9 @@ class FiducialPanel:
         self.redraw()
 
     def stop(self):
+        link = self.app.phone_panel.link
+        if link and hasattr(link, 'stop_video'):
+            link.stop_video()
         if self.pose_stream:
             self.pose_stream.close()
             self.pose_stream = None
@@ -442,7 +450,8 @@ class FiducialPanel:
                            f"pose age ≈ {state['pose_age_ms']:.0f} ms · prediction {state['prediction_ms']:.0f} ms"
                            if "pose_hz" in state else "ARCore world pose · optical detection paused")
                 self.pose.set(metrics)
-                self.status.set("Tracking from phone. Optical detection paused.")
+                self.status.set("Tracking from phone. Optical detection paused." +
+                                (" Screen: " + state["video_error"] if state.get("video_error") else ""))
             elif latest.get("reason") in ("user_dismissed", "headset_not_worn"):
                 self.pose.set("Tracking paused")
                 self.status.set("Paused until next phone unlock." if latest["reason"] == "user_dismissed"
@@ -525,6 +534,8 @@ class FiducialPanel:
             code, error = value
             self.app.log(f"[marker] Tracker exited with status {code}; results: {self.session}")
             self.busy = False
+            if link and hasattr(link, 'stop_video'):
+                link.stop_video()
             if self.pose_stream:
                 self.pose_stream.close()
                 self.pose_stream = None

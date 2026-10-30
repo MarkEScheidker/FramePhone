@@ -33,7 +33,7 @@ validation; software tests do not establish tracking accuracy or latency.
 5. Stream Home and ordinary phone apps into the tracked surface, respecting
    Android's capture lifecycle, and evaluate accessory/input integration.
 
-Full display streaming, shared room maps and a registered virtual controller
+Production video quality/latency validation, shared room maps and a registered virtual controller
 are not implemented. Earlier phone-object/photo-matching
 experiments have been removed. Private captures and working notes are not source
 assets. See [the handoff guide](../frame/docs/ARCORE_HANDOFF.md) for current limits.

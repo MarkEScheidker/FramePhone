@@ -6,7 +6,7 @@ A dark-grey shell rounds all twelve edges and all eight corners to a 2 mm
 radius, with 10 mm of depth behind the screen. A 2.5 mm margin on each side
 leaves room for the curves and a narrow flat bezel. These are visual defaults,
 not additional phone measurements. The screen remains at the tracked screen-center
-plane; the shell never rescales or moves that plane. Screen streaming is not implemented yet.
+plane; the shell never rescales or moves that plane. The [screen stream](SCREEN_STREAMING.md) fills the display after Android capture approval.
 
 The back displays tracking state, pose rate, pose age, prediction duration,
 gyro activity, opacity and screen dimensions. Its texture refreshes at up to
@@ -16,15 +16,15 @@ translucent surfaces during fades. Phone transforms follow the headset render ra
 
 Updated phones first acquire a stable optical alignment, then hide their marker
 and supply anchored ARCore motion. See [the handoff test](ARCORE_HANDOFF.md)
-for prediction, smoothing and validity. New tracking fades in over 250 ms. On
-tracking loss the virtual phone fades linearly over 500 ms from its last rendered
+for prediction, smoothing and validity. New tracking fades in over 125 ms. On
+tracking loss the virtual phone fades linearly over 250 ms from its last rendered
 pose and current opacity. Fresh bias-corrected gyro samples can continue rotating
 it during the fade, provided the phone connection,
 ARCore generation and verified clock remain valid. A new marker acquisition alone
 does not change the IMU body axes. Missing/stale/gapped samples freeze orientation.
 Position holds at the last rendered value; raw accelerometer integration is not
 used. Predictions never restore an alignment or acknowledge a hidden marker.
-Reacquisition fades back to full opacity over 250 ms without an opacity jump.
+Reacquisition fades back to full opacity over 125 ms without an opacity jump.
 An invalid headset pose or tracking origin reset clears presentation immediately
 because its reference frame is lost. Normal renderer termination also allows
 the fade before exiting.
@@ -33,8 +33,8 @@ The renderer builds a convex rounded box from small OpenVR compositor faces:
 flat panels, quarter-cylinder edges, and spherical corner patches. Short facets
 approximate the 2 mm curves; corner triangles use alpha masks. The renderer
 culls faces pointing away from the viewer so the back text and screen cannot
-show through the body during the fade. The screen is its own opaque overlay,
-ready for a future texture source. No graphics context, font service, additional
+show through the body during the fade. The screen has a black fallback and two video upload buffers, independent of the
+body and rear diagnostics. No graphics context, font service, additional
 driver or Frametop installation is required.
 
 Screen width and height come from the phone's fullscreen pixel dimensions and

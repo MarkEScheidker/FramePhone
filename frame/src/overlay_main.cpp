@@ -1,6 +1,7 @@
 #include "headset_presence.hpp"
 #include "phone_model.hpp"
 #include "pose_smoothing.hpp"
+#include "screen_surface.hpp"
 #include "tracking_fade.hpp"
 #include <chrono>
 #include <csignal>
@@ -143,7 +144,9 @@ struct Display {
     std::vector<Face> faces;
     std::uint64_t diagnostics_at = 0;
     bool visible = false;
-    explicit Display(Client &c, Geometry g) : client(c), model{g} {}
+    ScreenSurface screen;
+    explicit Display(Client &c, Geometry g, const std::filesystem::path &session)
+        : client(c), model{g}, screen(c.overlay, g, session / "screen-video.json") {}
     void check(vr::EVROverlayError result) {
         if (result != vr::VROverlayError_None)
             throw std::runtime_error(std::string("VR phone: ") +
@@ -165,7 +168,10 @@ struct Display {
         check(client.overlay->SetOverlayWidthInMeters(handle, float(surface.width)));
     }
     void create() {
+        screen.create();
         for (const auto &surface : model.surfaces()) {
+            if (surface.kind == PhoneFace::screen)
+                continue;
             faces.push_back({surface});
             auto &face = faces.back();
             const auto key =
@@ -185,6 +191,7 @@ struct Display {
                 const PhoneDiagnostics &diagnostics, std::uint64_t now) {
         const std::array<double, 3> eye = world ? std::array<double, 3>{head[3], head[7], head[11]}
                                                 : std::array<double, 3>{0, 0, 0};
+        screen.update(presentation, world, head, now);
         visible = false;
         for (auto &face : faces) {
             if (face.spare != vr::k_ulOverlayHandleInvalid) {
@@ -485,7 +492,7 @@ int main(int argc, char **argv) {
         std::uint64_t last_state_write = 0;
         Client client;
         client.open();
-        Display display(client, geometry);
+        Display display(client, geometry, session);
         display.create();
         vr::ETrackedPropertyError property_error{};
         const auto frequency = client.system->GetFloatTrackedDeviceProperty(
@@ -505,7 +512,7 @@ int main(int argc, char **argv) {
                                "front cameras.\n"
                              : "VR screen ready: fiducial-driven rectangle; headset alignment and "
                                "motion timing are provisional.\n");
-        std::string previous_state;
+        std::string previous_state, previous_video_error;
         bool previous_tracking_visible = false;
         while (!stopped || display.visible) {
             vr::VREvent_t event{};
@@ -628,6 +635,8 @@ int main(int argc, char **argv) {
                 status["visible"] = tracking_visible;
                 status["fading"] = !current && presentation.pose.has_value();
                 status["opacity"] = presentation.opacity;
+                status["video_uploads"] = display.screen.uploads;
+                status["video_error"] = display.screen.error;
                 status["updated_host_monotonic_ns"] = now;
                 status["pose_hz"] = pose_hz;
                 status["source_hz"] = source_hz;
@@ -647,6 +656,11 @@ int main(int argc, char **argv) {
                     throw std::runtime_error("cannot publish ARCore handoff state");
                 std::filesystem::rename(temporary, session / "arcore-state.json");
                 last_state_write = now;
+            }
+            if (display.screen.error != previous_video_error) {
+                if (!display.screen.error.empty())
+                    std::cerr << "[screen] " << display.screen.error << '\n';
+                previous_video_error = display.screen.error;
             }
             previous_tracking_visible = tracking_visible;
             if (state != previous_state) {

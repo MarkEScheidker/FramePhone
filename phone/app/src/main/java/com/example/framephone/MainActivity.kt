@@ -34,6 +34,9 @@ import com.example.framephone.link.TelemetryService
 import com.example.framephone.link.TelemetryState
 import com.example.framephone.tracking.ArPoseService
 import com.example.framephone.tracking.ArPoseState
+import com.example.framephone.video.ScreenVideo
+import com.example.framephone.video.ScreenCaptureActivity
+import com.example.framephone.video.ScreenCaptureService
 import com.google.ar.core.ArCoreApk
 import kotlinx.coroutines.delay
 
@@ -194,6 +197,9 @@ class MainActivity : ComponentActivity() {
         var details by rememberSaveable { mutableStateOf(false) }
         var about by remember { mutableStateOf(false) }
         var tracking by remember { mutableStateOf(ArPoseState.status) }
+        var screenSharing by remember { mutableStateOf(ScreenVideo.status) }
+        var capturingScreen by remember { mutableStateOf(ScreenVideo.capturing) }
+        var canShare by remember { mutableStateOf(false) }
         var trackingDetail by remember { mutableStateOf("") }
         var trackingReady by remember { mutableStateOf(false) }
         var timedOut by remember { mutableStateOf(false) }
@@ -206,6 +212,14 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             while (true) {
                 tracking = ArPoseState.status
+                screenSharing = ScreenVideo.status
+                capturingScreen = ScreenVideo.capturing
+                canShare = ScreenVideo.eligible()
+                if (canShare && !capturingScreen && !ScreenVideo.asked &&
+                    lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                    ScreenVideo.asked = true
+                    startActivity(Intent(this@MainActivity, ScreenCaptureActivity::class.java))
+                }
                 bluetoothStatus = BluetoothPose.status
                 bluetoothFailure = BluetoothPose.lastFailure
                 verification = BluetoothPose.verification
@@ -261,6 +275,13 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+            }
+            if (status.connected) {
+                Text(screenSharing, style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = {
+                    if (capturingScreen) startService(Intent(this@MainActivity, ScreenCaptureService::class.java).setAction("stop"))
+                    else startActivity(Intent(this@MainActivity, ScreenCaptureActivity::class.java))
+                }, enabled = capturingScreen || canShare) { Text(if (capturingScreen) "Stop sharing" else "Share screen") }
             }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
             if (status.running && !overlayAllowed) {

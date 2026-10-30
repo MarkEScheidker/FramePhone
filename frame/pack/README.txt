@@ -13,4 +13,4 @@ Docker/Podman is needed only for building. Runtime libraries, Python/Tk and the
 camera broker are bundled. No neural models or runtime downloads are used.
 The VR display uses the installed SteamVR client; no Frametop install is needed.
 Distance scale, VR head alignment and timing need independent validation.
-ARCore and screen streaming come later. See frame/docs/HEADSET_TEST.md.
+ARCore handoff and encrypted screen streaming are included for device testing. See frame/docs/HEADSET_TEST.md.

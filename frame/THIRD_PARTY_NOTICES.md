@@ -50,3 +50,12 @@ broker is built from the included C sources with Ubuntu's libc toolchain.
 Bluetooth integration uses Ubuntu's python3-dbus-next (MIT) to access the host
 BlueZ service. Its copyright file remains in the bundled runtime's /usr/share/doc;
 BlueZ itself is supplied by SteamOS and is not replaced or bundled.
+
+The screen-stream receiver runs FFmpeg as a separate program. The package bundles
+Ubuntu's FFmpeg executable and runtime dependencies as a software-decoding
+fallback. Their copyright/license files remain in /usr/share/doc and
+/usr/share/common-licenses; runtime-packages.txt identifies the distributed
+versions. FFmpeg source and distribution information:
+https://ffmpeg.org/ and https://launchpad.net/ubuntu/+source/ffmpeg
+A host FFmpeg may instead provide the Frame-specific V4L2 hardware decoder; host
+software is not copied or modified.

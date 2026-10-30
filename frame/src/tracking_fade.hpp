@@ -13,7 +13,7 @@ struct PhonePresentation {
  * held; integrating raw accelerometer data here would add gravity/bias drift. */
 class TrackingFade {
   public:
-    static constexpr std::uint64_t duration_ns = 500'000'000, fade_in_ns = 250'000'000;
+    static constexpr std::uint64_t duration_ns = 250'000'000, fade_in_ns = 125'000'000;
     void reset() {
         last_.reset();
         loss_.reset();

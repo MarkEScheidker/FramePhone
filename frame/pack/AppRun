@@ -20,6 +20,7 @@ export LD_LIBRARY_PATH="$libs" PYTHONDONTWRITEBYTECODE=1
 unset PYTHONPATH PYTHONSTARTUP LD_PRELOAD LD_AUDIT
 if [ "${1:-}" = --self-test ]; then
     [ "$#" = 1 ] || exit 2
+    "$loader" --library-path "$libs:$root/usr/lib/$triplet/pulseaudio" "$root/usr/bin/ffmpeg" -version >/dev/null
     "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-overlay" --self-test
     exec "$loader" --library-path "$libs" "$root/opt/framephone/bin/framephone-fiducial" --self-test
 fi

@@ -213,7 +213,7 @@ class PhonePanel:
             transport = "Wi-Fi"
             rtt = snapshot["rtt_ms"]
             clock = "clock syncing" if rtt is None else f"Wi-Fi RTT {rtt:.2f} ms"
-            self.health.set(f"Pose: {transport} · {clock} · {snapshot['dropped']} sensor samples dropped")
+            self.health.set(f"Pose: {transport} · {clock} · {snapshot['dropped']} sensor samples dropped\n" + snapshot.get('video_status', ''))
         else:
             for row in self.rows.values():
                 row.set("Not connected")
