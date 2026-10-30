@@ -27,18 +27,6 @@ object BleProtocol {
         val id = UUID.fromString(value)
         return ByteBuffer.allocate(16).putLong(id.mostSignificantBits).putLong(id.leastSignificantBits).array()
     }
-    fun gyro(message: JSONObject, samples: List<Gyro>, maximumBytes: Int): ByteArray {
-        val count = minOf(samples.size, 19, (maximumBytes-54)/20)
-        require(count > 0)
-        val packet = ByteBuffer.allocate(54+20*count).order(ByteOrder.LITTLE_ENDIAN)
-        packet.put("FPIM".toByteArray(Charsets.US_ASCII)).put(1.toByte())
-            .put(uuid(message.getString("session"))).put(uuid(message.getString("generation")))
-            .put(uuid(message.getString("acquisition"))).put(count.toByte())
-        samples.takeLast(count).forEach { sample ->
-            packet.putLong(sample.time); sample.value.forEach { packet.putFloat(it) }
-        }
-        return packet.array()
-    }
     fun pose(message: JSONObject, samples: List<Gyro>, maximumBytes: Int): ByteArray {
         require(maximumBytes >= POSE_BYTES)
         val states = listOf("tracking", "paused", "error", "stopped")

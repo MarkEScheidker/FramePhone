@@ -24,7 +24,7 @@ flowchart LR
 | Component | Responsibility |
 | --- | --- |
 | Fiducial / MarkerOverlay | Automatic application-overlay raster, geometry and visibility. |
-| Android link / phone_link.py | Authenticated Bluetooth tracking sessions, sensor/clock diagnostics and marker state. |
+| Android link / phone_link.py | Bluetooth-established pinned Wi-Fi reconnect, sensor/clock diagnostics and marker state. |
 | [Camera module](../modules/camera/) broker / FrametopRing | Camera access and bounded read-only ring copies. |
 | RigCamera / StereoFramePairer | Imported KB4 pixel rays and fresh pairs within 3 ms. |
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
@@ -79,9 +79,9 @@ The desktop uses one dashboard. Its fixed front pair is declared in
 front_cameras.py; saved camera assignments are not loaded and no camera selectors
 are exposed. Startup launches wearer monitoring, camera authorization and
 Bluetooth advertising. Pairing is exclusively through Android's companion picker
-and a verified TLS connection over the Bluetooth bond. Updated peers exchange
-tracking state and clock probes over Bluetooth; older peers retain the Wi-Fi
-control path. There are no IP fields, LAN scans or
+and a verified TLS connection over the Bluetooth bond. Wi-Fi connects automatically from the verified
+Bluetooth route, with capped retry backoff and another route exchange on phone
+screen-on/unlock while disconnected. There are no IP fields, LAN scans or
 transport buttons. Bluetooth status is always visible; the only headset pairing
 control is Forget phone. The activity log expands inline. Tracking, ARCore and
 the VR rectangle are automatic; raw sensor telemetry and recording remain
@@ -97,9 +97,9 @@ The renderer measures cadence and age independently from UI refresh.
 
 The BlueZ integration lives in bluetooth_link.py; bluetooth_tls.py provides a
 transport-independent TLS 1.3 byte stream and bluetooth_protocol.py the pose codec. It
-owns an asyncio thread and only passes validated poses to PhoneLink's mailbox.
+owns an asyncio thread and supplies authenticated LAN endpoints for PhoneLink.
 Android bluetooth/ owns association/presence, GATT lifecycle and the shared binary
-contract. ArPoseService remains the producer; SensorFeed retains raw diagnostics.
+contract. ArPoseService and SensorFeed publish poses and raw diagnostics over Wi-Fi.
 After no-code OS bonding, TLS over BLE and a hash approved on both devices
 establish app trust. Saved trust authenticates subsequent sessions and their LAN route.
 Video is a future separate path. See [Bluetooth contract](BLUETOOTH.md).

@@ -3,7 +3,8 @@
 Enter the phone's width and height, then tap **Pair headset**. After the headset
 connects and is worn, a screen-width AprilTag appears over the current app. Frame accepts a
 stable pose, confirms that its VR rectangle is visible, and dismisses the marker.
-ARCore then supplies anchored motion and tracking control over BLE.
+ARCore then supplies anchored motion over pinned Wi-Fi TLS. Bluetooth handles
+pairing and automatic connection setup.
 
 Tracking recovery shows the overlay again automatically; screen-off recreates
 the paused anchor on resume without requiring a network reconnect. The setup activity can
@@ -38,8 +39,8 @@ headset accepts a different phone only after Forget phone.
 
 Companion presence can wake the service, but Android may require Resume tracking
 for a cold background camera start. Force-stop and camera permissions are not
-bypassed. Updated peers track over Bluetooth without a Wi-Fi network. Rebuild
-both apps together for the new protocol.
+bypassed. Both devices must already share a reachable Wi-Fi network; no manual IP
+or transport selection is needed. Rebuild both apps together for the new protocol.
 See [Bluetooth setup and protocol](../frame/docs/BLUETOOTH.md).
 
 ## Tracking

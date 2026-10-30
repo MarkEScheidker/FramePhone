@@ -134,12 +134,10 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 .put("sensors", feed.capabilities)
                 .put("marker_state_v1", true)
                 .put("headset_presence_v1", true)
-                .put("bluetooth_pose_v1", true)
                 .put("arcore_pose_v1", hello.optBoolean("arcore_pose_v1"))
                 .put("automatic_marker_v1", hello.optBoolean("arcore_pose_v1"))
                 .apply { runCatching { Fiducial.currentProfile(context) }
                     .getOrNull()?.let { put("fiducial", it) } })
-            BluetoothPose.session(session)
             update("Connected", connected = true)
             stage = "sensor streaming"
             socket.soTimeout = 8000
@@ -183,21 +181,13 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 var stateAt = -500L
                 var lastDisplayed: Boolean? = null
                 var lastPose = ""
-                var wifiPoseAt = 0L
-                var wifiState = ""
                 while (running && alive.get()) {
                     Protocol.write(output, feed.batch(session))
                     lastWrite.set(SystemClock.elapsedRealtime())
                     if (hello.optBoolean("arcore_pose_v1")) ArPoseState.message(session)?.let { pose ->
                         val identity = "${pose.getString("generation")}:${pose.getLong("seq")}"
                         if (identity != lastPose) {
-                            val bluetooth = BluetoothPose.isBound()
-                            val state = "${pose.getString("generation")}:${pose.getString("acquisition")}:${pose.getString("state")}"
-                            val nowPose = SystemClock.elapsedRealtime()
-                            if (!bluetooth || state != wifiState || nowPose-wifiPoseAt >= 200) {
-                                Protocol.write(output, pose)
-                                wifiPoseAt = nowPose; wifiState = state
-                            }
+                            Protocol.write(output, pose)
                             lastPose = identity
                         }
                     }
@@ -218,7 +208,7 @@ class PhoneServer(private val context: Context, private val store: SettingsStore
                 reader.join(1000)
                 watchdog.join(1000)
             }
-        } finally { BluetoothPose.session(null); feed.close() }
+        } finally { feed.close() }
     }
     fun close() {
         synchronized(this) { running = false }

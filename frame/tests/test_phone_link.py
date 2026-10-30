@@ -206,6 +206,7 @@ class TLSTests(unittest.TestCase):
                         capabilities = profile()
                         if arcore:
                             capabilities["arcore_pose_v1"] = True
+                            capabilities["bluetooth_pose_v1"] = True  # Legacy hint must not select BLE tracking.
                         if presence:
                             capabilities["headset_presence_v1"] = True
                         write_message(conn, capabilities)
@@ -273,6 +274,8 @@ class TLSTests(unittest.TestCase):
                     self.assertTrue(client.alignment_command("alignment_accepted", "anchor-1", "scan-1"))
                     self.assertTrue(control_received.wait(3))
                     self.assertEqual(client.snapshot()["arcore"]["poses"][-1]["seq"], 20)
+                    self.assertEqual(client.snapshot()['pose_transport'], 'wifi')
+                    self.assertEqual(len(client.snapshot()['arcore']['poses']), 20)
                 client.stop()
             client_thread.join(6)
             server_thread.join(6)

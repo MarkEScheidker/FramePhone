@@ -11,7 +11,6 @@ import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.ArrayDeque
-import com.example.framephone.bluetooth.BluetoothPose
 
 /** Callback copies only. Network writes never run on the sensor thread. */
 class SensorFeed(context: Context) : SensorEventListener {
@@ -46,11 +45,6 @@ class SensorFeed(context: Context) : SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         val name = names[event.sensor.type] ?: return
-        if (name == "gyro" && event.values.size >= 3) {
-            val raw = event.sensor.type == Sensor.TYPE_GYROSCOPE_UNCALIBRATED
-            if (!raw || event.values.size >= 6) BluetoothPose.gyro(event.timestamp,
-                FloatArray(3) { event.values[it] - if (raw) event.values[it+3] else 0f })
-        }
         synchronized(queue) {
             val sequence = (sequences[event.sensor.type] ?: 0L) + 1
             sequences[event.sensor.type] = sequence
@@ -71,15 +65,6 @@ class SensorFeed(context: Context) : SensorEventListener {
         repeat(minOf(64, queue.size)) { samples.put(queue.removeFirst()) }
         JSONObject().put("type", "samples").put("session", session)
             .put("dropped", dropped).put("samples", samples)
-    }
-    fun latestBatch(session: String): JSONObject = synchronized(queue) {
-        val latest = mutableMapOf<String, JSONObject>()
-        while (queue.isNotEmpty()) {
-            val sample = queue.removeFirst()
-            latest[sample.getString("sensor")] = sample
-        }
-        JSONObject().put("type", "samples").put("session", session)
-            .put("dropped", dropped).put("samples", JSONArray(latest.values.toList()))
     }
     fun close() {
         manager.unregisterListener(this)

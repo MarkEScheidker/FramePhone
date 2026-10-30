@@ -1,9 +1,5 @@
 # Pinned Wi-Fi control and sensor link v1
 
-This document describes the legacy Wi-Fi tracking path used with older peers.
-Updated peers use the standalone Bluetooth session described in
-[Bluetooth connection](BLUETOOTH.md); they do not require this Wi-Fi link.
-
 Pairing is exclusively [Bluetooth](BLUETOOTH.md). The phone's TLS listener accepts
 only reconnect authentication with the credential established over verified TLS carried by
 Bluetooth. UDP discovery, manual IP entry and LAN enrollment have been

@@ -75,18 +75,7 @@ class TelemetryService : Service() {
         }
         if (intent?.action == "wake" && !store.connectionEnabled()) { stopSelf(); return START_NOT_STICKY }
         if (intent?.action != "wake") store.enableConnection(true)
-        runCatching {
-            BluetoothPose.start(this, ArPoseState::message,
-                bondLost = { main.post { server?.disconnectClient() } },
-                trackingChanged = { _ -> main.post {
-                    if (SettingsStore(this).connectionEnabled()) {
-                        val active = BluetoothPose.standalone() || TelemetryState.status.connected
-                        val newlyConnected = active && !ArPoseState.connected
-                        ArPoseState.setConnected(active)
-                        if (newlyConnected) CompanionSetup.resumeCamera(this)
-                    }
-                } })
-        }
+        runCatching { BluetoothPose.start(this, ArPoseState::message) { main.post { server?.disconnectClient() } } }
         if (server != null) {
             if (!TelemetryState.status.connected) BluetoothPose.retryConnection()
             return START_NOT_STICKY
@@ -107,15 +96,14 @@ class TelemetryService : Service() {
             main.post {
                 if (server === instance) {
                     TelemetryState.status = status
-                    val active = status.connected || BluetoothPose.standalone()
-                    val newlyConnected = active && !ArPoseState.connected
-                    ArPoseState.setConnected(active)
+                    val newlyConnected = status.connected && !ArPoseState.connected
+                    ArPoseState.setConnected(status.connected)
                     if (newlyConnected) CompanionSetup.resumeCamera(this)
                     if (!status.running) {
-                        // The LAN listener can fail independently of Bluetooth.
-                        // Keep the foreground service and authenticated radio alive.
+                        stopService(Intent(this, ArPoseService::class.java))
                         server = null
-                        TelemetryState.status = status.copy(running = true)
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
                     }
                 }
             }

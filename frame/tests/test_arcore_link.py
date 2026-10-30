@@ -2,7 +2,6 @@
 import json
 from pathlib import Path
 import sys
-from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "desktop"))
@@ -95,28 +94,6 @@ class ArcoreLinkTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.telemetry().receive(dict(pose_message(), **fields), 2_000_000_000)
 
-    def test_bluetooth_clock_allows_64ms_rtt_but_disables_gyro_prediction(self):
-        radio = SimpleNamespace(authorize=lambda *_: None, send_tracking=lambda *_: False, revoke=lambda *_: None)
-        link = PhoneLink(None, None, None, bluetooth=radio)
-        link.start_bluetooth(dict(profile(), arcore_pose_v1=True))
-        try:
-            state = link.telemetry
-            h0 = 1_900_000_000
-            state.clock_reply(dict(session='test-session', h0=h0, p1=h0+32_000_000,
-                                   p2=h0+32_000_000), h0+64_000_000, {h0})
-            state.receive(dict(pose_message(), marker_required=False, capture_t_ns=980_000_000,
-                               capture_time_source='camera2_realtime_center_exposure'), 2_000_000_000)
-            state.gyro_history.append(dict(t_ns=1_000_000_000, w_rad_s=[1, 0, 0]))
-            packet = state.pose_packet(2_000_000_000)
-            self.assertTrue(packet['clock_valid'])
-            self.assertEqual(packet['gyro'], [], 'high RTT must not enable IMU prediction')
-            state.probes.clear()
-            state.clock_reply(dict(session='test-session', h0=h0, p1=h0+41_000_000,
-                                   p2=h0+41_000_000), h0+82_000_000, {h0})
-            self.assertFalse(state.pose_packet(2_000_000_000)['clock_valid'])
-        finally:
-            link.stop()
-
     def test_source_sequence_rate_distinguishes_skipped_delivery(self):
         state = self.telemetry()
         state.receive(pose_message(1, 1_000_000_000), 2_000_000_000)
@@ -124,42 +101,6 @@ class ArcoreLinkTests(unittest.TestCase):
         packet = state.pose_packet(2_020_000_000)
         self.assertEqual(packet["pose_hz"], 50)
         self.assertEqual(packet["source_hz"], 100)
-
-    def test_independent_gyro_requires_fresh_matching_tracking_pose(self):
-        state = self.telemetry()
-        link = PhoneLink(None, None, None)
-        link.ble_telemetry = state
-        pose = dict(pose_message(), marker_required=False)
-        link.receive_bluetooth(pose, [], 2_000_000_000)
-        message = dict(type='gyro_samples', session='test-session', generation='anchor-1', acquisition='scan-1')
-        samples = [dict(t_ns=1_005_000_000, w_rad_s=[.1, .2, .3]),
-                   dict(t_ns=1_010_000_000, w_rad_s=[.2, .3, .4])]
-        link.receive_bluetooth(message, samples, 2_010_000_000)
-        link.receive_bluetooth(message, samples, 2_020_000_000)
-        self.assertEqual(len(state.gyro_history), 2, 'overlapping batches must not duplicate samples')
-        self.assertEqual(state.arcore_received_ns, 2_000_000_000, 'gyro must not refresh the ARCore pose')
-        self.assertEqual(state.arcore_poses[-1]['seq'], 1)
-        new = [dict(t_ns=1_020_000_000, w_rad_s=[0, 0, 0])]
-        for bad in (dict(message, session='other'), dict(message, generation='old'),
-                    dict(message, acquisition='old')):
-            link.receive_bluetooth(bad, new, 2_030_000_000)
-        link.receive_bluetooth(message, new, 2_150_000_001)
-        self.assertEqual(len(state.gyro_history), 2)
-
-    def test_bluetooth_diagnostics_do_not_skip_inertial_samples(self):
-        from test_phone_link import batch
-        state = self.telemetry()
-        link = PhoneLink(None, None, None)
-        link.telemetry = link.ble_telemetry = state
-        link.bluetooth_only = True
-        state.receive(dict(pose_message(), marker_required=False), 2_000_000_000)
-        link.receive_bluetooth(batch(timestamp=1_020_000_000), [], 2_020_000_000)
-        self.assertFalse(state.gyro_history)
-        message = dict(type='gyro_samples', session='test-session', generation='anchor-1', acquisition='scan-1')
-        samples = [dict(t_ns=1_005_000_000, w_rad_s=[.1, .2, .3]),
-                   dict(t_ns=1_010_000_000, w_rad_s=[.2, .3, .4])]
-        link.receive_bluetooth(message, samples, 2_030_000_000)
-        self.assertEqual([sample['t_ns'] for sample in state.gyro_history], [1_005_000_000, 1_010_000_000])
 
     def test_malformed_unannounced_reordered_poses_rejected(self):
         with self.assertRaises(ValueError):

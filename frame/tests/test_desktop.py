@@ -1,7 +1,6 @@
 """Check GUI handoff and bounded previews without root, cameras or a display."""
 import importlib.util
 import os
-import queue
 from pathlib import Path
 import struct
 import sys
@@ -9,7 +8,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,35 +27,6 @@ app, reader = load("app"), load("ring_preview")
 
 
 class DesktopTests(unittest.TestCase):
-
-    def test_bluetooth_profile_starts_tracking_without_wifi(self):
-        from phone_panel import PhonePanel
-        from test_phone_link import profile
-        panel = PhonePanel.__new__(PhonePanel)
-        panel.parent = Mock()
-        panel.store = Mock()
-        panel.bluetooth = Mock(status='Bluetooth secure')
-        panel.bluetooth.send_tracking.return_value = False
-        panel.events = queue.Queue()
-        panel.link = panel.worker = panel.pairing_request = None
-        panel.closed = panel.forget_pending = panel.retry_enabled = False
-        panel.retry_timer = panel.bluetooth_endpoint = None
-        panel.status = Mock()
-        panel.bluetooth_status = Mock()
-        panel.pairing_panel = Mock()
-        panel.geometry = Mock()
-        panel.health = Mock()
-        panel.rows = {name: Mock() for name in ('gyro', 'accel', 'mag')}
-        panel.events.put(('bluetooth_tracking_profile', dict(profile(), arcore_pose_v1=True)))
-        panel.tick()
-        link = panel.link
-        self.assertTrue(link.bluetooth_only)
-        self.assertIsNone(panel.worker)
-        panel.bluetooth.authorize.assert_called_once()
-        panel.events.put(('bluetooth_tracking_lost', None))
-        panel.tick()
-        self.assertTrue(link.stopped.is_set())
-        self.assertIsNone(panel.link)
 
     def test_fixed_front_pair_requires_matching_cameras(self):
         self.assertEqual(front.FRONT_CAMERAS,

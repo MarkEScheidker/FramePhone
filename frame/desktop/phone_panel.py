@@ -87,7 +87,7 @@ class PhonePanel:
         self.status.set("Wi-Fi connecting automatically…")
         # Enrollment is Bluetooth-only. The TLS client may reconnect solely
         # with the certificate pin/credential established by that pairing.
-        self.link = PhoneLink(self.store, self.notify, lambda *_: False, bluetooth=self.bluetooth)
+        self.link = PhoneLink(self.store, self.notify, lambda *_: False)
         self.worker = threading.Thread(target=self.link.run, args=(self.host.get(), False), daemon=True)
         self.worker.start()
 
@@ -168,21 +168,6 @@ class PhonePanel:
                     self.answer_pairing(False)
             elif kind == "bluetooth_replaced":
                 self.disconnect()
-            elif kind == "bluetooth_tracking_profile":
-                if self.closed or self.forget_pending:
-                    continue
-                try:
-                    self.disconnect()
-                    self.link = PhoneLink(self.store, self.notify, lambda *_: False, bluetooth=self.bluetooth)
-                    self.link.start_bluetooth(value)
-                    self.status.set("Bluetooth tracking connected")
-                except (OSError, ValueError, KeyError, TypeError) as error:
-                    self.status.set("Bluetooth tracking unavailable: " + str(error))
-            elif kind == "bluetooth_tracking_lost":
-                if self.link and self.link.bluetooth_only:
-                    self.link.stop()
-                    self.link = None
-                    self.status.set("Waiting for phone over Bluetooth…")
             elif kind == "bluetooth_endpoint":
                 try:
                     if not self.closed and not self.forget_pending and self.store.load():
@@ -225,14 +210,9 @@ class PhonePanel:
                     age = "clock syncing" if row["age_ms"] is None else f"age ≈ {row['age_ms']:.1f} ms"
                     text = f"{xyz}\n{row['hz']:.1f} Hz · {age}"
                 self.rows[name].set(text)
-            transport = "Bluetooth LE" if snapshot.get("pose_transport") == "bluetooth" else "Wi-Fi backup"
+            transport = "Wi-Fi"
             rtt = snapshot["rtt_ms"]
-            clock = "clock syncing" if rtt is None else f"{'Bluetooth' if self.link.bluetooth_only else 'Wi-Fi'} RTT {rtt:.2f} ms"
-            if self.link.bluetooth_only and rtt is not None:
-                if rtt > 80:
-                    clock += " · clock too uncertain for tracking"
-                elif rtt > 40:
-                    clock += " · gyro prediction paused"
+            clock = "clock syncing" if rtt is None else f"Wi-Fi RTT {rtt:.2f} ms"
             self.health.set(f"Pose: {transport} · {clock} · {snapshot['dropped']} sensor samples dropped")
         else:
             for row in self.rows.values():
