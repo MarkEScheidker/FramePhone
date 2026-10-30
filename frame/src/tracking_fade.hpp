@@ -9,30 +9,40 @@ struct PhonePresentation {
 };
 
 /** Presentation only: a lost alignment stays lost. Live body-axis gyro may
- * advance the last rendered orientation during a one-second fade. Position is
+ * advance the last rendered orientation during the loss fade. Position is
  * held; integrating raw accelerometer data here would add gravity/bias drift. */
 class TrackingFade {
   public:
-    static constexpr std::uint64_t duration_ns = 1'000'000'000;
+    static constexpr std::uint64_t duration_ns = 500'000'000, fade_in_ns = 250'000'000;
     void reset() {
         last_.reset();
         loss_.reset();
+        opacity_ = 0;
     }
     PhonePresentation update(const std::optional<Matrix> &measured, std::uint64_t now,
                              const nlohmann::json &gyro, bool allow_gyro) {
+        if (last_ && now < stamp_)
+            reset();
         if (measured) {
+            if (!last_ || loss_) {
+                rise_from_ = loss_ ? lost_opacity(now) : 0;
+                rise_ = now;
+            }
             last_ = measured;
             loss_.reset();
             stamp_ = now;
-            return {last_, 1, false};
+            const double t = std::clamp(double(now - rise_) / fade_in_ns, 0., 1.);
+            opacity_ = rise_from_ + (1 - rise_from_) * t;
+            return {last_, opacity_, false};
         }
-        if (!last_ || now < stamp_) {
-            reset();
+        if (!last_)
             return {};
-        }
-        if (!loss_)
+        if (!loss_) {
             loss_ = now;
-        if (now - *loss_ >= duration_ns) {
+            loss_from_ = opacity_;
+        }
+        opacity_ = lost_opacity(now);
+        if (opacity_ <= 0) {
             reset();
             return {};
         }
@@ -44,10 +54,13 @@ class TrackingFade {
             }
         }
         stamp_ = now; // Never accumulate a missed interval or replay stale samples.
-        return {last_, 1 - double(now - *loss_) / duration_ns, predicted};
+        return {last_, opacity_, predicted};
     }
 
   private:
+    double lost_opacity(std::uint64_t now) const {
+        return loss_from_ * (1 - std::clamp(double(now - *loss_) / duration_ns, 0., 1.));
+    }
     static std::optional<Matrix> rotation(const nlohmann::json &samples, std::uint64_t from,
                                           std::uint64_t to) {
         if (!samples.is_array() || samples.empty() || samples.size() > 64)
@@ -85,6 +98,7 @@ class TrackingFade {
     }
     std::optional<Matrix> last_;
     std::optional<std::uint64_t> loss_;
-    std::uint64_t stamp_ = 0;
+    std::uint64_t stamp_ = 0, rise_ = 0;
+    double opacity_ = 0, rise_from_ = 0, loss_from_ = 0;
 };
 } // namespace framephone::surface

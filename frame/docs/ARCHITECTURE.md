@@ -35,7 +35,7 @@ flowchart LR
 
 Only status `measured` supplies a current pose. Ambiguous hypotheses remain
 purely diagnostic. Stopping, hiding the phone marker, changing its profile or
-losing the connection clears the valid pose and fades the VR object over one second.
+losing the connection clears the valid pose and fades the VR object over 500 ms.
 The fade is presentation only and cannot acknowledge alignment. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
@@ -94,7 +94,7 @@ validated post-exposure gyro samples affect rotation, and recent ARCore velocity
 affects translation. Predictions never enter the optical registration/history.
 The renderer measures cadence and age independently from UI refresh.
 `phone_model.hpp` owns physical shell geometry and textures; `tracking_fade.hpp`
-holds the last rendered pose for one second and advances rotation only from fresh,
+fades tracking in over 250 ms and out over 500 ms, advancing rotation only from fresh,
 verified gyro data. Neither presentation component changes registration.
 
 ## Bluetooth companion transport

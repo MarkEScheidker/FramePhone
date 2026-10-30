@@ -364,7 +364,7 @@ int main(int argc, char **argv) {
                 std::filesystem::exists(session / "optical-paused")) {
                 pairer = StereoFramePairer(rig);
                 last_pair = last_status = std::chrono::steady_clock::now();
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
             }
             if (replay && !eof) {

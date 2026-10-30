@@ -15,7 +15,7 @@ Wi-Fi connects automatically after Bluetooth pairing. Screen streaming is future
 3. Connect or pair on Frame as usual and put on the headset. Authentication plus a fresh positive wearer signal enables the overlay, and
    Frame automatically starts ARCore handoff and enables the VR rectangle.
 4. Briefly show the complete tag to both front cameras. Two distinct accepted
-   stereo observations spanning at least 80 ms can align, with up to 8 cm of
+   stereo observations can align immediately, with up to 8 cm of
    headset-relative movement. The candidate world offsets must also agree within
    5 cm/0.12 rad. Camera/ARCore startup and processing add time. This faster gate
    deliberately accepts more initial alignment uncertainty.
@@ -90,7 +90,7 @@ separately; its unspecified epoch is never assumed to match the sensor clock.
 Headset camera exposure timing and factory/runtime extrinsics remain unverified.
 
 Acquisition permits up to 8 cm of headset-relative marker position spread over
-two or more distinct observations spanning at least 80 ms. It does not require
+two distinct observations, without a minimum dwell time. It does not require
 separate absolute-phone/head stillness.
 Current ARCore/headset poses also check relative movement during detector work.
 The gate validates registration consistency, optical RMS, distinct observations,
@@ -105,7 +105,7 @@ leaves the marker visible until recovery or timeout.
 
 ARCore loss, stale phone poses, clock failure, anchor/session/acquisition changes,
 invalid headset tracking and reported SteamVR recenter events invalidate the
-offset and start a one-second visual fade. An invalid headset pose or tracking-origin
+offset and start a 500 ms visual fade. An invalid headset pose or tracking-origin
 reset clears presentation immediately. Pose freshness is bounded to 250 ms. Reacquisition
 does not silently trust the previous alignment. Drift correction, calibrated
 extrinsics, complete headset exposure timing and trusted marker-free pocket
@@ -132,16 +132,19 @@ heartbeat before alignment is acknowledged.
 ## CPU use and diagnostics
 
 Active detector workers process the latest available camera frame/pair immediately,
-without a per-frame delay or backlog. Both eyes use independent full-resolution
-AprilTag detectors in parallel; corner refinement and pose rejection thresholds
-are unchanged. Optical poses publish before the UI draws them. Alignment changes
+without a per-frame delay or backlog. Both eyes use independent AprilTag detectors
+in parallel at native resolution; edge refinement and pose-quality thresholds are
+unchanged. Optical poses publish before the UI draws them. Alignment changes
 and acknowledgments bypass the periodic diagnostic heartbeat, retaining the
-two-observation, 80 ms, 8 cm acquisition requirement. Camera captions distinguish
-published capture rate (sequence/capture-time deltas) from completed detection/
+two-distinct-observation, 8 cm acquisition requirement. No timed dwell is imposed.
+Renderer visibility transitions publish immediately, so fade-in does not add a
+100 ms diagnostic-heartbeat wait to the alignment acknowledgment. Camera captions
+distinguish published capture rate (sequence/capture-time deltas) from completed detection/
 solve rate. These are sliding estimates; preview repaint rate is separate.
 
 After acceptance the native stereo worker sleeps behind an acquisition gate:
 no AprilTag detection, pose solve or image/log publication runs in that state.
+The paused worker checks for acquisition resumption every 20 ms.
 Independent annotated preview workers also stop while a tracker session owns
 the cameras, avoiding duplicate detection. Camera broker capture remains active;
 this does not claim to turn off camera hardware. Views remain a diagnostic aid,
@@ -167,7 +170,7 @@ requiring three samples, at least 20 ms span and fit RMS at most 1 cm. Predictio
 stops at 40 ms/2 cm. Accelerometer-only
 position integration is not used. Predicted values never feed registration or
 become subsequent measurements. The 250 ms stale-data cutoff invalidates tracking
-and starts a one-second fade. During that fade, fresh gyro samples can advance
+and starts a 500 ms fade. During that fade, fresh gyro samples can advance
 orientation frame by frame; gaps, stale samples, an invalid clock or a changed
 phone connection/ARCore generation stop that integration. Position is held. This
 visual continuation never feeds registration or acknowledges an alignment.

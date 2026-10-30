@@ -7,17 +7,62 @@
 
 namespace framephone::surface {
 enum class PhoneFace { body, back, screen, edge };
+using Vertex = std::array<double, 3>;
 struct Surface {
     Matrix local;
     double width, height;
     PhoneFace kind;
+    // Empty for rectangles; otherwise normalized texture coordinates (top down).
+    std::vector<std::array<double, 2>> mask;
 };
+inline Vertex subtract(const Vertex &a, const Vertex &b) {
+    return {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
+}
+inline double dot(const Vertex &a, const Vertex &b) {
+    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+inline Vertex cross(const Vertex &a, const Vertex &b) {
+    return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]};
+}
+inline Vertex unit(Vertex value) {
+    const double length = std::sqrt(dot(value, value));
+    for (auto &v : value)
+        v /= length;
+    return value;
+}
+inline Surface rectangle(const Vertex &center, const Vertex &x, const Vertex &y, double width,
+                         double height, PhoneFace kind) {
+    const auto z = cross(x, y);
+    return {{x[0], y[0], z[0], center[0], x[1], y[1], z[1], center[1], x[2], y[2], z[2], center[2]},
+            width,
+            height,
+            kind,
+            {}};
+}
+inline Surface triangle(const Vertex &a, Vertex b, Vertex c, const Vertex &core) {
+    auto x = unit(subtract(b, a)), normal = unit(cross(x, subtract(c, a)));
+    if (dot(normal, subtract(a, core)) < 0) {
+        std::swap(b, c);
+        x = unit(subtract(b, a));
+        normal = unit(cross(x, subtract(c, a)));
+    }
+    const auto y = cross(normal, x), ab = subtract(b, a), ac = subtract(c, a);
+    const double bx = dot(ab, x), cx = dot(ac, x), cy = dot(ac, y);
+    const double left = std::min(0., cx), right = std::max(bx, cx), width = right - left;
+    Vertex center{};
+    for (int k = 0; k < 3; ++k)
+        center[k] = a[k] + x[k] * (left + right) / 2 + y[k] * cy / 2;
+    auto out = rectangle(center, x, y, width, cy, PhoneFace::edge);
+    out.mask = {{{-left / width, 1}, {(bx - left) / width, 1}, {(cx - left) / width, 0}}};
+    return out;
+}
 
-/** Screen center and +Z front normal match the optical/ARCore pose. The shell
- * extends behind this plane; it never changes the calibrated screen size. */
+/** Rounded box = inset rectangular core + a 2mm sphere. Flat faces, all twelve
+ * quarter-cylinder edges, and eight spherical corners share their vertices.
+ * Short facets approximate the curves without an extra graphics dependency. */
 struct PhoneModel {
     Geometry screen;
-    static constexpr double bezel = .001, radius = .001, depth = .010;
+    static constexpr double radius = .002, bezel = radius + .0005, depth = .010;
     static constexpr double front_z = -.00005;
     double width() const {
         return screen.width + 2 * bezel;
@@ -25,42 +70,69 @@ struct PhoneModel {
     double height() const {
         return screen.height + 2 * bezel;
     }
+    Vertex core_size() const {
+        return {width() / 2 - radius, height() / 2 - radius, depth / 2 - radius};
+    }
     std::vector<Surface> surfaces() const {
-        auto front = identity(), back = identity();
-        front[11] = front_z;
-        back[0] = back[10] = -1;
-        back[11] = front_z - depth;
-        std::vector<Surface> result{{front, width(), height(), PhoneFace::body},
-                                    {back, width(), height(), PhoneFace::back},
-                                    {identity(), screen.width, screen.height, PhoneFace::screen}};
-        std::vector<std::array<double, 2>> outline;
-        constexpr double pi = 3.14159265358979323846;
-        for (int corner = 0; corner < 4; ++corner) {
-            const double cx = (corner == 0 || corner == 3 ? 1 : -1) * (width() / 2 - radius);
-            const double cy = (corner < 2 ? 1 : -1) * (height() / 2 - radius);
-            for (int step = 0; step <= 4; ++step) {
-                const double angle = (corner + step / 4.) * pi / 2;
-                outline.push_back({cx + radius * std::cos(angle), cy + radius * std::sin(angle)});
+        const auto core = core_size();
+        const Vertex center{0, 0, front_z - depth / 2};
+        std::vector<Surface> out{rectangle({0, 0, front_z}, {1, 0, 0}, {0, 1, 0}, 2 * core[0],
+                                           2 * core[1], PhoneFace::body),
+                                 rectangle({0, 0, front_z - depth}, {-1, 0, 0}, {0, 1, 0},
+                                           2 * core[0], 2 * core[1], PhoneFace::back),
+                                 rectangle({0, 0, 0}, {1, 0, 0}, {0, 1, 0}, screen.width,
+                                           screen.height, PhoneFace::screen)};
+        for (int axis = 0; axis < 2; ++axis)
+            for (int sign : {-1, 1}) {
+                Vertex position = center, x{}, y{0, 0, 1};
+                position[axis] += sign * (core[axis] + radius);
+                x[1 - axis] = axis == 0 ? sign : -sign;
+                out.push_back(
+                    rectangle(position, x, y, 2 * core[1 - axis], 2 * core[2], PhoneFace::edge));
             }
+        constexpr double pi = 3.14159265358979323846;
+        // Two segments per quarter-circle. All vertices are on the 2mm surface;
+        // the maximum edge chord error is 0.15mm.
+        for (int axis = 0; axis < 3; ++axis) {
+            const int u = (axis + 1) % 3, v = (axis + 2) % 3;
+            for (int su : {-1, 1})
+                for (int sv : {-1, 1})
+                    for (int step = 0; step < 2; ++step) {
+                        Vertex a = center, b = center, along{};
+                        const double t0 = step * pi / 4, t1 = (step + 1) * pi / 4;
+                        a[u] += su * (core[u] + radius * std::cos(t0));
+                        a[v] += sv * (core[v] + radius * std::sin(t0));
+                        b[u] += su * (core[u] + radius * std::cos(t1));
+                        b[v] += sv * (core[v] + radius * std::sin(t1));
+                        auto tangent = unit(subtract(b, a));
+                        along[axis] = 1;
+                        Vertex middle{};
+                        for (int k = 0; k < 3; ++k)
+                            middle[k] = (a[k] + b[k]) / 2;
+                        if (dot(cross(tangent, along), subtract(middle, center)) < 0)
+                            along[axis] = -1;
+                        out.push_back(rectangle(middle, tangent, along,
+                                                std::sqrt(dot(subtract(b, a), subtract(b, a))),
+                                                2 * core[axis], PhoneFace::edge));
+                    }
         }
-        for (std::size_t i = 0; i < outline.size(); ++i) {
-            const auto &a = outline[i], &b = outline[(i + 1) % outline.size()];
-            const double dx = b[0] - a[0], dy = b[1] - a[1], length = std::hypot(dx, dy);
-            Matrix edge{dx / length,
-                        0,
-                        dy / length,
-                        (a[0] + b[0]) / 2,
-                        dy / length,
-                        0,
-                        -dx / length,
-                        (a[1] + b[1]) / 2,
-                        0,
-                        1,
-                        0,
-                        front_z - depth / 2};
-            result.push_back({edge, length, depth, PhoneFace::edge});
-        }
-        return result;
+        for (int sx : {-1, 1})
+            for (int sy : {-1, 1})
+                for (int sz : {-1, 1}) {
+                    Vertex corner{sx * core[0], sy * core[1], center[2] + sz * core[2]};
+                    auto point = [&](double x, double y, double z) {
+                        auto n = unit({sx * x, sy * y, sz * z});
+                        for (int k = 0; k < 3; ++k)
+                            n[k] = corner[k] + radius * n[k];
+                        return n;
+                    };
+                    const auto x = point(1, 0, 0), y = point(0, 1, 0), z = point(0, 0, 1);
+                    const auto xy = point(1, 1, 0), xz = point(1, 0, 1), yz = point(0, 1, 1);
+                    for (const auto &vertices : std::array<std::array<Vertex, 3>, 4>{
+                             {{x, xy, xz}, {xy, y, yz}, {xz, yz, z}, {xy, yz, xz}}})
+                        out.push_back(triangle(vertices[0], vertices[1], vertices[2], corner));
+                }
+        return out;
     }
 };
 
@@ -82,23 +154,27 @@ struct Image {
     }
 };
 
-inline Image shell_texture(const PhoneModel &model, bool screen_opening = false) {
-    Image image(256, 512, 48);
+inline Image surface_texture(const PhoneModel &model, const Surface &surface) {
+    const bool front = surface.kind == PhoneFace::body;
+    const auto grey = std::uint8_t(42 + 6 * std::abs(surface.local[10]) + 3 * surface.local[6]);
+    Image image(front ? 256 : (surface.mask.empty() ? 1 : 64),
+                front ? 512 : (surface.mask.empty() ? 1 : 64), grey);
     for (unsigned y = 0; y < image.height; ++y)
         for (unsigned x = 0; x < image.width; ++x) {
-            const double px = std::abs((x + .5) / image.width - .5) * model.width();
-            const double py = std::abs((y + .5) / image.height - .5) * model.height();
-            if (screen_opening && px < model.screen.width / 2 && py < model.screen.height / 2) {
-                image.rgba[(y * image.width + x) * 4 + 3] = 0;
-                continue; // One alpha layer under the screen, including during fades.
+            const double u = (x + .5) / image.width, v = (y + .5) / image.height;
+            bool inside = true;
+            if (front && std::abs(u - .5) * surface.width < model.screen.width / 2 &&
+                std::abs(v - .5) * surface.height < model.screen.height / 2)
+                inside = false;
+            if (!surface.mask.empty()) {
+                const auto &a = surface.mask[0], &b = surface.mask[1], &c = surface.mask[2];
+                auto edge = [u, v](const auto &p, const auto &q) {
+                    return (q[0] - p[0]) * (v - p[1]) - (q[1] - p[1]) * (u - p[0]);
+                };
+                inside = (edge(a, b) <= 0 && edge(b, c) <= 0 && edge(c, a) <= 0);
             }
-            const double dx = std::max(0., std::abs((x + .5) / image.width - .5) * model.width() -
-                                               (model.width() / 2 - model.radius));
-            const double dy = std::max(0., std::abs((y + .5) / image.height - .5) * model.height() -
-                                               (model.height() / 2 - model.radius));
-            const double coverage = std::clamp(
-                .5 + (model.radius - std::hypot(dx, dy)) / (model.width() / image.width), 0., 1.);
-            image.rgba[(y * image.width + x) * 4 + 3] = std::uint8_t(255 * coverage);
+            if (!inside)
+                image.rgba[(y * image.width + x) * 4 + 3] = 0;
         }
     return image;
 }
@@ -212,7 +288,7 @@ struct PhoneDiagnostics {
     double pose_hz = 0, age_ms = 0, prediction_ms = 0, opacity = 1;
 };
 inline Image diagnostic_texture(const PhoneModel &model, const PhoneDiagnostics &d) {
-    auto image = shell_texture(model);
+    Image image(256, 512, 48);
     unsigned y = 44;
     auto line = [&](const std::string &value) {
         text(image, 20, y, value);

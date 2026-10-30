@@ -113,3 +113,6 @@ profile and diagnostic pose candidates. Only status `measured` is a current pose
 See [calibration](CALIBRATION.md), [validation](TRACKING_VALIDATION.md),
 [VR calibration display](VR_DISPLAY.md) and
 [AprilTag license](../third_party/apriltag/LICENSE).
+
+ARCore registration needs two distinct consistent stereo observations, with no
+additional timed dwell; geometric and clock-quality checks still apply.

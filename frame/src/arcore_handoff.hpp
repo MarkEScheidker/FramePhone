@@ -165,7 +165,6 @@ class ArcoreHandoff {
             unstable = unstable || moved(previous, position) || moved(previous, current_position);
         if (!count_ || unstable || !near(base_alignment_, candidate, .05, .12)) {
             count_ = 1;
-            first_ = observed;
             last_ = observed;
             relative_positions_.clear();
             relative_positions_.push_back(position);
@@ -184,7 +183,7 @@ class ArcoreHandoff {
         state["reason"] =
             "aligning phone (brief 8 cm motion allowance): " + std::to_string(count_) +
             " good frames";
-        if (!unstable && count_ >= 2 && observed - first_ >= 80'000'000) {
+        if (!unstable && count_ >= 2) {
             world_anchor_ = candidate;
             state["state"] = "tracking";
             state["reason"] = "ARCore pose; optical detection paused";
@@ -201,7 +200,7 @@ class ArcoreHandoff {
     std::optional<Matrix> world_anchor_;
     std::string key_;
     unsigned count_ = 0;
-    std::uint64_t first_ = 0, last_ = 0;
+    std::uint64_t last_ = 0;
     Matrix base_alignment_{};
     std::deque<std::array<double, 3>> relative_positions_;
 };

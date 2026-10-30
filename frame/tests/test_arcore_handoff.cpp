@@ -41,7 +41,7 @@ std::uint64_t acquire(ArcoreHandoff &handoff, Matrix world_anchor, Matrix head =
         handoff.head(time, head);
         auto found =
             handoff.update(phone(time), optical(time, compose(inverse(head), world_anchor)), time);
-        check(bool(found) == (i == 1), "two consistent observations should acquire after 80 ms");
+        check(bool(found) == (i == 1), "two consistent observations should acquire");
     }
     return start + 100'000'000;
 }
@@ -128,12 +128,12 @@ int main() {
         check(slow_acquired,
               "350 ms detector cadence must not reset stationary acquisition at render timeout");
         ArcoreHandoff minimum;
-        for (unsigned i = 0; i < 3; ++i) {
-            time = 1'000'000'000ULL + i * 40'000'000ULL;
+        for (unsigned i = 0; i < 2; ++i) {
+            time = 1'000'000'000ULL + i * 16'000'000ULL;
             minimum.head(time, identity());
             const auto found = minimum.update(phone(time), optical(time, anchor), time);
-            check(bool(found) == (i == 2),
-                  "distinct stereo observations spanning 80 ms should acquire promptly");
+            check(bool(found) == (i == 1),
+                  "two consistent stereo observations acquire without an artificial dwell");
         }
         ArcoreHandoff walking;
         auto walk_anchor = identity();

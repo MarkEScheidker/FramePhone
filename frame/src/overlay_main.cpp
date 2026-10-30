@@ -134,6 +134,9 @@ struct Display {
         Surface surface;
         vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
         bool shown = false;
+        vr::VROverlayHandle_t spare = vr::k_ulOverlayHandleInvalid;
+        bool loading = false, ready = false;
+        double alpha = -1;
     };
     Client &client;
     PhoneModel model;
@@ -146,12 +149,20 @@ struct Display {
             throw std::runtime_error(std::string("VR phone: ") +
                                      client.overlay->GetOverlayErrorNameFromEnum(result));
     }
-    void upload(const Face &face, Image image) {
+    void upload(const Face &face, Image image,
+                vr::VROverlayHandle_t target = vr::k_ulOverlayHandleInvalid) {
+        if (target == vr::k_ulOverlayHandleInvalid)
+            target = face.handle;
         check(client.overlay->SetOverlayTexelAspect(
-            face.handle,
-            float(face.surface.width / face.surface.height * image.height / image.width)));
-        check(client.overlay->SetOverlayRaw(face.handle, image.rgba.data(), image.width,
-                                            image.height, 4));
+            target, float(face.surface.width / face.surface.height * image.height / image.width)));
+        check(
+            client.overlay->SetOverlayRaw(target, image.rgba.data(), image.width, image.height, 4));
+    }
+    void create_handle(vr::VROverlayHandle_t &handle, const std::string &key,
+                       const Surface &surface) {
+        check(client.overlay->CreateOverlay(key.c_str(), "FramePhone", &handle));
+        check(client.overlay->SetOverlayFlag(handle, vr::VROverlayFlags_VisibleInDashboard, true));
+        check(client.overlay->SetOverlayWidthInMeters(handle, float(surface.width)));
     }
     void create() {
         for (const auto &surface : model.surfaces()) {
@@ -159,18 +170,15 @@ struct Display {
             auto &face = faces.back();
             const auto key =
                 "framephone.phone." + std::to_string(getpid()) + "." + std::to_string(faces.size());
-            check(client.overlay->CreateOverlay(key.c_str(), "FramePhone", &face.handle));
-            check(client.overlay->SetOverlayFlag(face.handle, vr::VROverlayFlags_VisibleInDashboard,
-                                                 true));
-            check(client.overlay->SetOverlayWidthInMeters(face.handle, float(surface.width)));
-            // Black is opaque, and covers exactly the calibrated display area.
+            create_handle(face.handle, key, surface);
             if (surface.kind == PhoneFace::screen) {
                 upload(face, Image(1, 1, 0));
                 check(client.overlay->SetOverlaySortOrder(face.handle, 1));
-            } else if (surface.kind == PhoneFace::edge)
-                upload(face, Image(1, 1, 40));
-            else
-                upload(face, shell_texture(model, surface.kind == PhoneFace::body));
+            } else if (surface.kind == PhoneFace::back) {
+                upload(face, diagnostic_texture(model, {}));
+                create_handle(face.spare, key + ".spare", surface);
+            } else
+                upload(face, surface_texture(model, surface));
         }
     }
     void update(const PhonePresentation &presentation, bool world, const Matrix &head,
@@ -179,6 +187,19 @@ struct Display {
                                                 : std::array<double, 3>{0, 0, 0};
         visible = false;
         for (auto &face : faces) {
+            if (face.spare != vr::k_ulOverlayHandleInvalid) {
+                vr::VREvent_t event{};
+                while (client.overlay->PollNextOverlayEvent(face.spare, &event, sizeof(event))) {
+                    if (face.loading && event.eventType == vr::VREvent_ImageLoaded) {
+                        face.loading = false;
+                        face.ready = true;
+                    } else if (event.eventType == vr::VREvent_ImageFailed) {
+                        face.loading = face.ready = false;
+                        std::cerr << "VR phone: diagnostic texture upload failed; retaining "
+                                     "previous frame\n";
+                    }
+                }
+            }
             const auto transform =
                 presentation.pose ? compose(*presentation.pose, face.surface.local) : identity();
             const bool show =
@@ -199,10 +220,34 @@ struct Display {
             else
                 check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
                     face.handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
-            check(client.overlay->SetOverlayAlpha(face.handle, float(presentation.opacity)));
-            if (face.surface.kind == PhoneFace::back &&
+            if (face.alpha != presentation.opacity) {
+                check(client.overlay->SetOverlayAlpha(face.handle, float(presentation.opacity)));
+                face.alpha = presentation.opacity;
+            }
+            if (face.ready && presentation.opacity == 1) {
+                // SetOverlayRaw loads asynchronously. Only swap fully loaded
+                // hidden textures; keep the current back visible until this point.
+                // Swap at full opacity so temporary overlap cannot brighten a fade.
+                if (world)
+                    check(client.overlay->SetOverlayTransformAbsolute(
+                        face.spare, vr::TrackingUniverseStanding, &matrix));
+                else
+                    check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
+                        face.spare, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
+                check(client.overlay->SetOverlayAlpha(face.spare, float(presentation.opacity)));
+                check(client.overlay->ShowOverlay(face.spare));
+                check(client.overlay->HideOverlay(face.handle));
+                std::swap(face.handle, face.spare);
+                face.ready = false;
+                face.shown = true;
+            }
+            if (face.surface.kind == PhoneFace::back && !face.loading && !face.ready &&
                 (!face.shown || now - diagnostics_at >= 250'000'000)) {
-                upload(face, diagnostic_texture(model, diagnostics));
+                vr::VREvent_t old{};
+                while (client.overlay->PollNextOverlayEvent(face.spare, &old, sizeof(old))) {
+                }
+                face.loading = true;
+                upload(face, diagnostic_texture(model, diagnostics), face.spare);
                 diagnostics_at = now;
             }
             if (!face.shown)
@@ -215,6 +260,10 @@ struct Display {
             if (face.handle != vr::k_ulOverlayHandleInvalid) {
                 client.overlay->HideOverlay(face.handle);
                 client.overlay->DestroyOverlay(face.handle);
+                if (face.spare != vr::k_ulOverlayHandleInvalid) {
+                    client.overlay->HideOverlay(face.spare);
+                    client.overlay->DestroyOverlay(face.spare);
+                }
             }
     }
 };
@@ -384,9 +433,10 @@ void self_test() {
     }
     check(rejected);
     const PhoneModel model{screen};
-    check(model.surfaces().size() == 23);
-    const auto pixels = shell_texture(model);
-    check(pixels.rgba[3] == 0 && pixels.rgba[(256 * 256 + 128) * 4 + 3] == 255);
+    const auto surfaces = model.surfaces();
+    check(surfaces.size() < vr::k_unMaxOverlayCount - 1);
+    const auto pixels = surface_texture(model, surfaces.front());
+    check(pixels.rgba[3] == 255 && pixels.rgba[(256 * 256 + 128) * 4 + 3] == 0);
     std::cout << "VR screen pose validation, stale/lost rejection, physical dimensions and "
                  "phone shell passed "
                  "(no SteamVR required).\n";
@@ -456,6 +506,7 @@ int main(int argc, char **argv) {
                              : "VR screen ready: fiducial-driven rectangle; headset alignment and "
                                "motion timing are provisional.\n");
         std::string previous_state;
+        bool previous_tracking_visible = false;
         while (!stopped || display.visible) {
             vr::VREvent_t event{};
             while (client.system->PollNextEvent(&event, sizeof(event)))
@@ -570,9 +621,11 @@ int main(int argc, char **argv) {
                     rendered.pop_front();
             } else
                 rendered.clear();
-            if (arcore && (now - last_state_write >= 100'000'000 || state != previous_state)) {
+            const bool tracking_visible = current.has_value() && display.visible;
+            if (arcore && (now - last_state_write >= 100'000'000 || state != previous_state ||
+                           tracking_visible != previous_tracking_visible)) {
                 auto status = handoff.state;
-                status["visible"] = current.has_value() && display.visible;
+                status["visible"] = tracking_visible;
                 status["fading"] = !current && presentation.pose.has_value();
                 status["opacity"] = presentation.opacity;
                 status["updated_host_monotonic_ns"] = now;
@@ -595,6 +648,7 @@ int main(int argc, char **argv) {
                 std::filesystem::rename(temporary, session / "arcore-state.json");
                 last_state_write = now;
             }
+            previous_tracking_visible = tracking_visible;
             if (state != previous_state) {
                 std::cout << "VR screen " << state << '\n';
                 previous_state = state;
