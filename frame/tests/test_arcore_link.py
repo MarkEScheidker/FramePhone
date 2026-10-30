@@ -82,6 +82,12 @@ class ArcoreLinkTests(unittest.TestCase):
         for actual, expected in zip(packet["gyro"][0]["w_rad_s"], [.09, .18, .27]):
             self.assertAlmostEqual(actual, expected)
         self.assertEqual(packet["pose_hz"], 100)
+        paused = dict(pose_message(9, 1_090_000_000), state="paused", reason="tracking_lost")
+        state.receive(paused, 2_090_000_000)
+        paused_packet = state.pose_packet(2_090_000_000, compact=True)
+        self.assertEqual(paused_packet["poses"][-1]["state"], "paused")
+        self.assertEqual(paused_packet["gyro"], packet["gyro"],
+                         "raw gyro remains available for visual fading during ARCore loss")
         state.clock_reply({"session": "test-session", "h0": 2_100_000_000,
                            "p1": 5_100_500_000, "p2": 5_100_500_000}, 2_101_000_000, {2_100_000_000})
         self.assertFalse(state.arcore_poses, "sleep clock jumps must discard old prediction history")

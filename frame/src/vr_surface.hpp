@@ -78,18 +78,4 @@ struct Geometry {
     }
 };
 
-inline constexpr unsigned texture_size = 64;
-inline std::array<std::uint8_t, texture_size * texture_size * 4> texture() {
-    std::array<std::uint8_t, texture_size * texture_size * 4> pixels{};
-    for (unsigned y = 0; y < texture_size; ++y)
-        for (unsigned x = 0; x < texture_size; ++x) {
-            const bool border = x < 2 || y < 2 || x + 2 >= texture_size || y + 2 >= texture_size;
-            auto *pixel = &pixels[(y * texture_size + x) * 4];
-            pixel[0] = 40;
-            pixel[1] = border ? 230 : 150;
-            pixel[2] = border ? 150 : 220;
-            pixel[3] = border ? 255 : 100;
-        }
-    return pixels;
-}
 } // namespace framephone::surface

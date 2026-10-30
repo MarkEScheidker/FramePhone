@@ -5,7 +5,7 @@ screen-width AprilTag overlay when alignment is needed and sends motion telemetr
 over pinned Wi-Fi TLS. Bluetooth handles pairing and automatic connection setup.
 Frame's two front cameras estimate the marker's position and rotation using
 factory fisheye calibration. An automatic SteamVR display follows the tracked
-screen as a flat rectangle.
+screen as a black display inside a rounded dark-grey 3D phone body.
 
 **Early development:** pairing and live stereo pose tracking work on the owner's
 devices, with stable distance and orientation readings. Both optical and ARCore-driven VR rectangles have
@@ -40,7 +40,7 @@ The app uses the headset's installed SteamVR for its automatic VR display.
    travel through TLS over Bluetooth; Frame connects automatically. Use **Forget**
    in either app to require a fresh hash exchange, keeping the OS bond if desired.
 3. Briefly show the automatic marker to the front cameras. After alignment the
-   marker hides and ARCore drives the VR rectangle. Live poses, IMU telemetry,
+   marker hides and ARCore drives the virtual phone. Live poses, IMU telemetry,
    clock synchronization and tracking commands use Wi-Fi.
 4. Subsequent headset advertisements can wake Android's connection service
    without opening setup. If Android requires user action to restart its camera,

@@ -1,46 +1,67 @@
-# Tracked VR rectangle
+# Tracked VR phone
 
-The VR rectangle starts automatically with tracking; there is no visibility or
-Start/Stop switch. A translucent blue rectangle with a green outline follows the
-phone's accepted pose. Updated phones first acquire a stable optical alignment,
-then hide their marker and supply anchored ARCore motion. See
-[the handoff test](ARCORE_HANDOFF.md) for prediction, smoothing and validity.
+The virtual phone starts automatically with tracking. Its opaque pure-black
+screen occupies the same calibrated width and height as the physical display.
+A dark-grey shell adds a 1 mm bezel on each side, 1 mm corner radii, and 10 mm
+of depth behind the screen. These are visual defaults, not additional phone
+measurements. The screen remains at the tracked screen-center plane; the shell
+never rescales or moves that plane. Screen streaming is not implemented yet.
 
-The renderer uses one flat OpenVR compositor quad. Its width and height come
-from the phone's fullscreen pixel dimensions and the same metric marker size
-used for optical tracking. Case thickness and body dimensions do not affect it.
-Missing screen geometry produces an error instead of an incorrectly sized
-fallback. Absolute scale still depends on Android's reported physical DPI.
+The back displays tracking state, pose rate, pose age, prediction duration,
+gyro activity, opacity and screen dimensions. Its texture refreshes at up to
+4 Hz while facing the viewer; phone transforms follow the headset render rate.
 
-Only valid current poses drive the rectangle. Stale data, tracking loss and
-disconnect hide it. Hiding the phone marker after a successful ARCore handoff
-keeps the rectangle visible; deliberate phone-side dismissal pauses tracking.
-Turning off camera previews leaves tracking and the rectangle active. Native
-worker/renderer failures retry automatically with capped backoff.
+Updated phones first acquire a stable optical alignment, then hide their marker
+and supply anchored ARCore motion. See [the handoff test](ARCORE_HANDOFF.md)
+for prediction, smoothing and validity. On tracking loss the virtual phone fades
+linearly over one second from its last rendered pose. Fresh bias-corrected gyro
+samples can continue rotating it during the fade, provided the phone connection,
+ARCore generation and verified clock remain valid. A new marker acquisition alone
+does not change the IMU body axes. Missing/stale/gapped samples freeze orientation.
+Position holds at the last rendered value; raw accelerometer integration is not
+used. Predictions never restore an alignment or acknowledge a hidden marker.
+New accepted tracking restores full opacity. An invalid headset pose or tracking
+origin reset clears presentation immediately because its reference frame is lost.
+Normal renderer termination also allows the fade before exiting.
+
+The renderer builds a convex extruded shell from small OpenVR compositor faces,
+with rounded front/back alpha masks and short facets around the corners. It
+culls faces pointing away from the viewer so the back text and screen cannot
+show through the body during the fade. The screen is its own opaque overlay,
+ready for a future texture source. No graphics context, font service, additional
+driver or Frametop installation is required.
+
+Screen width and height come from the phone's fullscreen pixel dimensions and
+the same metric marker size used for optical tracking. Missing geometry produces
+an error instead of an incorrectly sized fallback. Absolute scale still depends
+on Android's reported physical DPI.
 
 The helper loads the installed SteamVR client through the user's OpenVR registry,
-with `/opt/steamvr` as a Frame fallback. No additional driver or Frametop installation
-is required. FramePhone bundles only Valve's pinned interface header. Startup and
-runtime errors appear in **Activity log** and `desktop.log`.
+with `/opt/steamvr` as a Frame fallback. FramePhone bundles only Valve's pinned
+interface header. Startup and runtime errors appear in **Activity log** and
+`desktop.log`. Turning off camera previews leaves tracking and rendering active.
+Native worker/renderer failures retry automatically with capped backoff.
 
-The native helper also supports continuous optical tracking from a recorded or
-manually prepared session: this uses **headset-relative placement** from the latest optical
+The helper also supports continuous optical tracking from a recorded or manually
+prepared session, using **headset-relative placement** from the latest optical
 pose. The factory head frame is provisionally treated as the runtime HMD frame.
-There is no ARCore, IMU prediction, world anchoring or capture-time head-motion
-compensation. Move slowly when comparing the rectangle to the physical phone.
-The renderer independently validates rigid transforms, rejects pose publications
-older than 250 ms, and hides the rectangle when headset tracking is invalid.
-Publication freshness does not measure camera exposure age.
+This path has no ARCore, IMU prediction, world anchoring or capture-time head-motion
+compensation. Move slowly when comparing the object to the physical phone.
+The renderer independently validates rigid transforms and rejects pose publications
+older than 250 ms; a lost pose then starts the same fade. Publication freshness
+does not measure camera exposure age.
 
-The tracker reader atomically publishes `vr-pose.json` in the tracking session; the helper
-reads it without a LAN protocol change. The helper exits when its parent exits
-and removes its overlay on shutdown.
+The tracker reader atomically publishes `vr-pose.json` in the tracking session;
+the helper reads it without a LAN protocol change. The helper exits when its
+parent exits and removes its overlays on shutdown.
 
 On a build machine, `framephone-overlay --self-test` checks pose validation,
-freshness, screen sizing and texture without SteamVR. To render on a headset:
-`framephone-overlay --session /path/to/tag-trial`. The desktop launches this
-automatically. `FRAMEPHONE_OPENVR_LIBRARY` can select an installed client library
-for development. Actual compositor visibility and alignment require headset
-validation; local tests cannot establish them.
+freshness, screen sizing and the shell without SteamVR. The CTest
+`framephone-phone-presentation` also covers shell dimensions/normals, diagnostic
+textures, fade timing, gyro continuation, gaps and recovery. To render on a
+headset: `framephone-overlay --session /path/to/tag-trial`. The desktop launches
+this automatically. `FRAMEPHONE_OPENVR_LIBRARY` can select an installed client
+library for development. Actual compositor visibility and alignment require
+headset validation; local tests cannot establish them.
 
 See [OpenVR provenance](../third_party/openvr/README.md).

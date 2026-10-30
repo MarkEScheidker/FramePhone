@@ -2,7 +2,7 @@
 
 The phone briefly displays a width-filling AprilTag. Frame measures its pose in
 two front grayscale cameras, registers anchored ARCore motion to SteamVR standing
-space, then renders a screen rectangle with bounded prediction and visual smoothing.
+space, then renders a screen-sized display in a 3D phone shell with bounded prediction and visual smoothing.
 An independent monitor uses headset proximity, with SteamVR activity as a fallback, to gate acquisition.
 Raw IMU telemetry remains available alongside the tracking path.
 
@@ -13,7 +13,7 @@ flowchart LR
     Calibration[Factory KB4 calibration] --> Pose[Joint stereo pose]
     Tags --> Pose
     Pose --> UI[Desktop diagnostics and recording]
-    Pose --> VR[SteamVR screen rectangle]
+    Pose --> VR[SteamVR phone display]
     ARCore[Anchored phone pose and gyro] --> Predict[Bounded prediction and smoothing]
     Predict --> VR
     Wearer[OpenVR proximity or HMD activity] --> TLS
@@ -30,12 +30,13 @@ flowchart LR
 | TagDetector / PlanarPoseEstimator | Decoded corners, stereo/IPPE hypotheses and joint pixel refinement. |
 | fiducial_panel.py | Tracking controls, exact-pair camera outlines, freshness and process lifecycle. |
 | camera_previews.py / fiducial --preview-ring | Per-camera detection and annotated Gray8 previews with one-frame queues. |
-| framephone-overlay | OpenVR quad, raw registration, bounded prediction and smoothing; separate presence mode reads wearer input before acquisition. |
+| framephone-overlay | Convex OpenVR phone shell, rear diagnostics, raw registration, bounded prediction/smoothing and loss fade; separate presence mode reads wearer input before acquisition. |
 | StereoRecorder / telemetry_recording.py | Opt-in bounded camera and sensor evidence. |
 
 Only status `measured` supplies a current pose. Ambiguous hypotheses remain
 purely diagnostic. Stopping, hiding the phone marker, changing its profile or
-losing the connection clears the pose and hides the VR object. The renderer
+losing the connection clears the valid pose and fades the VR object over one second.
+The fade is presentation only and cannot acknowledge alignment. The renderer
 independently rejects pose publications older than 250 ms on the host clock.
 That timestamp measures processing/publication freshness, not exposure age.
 
@@ -92,6 +93,9 @@ independent from optical pose estimation.
 validated post-exposure gyro samples affect rotation, and recent ARCore velocity
 affects translation. Predictions never enter the optical registration/history.
 The renderer measures cadence and age independently from UI refresh.
+`phone_model.hpp` owns physical shell geometry and textures; `tracking_fade.hpp`
+holds the last rendered pose for one second and advances rotation only from fresh,
+verified gyro data. Neither presentation component changes registration.
 
 ## Bluetooth companion transport
 

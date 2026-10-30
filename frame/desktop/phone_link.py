@@ -362,8 +362,7 @@ class Telemetry:
                 "poses": mapped,
                 "gyro": [dict(host_t_ns=round(p["t_ns"]-self.offset_ns), w_rad_s=list(p["w_rad_s"]))
                          for p in list(self.gyro_history)[-64:]]
-                        if (self.offset_ns is not None and latest and latest["state"] == "tracking"
-                            and not latest["marker_required"] and "capture_t_ns" in latest) else []}
+                        if self.offset_ns is not None else []}
 
     def snapshot(self, now):
         rows = {}

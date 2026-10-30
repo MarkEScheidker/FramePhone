@@ -1,5 +1,7 @@
 #include "headset_presence.hpp"
+#include "phone_model.hpp"
 #include "pose_smoothing.hpp"
+#include "tracking_fade.hpp"
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -125,47 +127,95 @@ struct Client {
             dlclose(library);
     }
 };
+// Convex shell faces use the existing compositor path. Cull the far faces so
+// transparency during the fade never exposes a mirrored screen or back text.
 struct Display {
+    struct Face {
+        Surface surface;
+        vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
+        bool shown = false;
+    };
     Client &client;
-    Geometry screen;
-    vr::VROverlayHandle_t handle = vr::k_ulOverlayHandleInvalid;
-    explicit Display(Client &c, Geometry g) : client(c), screen(g) {}
+    PhoneModel model;
+    std::vector<Face> faces;
+    std::uint64_t diagnostics_at = 0;
+    bool visible = false;
+    explicit Display(Client &c, Geometry g) : client(c), model{g} {}
     void check(vr::EVROverlayError result) {
         if (result != vr::VROverlayError_None)
-            throw std::runtime_error(std::string("VR screen: ") +
+            throw std::runtime_error(std::string("VR phone: ") +
                                      client.overlay->GetOverlayErrorNameFromEnum(result));
     }
-    void create() {
-        auto key = "framephone.screen." + std::to_string(getpid());
-        check(client.overlay->CreateOverlay(key.c_str(), "FramePhone screen", &handle));
-        check(client.overlay->SetOverlayFlag(handle, vr::VROverlayFlags_VisibleInDashboard, true));
-        check(client.overlay->SetOverlayWidthInMeters(handle, float(screen.width)));
-        check(client.overlay->SetOverlayTexelAspect(handle, float(screen.texel_aspect())));
-        auto pixels = texture();
-        check(client.overlay->SetOverlayRaw(handle, pixels.data(), texture_size, texture_size, 4));
+    void upload(const Face &face, Image image) {
+        check(client.overlay->SetOverlayTexelAspect(
+            face.handle,
+            float(face.surface.width / face.surface.height * image.height / image.width)));
+        check(client.overlay->SetOverlayRaw(face.handle, image.rgba.data(), image.width,
+                                            image.height, 4));
     }
-    void update(const std::optional<Matrix> &pose, bool world = false) {
-        if (!pose) {
-            check(client.overlay->HideOverlay(handle));
-            return;
+    void create() {
+        for (const auto &surface : model.surfaces()) {
+            faces.push_back({surface});
+            auto &face = faces.back();
+            const auto key =
+                "framephone.phone." + std::to_string(getpid()) + "." + std::to_string(faces.size());
+            check(client.overlay->CreateOverlay(key.c_str(), "FramePhone", &face.handle));
+            check(client.overlay->SetOverlayFlag(face.handle, vr::VROverlayFlags_VisibleInDashboard,
+                                                 true));
+            check(client.overlay->SetOverlayWidthInMeters(face.handle, float(surface.width)));
+            // Black is opaque, and covers exactly the calibrated display area.
+            if (surface.kind == PhoneFace::screen) {
+                upload(face, Image(1, 1, 0));
+                check(client.overlay->SetOverlaySortOrder(face.handle, 1));
+            } else if (surface.kind == PhoneFace::edge)
+                upload(face, Image(1, 1, 40));
+            else
+                upload(face, shell_texture(model, surface.kind == PhoneFace::body));
         }
-        vr::HmdMatrix34_t matrix{};
-        for (int row = 0; row < 3; ++row)
-            for (int col = 0; col < 4; ++col)
-                matrix.m[row][col] = float((*pose)[row * 4 + col]);
-        if (world)
-            check(client.overlay->SetOverlayTransformAbsolute(handle, vr::TrackingUniverseStanding,
-                                                              &matrix));
-        else
-            check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
-                handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
-        check(client.overlay->ShowOverlay(handle));
+    }
+    void update(const PhonePresentation &presentation, bool world, const Matrix &head,
+                const PhoneDiagnostics &diagnostics, std::uint64_t now) {
+        const std::array<double, 3> eye = world ? std::array<double, 3>{head[3], head[7], head[11]}
+                                                : std::array<double, 3>{0, 0, 0};
+        visible = false;
+        for (auto &face : faces) {
+            const auto transform =
+                presentation.pose ? compose(*presentation.pose, face.surface.local) : identity();
+            const bool show =
+                presentation.pose && presentation.opacity > 0 && facing(transform, eye);
+            if (!show) {
+                if (face.shown)
+                    check(client.overlay->HideOverlay(face.handle));
+                face.shown = false;
+                continue;
+            }
+            vr::HmdMatrix34_t matrix{};
+            for (int row = 0; row < 3; ++row)
+                for (int col = 0; col < 4; ++col)
+                    matrix.m[row][col] = float(transform[row * 4 + col]);
+            if (world)
+                check(client.overlay->SetOverlayTransformAbsolute(
+                    face.handle, vr::TrackingUniverseStanding, &matrix));
+            else
+                check(client.overlay->SetOverlayTransformTrackedDeviceRelative(
+                    face.handle, vr::k_unTrackedDeviceIndex_Hmd, &matrix));
+            check(client.overlay->SetOverlayAlpha(face.handle, float(presentation.opacity)));
+            if (face.surface.kind == PhoneFace::back &&
+                (!face.shown || now - diagnostics_at >= 250'000'000)) {
+                upload(face, diagnostic_texture(model, diagnostics));
+                diagnostics_at = now;
+            }
+            if (!face.shown)
+                check(client.overlay->ShowOverlay(face.handle));
+            face.shown = visible = true;
+        }
     }
     ~Display() {
-        if (handle != vr::k_ulOverlayHandleInvalid) {
-            client.overlay->HideOverlay(handle);
-            client.overlay->DestroyOverlay(handle);
-        }
+        for (const auto &face : faces)
+            if (face.handle != vr::k_ulOverlayHandleInvalid) {
+                client.overlay->HideOverlay(face.handle);
+                client.overlay->DestroyOverlay(face.handle);
+            }
     }
 };
 struct TemporaryDirectory {
@@ -333,11 +383,12 @@ void self_test() {
         rejected = true;
     }
     check(rejected);
-    const auto pixels = texture();
-    check(pixels[3] == 255 &&
-          pixels[(texture_size / 2 * texture_size + texture_size / 2) * 4 + 3] == 100);
+    const PhoneModel model{screen};
+    check(model.surfaces().size() == 23);
+    const auto pixels = shell_texture(model);
+    check(pixels.rgba[3] == 0 && pixels.rgba[(256 * 256 + 128) * 4 + 3] == 255);
     std::cout << "VR screen pose validation, stale/lost rejection, physical dimensions and "
-                 "rectangle texture passed "
+                 "phone shell passed "
                  "(no SteamVR required).\n";
 }
 } // namespace
@@ -359,7 +410,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         if (argc == 2 && std::string(argv[1]) == "--help") {
-            std::cout << "FramePhone head-relative VR screen rectangle\n  --session DIRECTORY\n "
+            std::cout << "FramePhone tracked VR phone\n  --session DIRECTORY\n "
                          " --self-test\n  --presence ACTION_MANIFEST (wearer heartbeat)\n";
             return 0;
         }
@@ -377,7 +428,10 @@ int main(int argc, char **argv) {
         const bool arcore = config.value("arcore_handoff", false);
         ArcoreHandoff handoff;
         PoseSmoothing smoothing;
-        std::string smoothing_key;
+        TrackingFade fade;
+        std::string smoothing_key, gyro_key;
+        bool gyro_epoch_verified = false;
+        std::int64_t last_pose_time = 0;
         std::uint64_t last_state_write = 0;
         Client client;
         client.open();
@@ -402,22 +456,25 @@ int main(int argc, char **argv) {
                              : "VR screen ready: fiducial-driven rectangle; headset alignment and "
                                "motion timing are provisional.\n");
         std::string previous_state;
-        while (!stopped) {
+        while (!stopped || display.visible) {
             vr::VREvent_t event{};
             while (client.system->PollNextEvent(&event, sizeof(event)))
                 if (event.eventType == vr::VREvent_Quit)
                     stopped = 1;
                 else if (event.eventType == vr::VREvent_StandingZeroPoseReset ||
                          event.eventType == vr::VREvent_SeatedZeroPoseReset ||
-                         event.eventType == vr::VREvent_ChaperoneUniverseHasChanged)
+                         event.eventType == vr::VREvent_ChaperoneUniverseHasChanged) {
                     handoff.reset("headset tracking origin changed; show marker again");
+                    fade.reset();
+                }
             vr::TrackedDevicePose_t head{};
             client.system->GetDeviceToAbsoluteTrackingPose(vr::TrackingUniverseStanding, 0, &head,
                                                            1);
             const auto now = now_ns();
             const bool head_valid = head.bPoseIsValid && head.bDeviceIsConnected;
+            Matrix head_matrix = identity();
             if (head_valid) {
-                Matrix matrix{};
+                auto &matrix = head_matrix;
                 for (int r = 0; r < 3; ++r)
                     for (int c = 0; c < 4; ++c)
                         matrix[r * 4 + c] = head.mDeviceToAbsoluteTracking.m[r][c];
@@ -426,13 +483,27 @@ int main(int argc, char **argv) {
             std::optional<Matrix> current;
             double prediction_ms = 0, pose_age_ms = 0, pose_hz = 0, source_hz = 0,
                    capture_delay_ms = 0, delivery_ms = 0;
-            bool gyro_prediction = false;
+            bool gyro_prediction = false, allow_fade_gyro = false;
+            Json fade_gyro = Json::array();
             std::string state = "waiting for an accepted optical pose";
             try {
                 if (arcore && !stopped && head_valid) {
                     const auto &phone = phone_metadata.get(), &optical = optical_metadata.get();
                     if (!phone.empty() && phone.at("session") != config.at("phone_session"))
                         throw std::runtime_error("phone session changed");
+                    // Gyro can remain live while ARCore is paused. Only use it
+                    // with the same verified phone/ARCore generation and clock.
+                    // A new marker acquisition does not change IMU body axes.
+                    if (phone.contains("poses") && !phone.at("poses").empty()) {
+                        const auto &latest = phone.at("poses").back();
+                        const auto key = phone.at("session").get<std::string>() + ":" +
+                                         latest.at("generation").get<std::string>();
+                        allow_fade_gyro = gyro_epoch_verified && key == gyro_key &&
+                                          phone.value("clock_valid", false);
+                        fade_gyro = phone.value("gyro", Json::array());
+                        pose_hz = phone.value("pose_hz", 0.);
+                        source_hz = phone.value("source_hz", pose_hz);
+                    }
                     current = handoff.update(phone, optical, now);
                     if (current) {
                         const auto predicted = predict_pose(*current, phone, now);
@@ -443,14 +514,13 @@ int main(int argc, char **argv) {
                             smoothing.reset();
                             smoothing_key = key;
                         }
+                        gyro_key = phone.at("session").get<std::string>() + ":" +
+                                   latest.at("generation").get<std::string>();
+                        gyro_epoch_verified = latest.contains("capture_t_ns");
                         current = smoothing.update(predicted.pose, now);
                         prediction_ms = predicted.milliseconds;
                         gyro_prediction = predicted.gyro;
-                        pose_age_ms =
-                            double(std::int64_t(now) - pose_time_ns(phone.at("poses").back())) /
-                            1e6;
-                        pose_hz = phone.value("pose_hz", 0.);
-                        source_hz = phone.value("source_hz", pose_hz);
+                        last_pose_time = pose_time_ns(latest);
                         if (latest.contains("capture_t_ns"))
                             capture_delay_ms = (latest.at("t_ns").get<std::int64_t>() -
                                                 latest.at("capture_t_ns").get<std::int64_t>()) /
@@ -465,6 +535,9 @@ int main(int argc, char **argv) {
                            std::filesystem::exists(session / "vr-pose.json")) {
                     const auto message = read(session / "vr-pose.json");
                     current = pose(message, now_ns());
+                    if (current)
+                        last_pose_time =
+                            message.at("processed_host_monotonic_ns").get<std::int64_t>();
                     state = current ? "visible"
                             : message.value("status", "") == "measured"
                                 ? "hidden: pose stale (over 250 ms) or clock invalid"
@@ -473,16 +546,25 @@ int main(int argc, char **argv) {
             } catch (const std::exception &error) {
                 state = std::string("hidden: ") + error.what();
                 handoff.reset(state);
+                allow_fade_gyro = false;
             }
             if (!head_valid) {
                 current.reset();
                 state = "hidden: headset tracking unavailable";
                 handoff.reset(state);
+                fade.reset(); // Never carry an old world pose through headset tracking loss.
             }
             if (!current)
                 smoothing.reset();
-            display.update(current, arcore);
-            if (current) {
+            if (last_pose_time > 0)
+                pose_age_ms = std::max(0., double(std::int64_t(now) - last_pose_time) / 1e6);
+            const auto presentation = fade.update(current, now, fade_gyro, allow_fade_gyro);
+            gyro_prediction = gyro_prediction || presentation.gyro;
+            display.update(presentation, arcore, head_matrix,
+                           {arcore, current.has_value(), gyro_prediction, pose_hz, pose_age_ms,
+                            prediction_ms, presentation.opacity},
+                           now);
+            if (presentation.pose) {
                 rendered.push_back(now);
                 while (rendered.size() > 120 || now - rendered.front() > 1'000'000'000)
                     rendered.pop_front();
@@ -490,8 +572,9 @@ int main(int argc, char **argv) {
                 rendered.clear();
             if (arcore && (now - last_state_write >= 100'000'000 || state != previous_state)) {
                 auto status = handoff.state;
-                status["visible"] =
-                    current.has_value() && client.overlay->IsOverlayVisible(display.handle);
+                status["visible"] = current.has_value() && display.visible;
+                status["fading"] = !current && presentation.pose.has_value();
+                status["opacity"] = presentation.opacity;
                 status["updated_host_monotonic_ns"] = now;
                 status["pose_hz"] = pose_hz;
                 status["source_hz"] = source_hz;

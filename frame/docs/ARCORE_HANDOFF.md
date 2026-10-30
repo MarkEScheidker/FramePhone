@@ -4,7 +4,7 @@ An automatic tracking prototype: acquire a marker while the phone/headset relati
 establish an offset to SteamVR's standing space, then drive the existing VR
 rectangle from phone ARCore poses. The existing continuously visible marker
 mode remains available for phones without ARCore. Poses use the
-[Bluetooth companion path](BLUETOOTH.md) with pinned Wi-Fi control and backup;
+[pinned Wi-Fi path](PAIRING_AND_IMU.md); Bluetooth handles pairing and setup.
 Wi-Fi connects automatically after Bluetooth pairing. Screen streaming is future work.
 
 ## Run the test
@@ -105,7 +105,8 @@ leaves the marker visible until recovery or timeout.
 
 ARCore loss, stale phone poses, clock failure, anchor/session/acquisition changes,
 invalid headset tracking and reported SteamVR recenter events invalidate the
-offset and hide the surface. Pose freshness is bounded to 250 ms. Reacquisition
+offset and start a one-second visual fade. An invalid headset pose or tracking-origin
+reset clears presentation immediately. Pose freshness is bounded to 250 ms. Reacquisition
 does not silently trust the previous alignment. Drift correction, calibrated
 extrinsics, complete headset exposure timing and trusted marker-free pocket
 relocalization remain subsequent work. Screen-off detaches the paused phone
@@ -151,7 +152,7 @@ state to `phone-pose.json` at up to 90 Hz, independently of Tk callbacks. The
 renderer runs at the reported headset display rate (60–144 Hz, 90 Hz fallback)
 and caches unchanged metadata. During tracking, publications contain up to six measured
 ARCore poses and a bounded recent gyro history; acquisition retains a longer
-pose history. Paused packets omit unused gyro data. No queue of stale poses
+pose history. Paused packets retain bounded gyro history for the visual loss fade. No queue of stale poses
 builds up, and publication never refreshes capture/receive timestamps.
 ARCore poses and raw IMU samples use the pinned Wi-Fi connection. Bluetooth
 handles enrollment and automatic connection setup. Handoff requires a recent
@@ -165,8 +166,12 @@ uses a least-squares fit to up to six measured ARCore poses within 100 ms,
 requiring three samples, at least 20 ms span and fit RMS at most 1 cm. Prediction
 stops at 40 ms/2 cm. Accelerometer-only
 position integration is not used. Predicted values never feed registration or
-become subsequent measurements. The 250 ms stale-data cutoff still hides the
-surface rather than continuing to drift.
+become subsequent measurements. The 250 ms stale-data cutoff invalidates tracking
+and starts a one-second fade. During that fade, fresh gyro samples can advance
+orientation frame by frame; gaps, stale samples, an invalid clock or a changed
+phone connection/ARCore generation stop that integration. Position is held. This
+visual continuation never feeds registration or acknowledges an alignment.
+See [VR display](VR_DISPLAY.md) for shell geometry and rear diagnostics.
 
 A visual-only speed-adaptive filter follows prediction, based on the 1 Euro
 principle of smoothing the derivative before adjusting the cutoff. Resting
