@@ -83,9 +83,11 @@ camera clocks disable gyro prediction. Actual rates depend on hardware/lighting.
 ## Screen sharing
 
 After alignment hides the marker, approve Android's full-display sharing prompt.
-If the app is in the background, tap its screen-sharing notification. **Share
-screen** retries approval; **Stop sharing** leaves tracking connected. Capture
+The connection service also requests the prompt from Home or other apps; if
+Android blocks it, tap the screen-sharing notification. **Share screen** retries
+approval; **Stop sharing** leaves tracking connected. **Details → Touch indicators**
+opens instructions/settings for Android's global **Show taps** option. Capture
 uses a hardware H.264 encoder and a separate authenticated TLS connection. No
 ADB or root is required. Android decides whether capture survives display-off;
 when projection ends, another approval is needed. See [screen streaming](../frame/docs/SCREEN_STREAMING.md)
-for the pipeline, limits and device test.
+for the pipeline, limits, device test and optional developer-only ADB authorization.

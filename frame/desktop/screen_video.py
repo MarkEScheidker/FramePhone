@@ -21,6 +21,10 @@ MAX_PACKET = 2 * 1024 * 1024
 MAX_PIXELS = 2_000_000
 HEADER = 64
 MAGIC = b'FPSCRN01'
+# Access-unit delimiter, primary_pic_type=7. Android delivers complete access
+# units, but FFmpeg's byte-stream parser otherwise waits for the following frame
+# to discover that the current one ended. A delimiter makes that boundary explicit.
+ACCESS_UNIT_END = b'\x00\x00\x00\x01\x09\xf0'
 
 
 def exact(source, count):
@@ -168,7 +172,8 @@ class ScreenVideo:
         command, env, hardware = decoder_base()
         hardware = hardware and not self.hardware_failed
         command += ['-hide_banner', '-loglevel', 'error', '-nostdin', '-filter_threads', '1', '-probesize', '32',
-                    '-analyzeduration', '0', '-fpsprobesize', '0', '-flags', 'low_delay', '-threads', '2', '-max_pixels', str(MAX_PIXELS)]
+                    '-analyzeduration', '0', '-fpsprobesize', '0', '-flags', 'low_delay',
+                    '-thread_type', 'slice', '-threads', '2', '-max_pixels', str(MAX_PIXELS)]
         if hardware:
             command += ['-c:v', 'h264_v4l2m2m']
         command += ['-f', 'h264', '-i', 'pipe:0', '-an', '-sn', '-dn']
@@ -177,7 +182,10 @@ class ScreenVideo:
         if rotation:
             transform += ',' + filters[rotation]
         command += ['-vf', transform]
-        command += ['-vsync', '0', '-pix_fmt', 'rgba', '-f', 'rawvideo', 'pipe:1']
+        # Rawvideo's frame-threaded encoder can itself queue several frames.
+        # Flush each image, including a small/static image below the IO buffer size.
+        command += ['-vsync', '0', '-pix_fmt', 'rgba', '-threads', '1',
+                    '-flush_packets', '1', '-f', 'rawvideo', 'pipe:1']
         out_w, out_h = (height, width) if rotation % 2 else (width, height)
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, env=env, bufsize=0)
@@ -194,6 +202,7 @@ class ScreenVideo:
         def output():
             try:
                 size = out_w*out_h*4
+                report_at, report_count, fps = time.monotonic(), 0, None
                 while not self.stopped.is_set() and not ended.is_set():
                     data = bytearray()
                     while len(data) < size:
@@ -205,7 +214,11 @@ class ScreenVideo:
                     progress[0] = time.monotonic()
                     count[0] += 1
                     self.decoded += 1
-                    self.status = f'Screen streaming · {out_w}×{out_h} · {"hardware" if hardware else "software"} decode'
+                    if progress[0] - report_at >= 1:
+                        fps = (count[0] - report_count) / (progress[0] - report_at)
+                        report_at, report_count = progress[0], count[0]
+                    rate = f' · {fps:.1f} FPS' if fps is not None else ''
+                    self.status = f'Screen streaming · {out_w}×{out_h} · {"hardware" if hardware else "software"} decode{rate}'
             except (OSError, ValueError):
                 pass
             finally:
@@ -244,6 +257,7 @@ class ScreenVideo:
                     raise ValueError('Video frame before codec configuration')
                 if flags != 1:
                     input_at[0] = time.monotonic()
+                    packet += ACCESS_UNIT_END
                 view = memoryview(packet)
                 while view and not self.stopped.is_set():
                     written = process.stdin.write(view)
@@ -276,6 +290,7 @@ class ScreenVideo:
                     context.verify_mode = ssl.CERT_NONE
                     with socket.create_connection((self.host, PORT), timeout=4) as raw:
                         self.sock = raw
+                        raw.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 64 * 1024)
                         with context.wrap_socket(raw) as sock:
                             self.sock = sock
                             if not hmac.compare_digest(hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest(), self.pin):

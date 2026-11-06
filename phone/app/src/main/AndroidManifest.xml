@@ -36,7 +36,9 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".video.ScreenCaptureActivity" android:exported="false" />
+        <activity android:name=".video.ScreenCaptureActivity" android:exported="false"
+            android:taskAffinity="${applicationId}.capture" android:launchMode="singleTask"
+            android:excludeFromRecents="true" />
         <service android:name=".video.ScreenCaptureService" android:exported="false"
             android:foregroundServiceType="mediaProjection" />
         <service android:name=".bluetooth.FrameCompanionService" android:exported="true"

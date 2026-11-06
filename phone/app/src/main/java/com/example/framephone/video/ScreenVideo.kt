@@ -5,8 +5,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.SystemClock
+import android.provider.Settings
 import com.example.framephone.Fiducial
+import com.example.framephone.bluetooth.CompanionSetup
 import com.example.framephone.link.Protocol
 import com.example.framephone.tracking.ArPoseState
 import org.json.JSONObject
@@ -29,7 +32,7 @@ import kotlin.concurrent.thread
  * Network writes never run on the capture, sensor or UI thread. */
 object ScreenVideo {
     data class Format(val generation: String, val width: Int, val height: Int, val rotation: Int, val config: ByteArray)
-    private data class Packet(val data: ByteArray, val flags: Int, val pts: Long)
+    private data class Packet(val data: ByteArray, val flags: Int, val pts: Long, val queuedAtMs: Long)
     @Volatile private var listener: SSLServerSocket? = null
     @Volatile private var session = ""
     private var token = ""
@@ -39,8 +42,8 @@ object ScreenVideo {
     private val keyframe = AtomicBoolean(false)
     @Volatile var capturing = false
         internal set
-    @Volatile var asked = false
-        internal set
+    // Prompt state is accessed only from the Android main thread.
+    val prompt = CapturePrompt()
     @Volatile var status = "Screen sharing waits for tracking"
         internal set
     @Volatile var encoder = ""
@@ -103,7 +106,7 @@ object ScreenVideo {
     fun requestKeyframe(): Boolean = keyframe.getAndSet(false)
     fun offer(data: ByteArray, pts: Long, sync: Boolean) {
         if (peer == null || !eligible()) return
-        val packet = Packet(VideoWire.annexB(data), if (sync) VideoWire.KEYFRAME else 0, pts)
+        val packet = Packet(VideoWire.annexB(data), if (sync) VideoWire.KEYFRAME else 0, pts, SystemClock.elapsedRealtime())
         if (!packets.offer(packet)) {
             // P-frames have references. Reconnect at a new IDR rather than
             // silently dropping arbitrary encoded frames and corrupting playback.
@@ -112,6 +115,8 @@ object ScreenVideo {
     }
     private fun serve(socket: SSLSocket) {
         socket.enabledProtocols = arrayOf("TLSv1.3"); socket.soTimeout = 5000; socket.tcpNoDelay = true
+        // Bound TCP's extra backlog as well as our encoded-frame queue.
+        socket.sendBufferSize = 64 * 1024
         socket.startHandshake()
         val input = DataInputStream(socket.inputStream)
         val output = DataOutputStream(socket.outputStream)
@@ -150,6 +155,10 @@ object ScreenVideo {
             var needSync = true
             while (peer === socket && synchronized(this) { session == id } && format?.generation == current.generation) {
                 val packet = packets.poll(100, TimeUnit.MILLISECONDS)
+                if (packet != null && SystemClock.elapsedRealtime() - packet.queuedAtMs > 100) {
+                    disconnectVideo()
+                    break // Rejoin at a new IDR rather than play an old queue.
+                }
                 if (!eligible()) {
                     packets.clear(); needSync = true; keyframe.set(true)
                     VideoWire.write(output, ByteArray(0), VideoWire.HEARTBEAT, 0)
@@ -162,13 +171,28 @@ object ScreenVideo {
             }
         } finally { active.set(false); watchdog.join(500) }
     }
+    fun requestCapture(context: Context, foreground: Boolean, manual: Boolean = false) {
+        if (!eligible() || capturing) return
+        // Android explicitly permits associated companion apps / granted overlays
+        // to launch activities. OEM restrictions can still silently reject one.
+        if (!foreground && !Settings.canDrawOverlays(context) &&
+            !runCatching { CompanionSetup.associated(context) }.getOrDefault(false)) return
+        if (!prompt.request(SystemClock.elapsedRealtime(), foreground, manual)) return
+        runCatching {
+            context.startActivity(Intent(context, ScreenCaptureActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onFailure { status = "Tap the screen-sharing notification to continue" }
+    }
     fun refresh(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (!eligible() || capturing || asked) { manager.cancel(30); return }
+        if (!eligible() || capturing || prompt.handled) { manager.cancel(30); return }
+        requestCapture(context, foreground = false)
+        // Keep this fallback until the activity actually starts. startActivity
+        // can return successfully even when Android blocks a background launch.
         val action = PendingIntent.getActivity(context, 30,
-            android.content.Intent(context, ScreenCaptureActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+            Intent(context, ScreenCaptureActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
         manager.notify(30, Notification.Builder(context, "screen").setSmallIcon(android.R.drawable.ic_menu_slideshow)
             .setContentTitle("FramePhone").setContentText("Tap to share your screen with the headset")
-            .setContentIntent(action).setAutoCancel(true).build())
+            .setContentIntent(action).setOnlyAlertOnce(true).setAutoCancel(true).build())
     }
 }

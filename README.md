@@ -44,8 +44,8 @@ The app uses the headset's installed SteamVR for its automatic VR display.
 3. Briefly show the automatic marker to the front cameras. After alignment the
    marker hides and ARCore drives the virtual phone. Live poses, IMU telemetry,
    clock synchronization and tracking commands use Wi-Fi.
-4. After alignment, approve Android's screen-sharing prompt. If the phone app is
-   in the background, tap its screen-sharing notification. Home and other apps
+4. After alignment, approve Android's screen-sharing prompt, including from Home.
+   If Android blocks the automatic prompt, tap its screen-sharing notification. Home and other apps
    stream to the virtual phone over a separate encrypted Wi-Fi connection.
    Android may require new approval after locking the phone.
 5. Subsequent headset advertisements can wake Android's connection service

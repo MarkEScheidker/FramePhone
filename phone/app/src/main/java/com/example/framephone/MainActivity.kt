@@ -35,7 +35,6 @@ import com.example.framephone.link.TelemetryState
 import com.example.framephone.tracking.ArPoseService
 import com.example.framephone.tracking.ArPoseState
 import com.example.framephone.video.ScreenVideo
-import com.example.framephone.video.ScreenCaptureActivity
 import com.example.framephone.video.ScreenCaptureService
 import com.google.ar.core.ArCoreApk
 import kotlinx.coroutines.delay
@@ -196,6 +195,7 @@ class MainActivity : ComponentActivity() {
         var height by rememberSaveable { mutableStateOf(saved?.heightMm?.toString().orEmpty()) }
         var details by rememberSaveable { mutableStateOf(false) }
         var about by remember { mutableStateOf(false) }
+        var touchHelp by remember { mutableStateOf(false) }
         var tracking by remember { mutableStateOf(ArPoseState.status) }
         var screenSharing by remember { mutableStateOf(ScreenVideo.status) }
         var capturingScreen by remember { mutableStateOf(ScreenVideo.capturing) }
@@ -215,10 +215,9 @@ class MainActivity : ComponentActivity() {
                 screenSharing = ScreenVideo.status
                 capturingScreen = ScreenVideo.capturing
                 canShare = ScreenVideo.eligible()
-                if (canShare && !capturingScreen && !ScreenVideo.asked &&
+                if (canShare && !capturingScreen &&
                     lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
-                    ScreenVideo.asked = true
-                    startActivity(Intent(this@MainActivity, ScreenCaptureActivity::class.java))
+                    ScreenVideo.requestCapture(this@MainActivity, foreground = true)
                 }
                 bluetoothStatus = BluetoothPose.status
                 bluetoothFailure = BluetoothPose.lastFailure
@@ -280,7 +279,7 @@ class MainActivity : ComponentActivity() {
                 Text(screenSharing, style = MaterialTheme.typography.bodyMedium)
                 TextButton(onClick = {
                     if (capturingScreen) startService(Intent(this@MainActivity, ScreenCaptureService::class.java).setAction("stop"))
-                    else startActivity(Intent(this@MainActivity, ScreenCaptureActivity::class.java))
+                    else ScreenVideo.requestCapture(this@MainActivity, foreground = true, manual = true)
                 }, enabled = capturingScreen || canShare) { Text(if (capturingScreen) "Stop sharing" else "Share screen") }
             }
             if (notice.isNotEmpty()) Text(notice, color = MaterialTheme.colorScheme.error)
@@ -300,9 +299,18 @@ class MainActivity : ComponentActivity() {
                 remembered?.let { Text("Headset: $it") }
                 if (connectionDetail.isNotEmpty()) Text(connectionDetail)
                 if (trackingDetail.isNotEmpty()) Text(trackingDetail)
+                TextButton(onClick = { touchHelp = true }) { Text("Touch indicators") }
                 TextButton(onClick = { about = true }) { Text("About") }
             }
         }
+        if (touchHelp) AlertDialog(onDismissRequest = { touchHelp = false }, title = { Text("Show touches") },
+            text = { Text("Enable Show taps in Android Developer options. Touch circles also appear in the screen stream. If Developer options is hidden, tap About phone → Build number seven times. This setting applies across the phone.") },
+            confirmButton = { TextButton(onClick = {
+                touchHelp = false
+                runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)) }
+                    .onFailure { runCatching { startActivity(Intent(Settings.ACTION_SETTINGS)) } }
+            }) { Text("Open settings") } },
+            dismissButton = { TextButton(onClick = { touchHelp = false }) { Text("Close") } })
         if (about) AlertDialog(onDismissRequest = { about = false }, title = { Text("FramePhone") },
             text = { Column {
                 Text("Tracking uses Google ARCore, subject to Google's Terms of Service and Privacy Policy.")

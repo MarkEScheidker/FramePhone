@@ -38,7 +38,7 @@ class ScreenCaptureService : Service() {
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() {
             ScreenVideo.status = "Screen capture ended — tap Share screen to resume"
-            ScreenVideo.asked = true
+            ScreenVideo.prompt.suppress()
             stopSelf()
         }
         override fun onCapturedContentResize(width: Int, height: Int) {
@@ -49,7 +49,7 @@ class ScreenCaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     @Suppress("DEPRECATION")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "stop") { ScreenVideo.asked = true; stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == "stop") { ScreenVideo.prompt.suppress(); stopSelf(); return START_NOT_STICKY }
         if (worker != null) return START_NOT_STICKY
         val consent = if (Build.VERSION.SDK_INT >= 33) intent?.getParcelableExtra("consent", Intent::class.java)
                       else intent?.getParcelableExtra<Intent>("consent")
@@ -96,6 +96,7 @@ class ScreenCaptureService : Service() {
             setLong(MediaFormat.KEY_REPEAT_PREVIOUS_FRAME_AFTER,33_333L)
             setInteger(MediaFormat.KEY_MAX_B_FRAMES,0)
             setInteger(MediaFormat.KEY_PRIORITY,0)
+            setInteger(MediaFormat.KEY_LATENCY,0) // Optional encoder hint; unsupported codecs ignore it.
         }
         ScreenVideo.encoder = info.name
         return MediaCodec.createByCodecName(info.name) to settings

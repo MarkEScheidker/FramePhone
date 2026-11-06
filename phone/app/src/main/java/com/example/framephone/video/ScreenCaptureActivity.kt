@@ -28,8 +28,8 @@ class ScreenCaptureActivity : ComponentActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        ScreenVideo.asked = true
         if (ScreenVideo.capturing || !ScreenVideo.eligible()) { finish(); return }
+        ScreenVideo.prompt.shown()
         if (savedInstanceState == null) {
             val manager = getSystemService(MediaProjectionManager::class.java)
             val request = if (Build.VERSION.SDK_INT >= 34)
@@ -37,5 +37,9 @@ class ScreenCaptureActivity : ComponentActivity() {
                 else manager.createScreenCaptureIntent()
             approval.launch(request)
         }
+    }
+    override fun onDestroy() {
+        if (isFinishing) ScreenVideo.prompt.finished()
+        super.onDestroy()
     }
 }

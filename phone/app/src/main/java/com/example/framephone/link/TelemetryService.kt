@@ -36,7 +36,7 @@ class TelemetryService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             if (intent.action == Intent.ACTION_USER_PRESENT ||
                 (intent.action == Intent.ACTION_SCREEN_ON && !getSystemService(android.app.KeyguardManager::class.java).isKeyguardLocked))
-                ScreenVideo.asked = false
+                ScreenVideo.prompt.unlocked()
             if (intent.action in listOf(Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT) &&
                 SettingsStore(this@TelemetryService).connectionEnabled() && !TelemetryState.status.connected) {
                 BluetoothPose.retryConnection()

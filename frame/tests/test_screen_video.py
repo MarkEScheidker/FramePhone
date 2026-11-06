@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import socket
@@ -153,10 +154,52 @@ class VideoTLSTests(unittest.TestCase):
         thread.join(4);self.assertEqual(errors,[])
 
     @unittest.skipUnless(os.environ.get('FRAMEPHONE_FFMPEG') or shutil.which('ffmpeg'),'FFmpeg integration runs in native CI/package checks')
+    def test_each_predicted_frame_displays_before_the_next_access_unit(self):
+        command,env,_=decoder_base()
+        clip=subprocess.check_output([*command,'-hide_banner','-loglevel','error','-filter_threads','1',
+            '-f','lavfi','-i','testsrc=size=64x96:rate=30','-frames:v','3','-c:v','libx264',
+            '-threads','1','-preset','ultrafast','-tune','zerolatency','-x264-params','aud=1',
+            '-g','30','-bf','0','-pix_fmt','yuv420p','-f','h264','pipe:1'],env=env)
+        units=[unit for unit in re.split(b'(?=\x00\x00\x00\x01\x09)',clip) if unit]
+        self.assertEqual(len(units),3)
+        nals=[nal for nal in re.split(b'\x00\x00(?:\x00)?\x01',units[0]) if nal]
+        config=b''.join(b'\x00\x00\x00\x01'+nal for nal in nals if nal[0]&31 in (7,8))
+        self.assertTrue(config)
+        self.assertTrue(any(nal and nal[0]&31==1 for nal in re.split(b'\x00\x00(?:\x00)?\x01',units[1])))
+        advance,done=threading.Event(),threading.Event()
+        def send(peer):
+            read_message(peer)
+            write_message(peer,{'type':'video_ready','version':1,'session':'test','codec':'h264',
+                                'generation':'paced','width':64,'height':96,'rotation':1})
+            peer.sendall(struct.pack('!IIQ',len(config),1,0)+config)
+            for i,unit in enumerate(units):
+                peer.sendall(struct.pack('!IIQ',len(unit),2 if i==0 else 0,i*33333)+unit)
+                if not advance.wait(3): raise AssertionError('Decoder waited for a later frame')
+                advance.clear()
+            done.wait(3)
+        port,thread,errors=self.server(send)
+        with tempfile.TemporaryDirectory() as folder:
+            receiver=self.receiver(port,Path(folder)/'screen.json')
+            try:
+                previous=None
+                for i in range(3):
+                    limit=time.monotonic()+2
+                    while receiver.decoded<i+1 and time.monotonic()<limit:time.sleep(.005)
+                    self.assertEqual(receiver.decoded,i+1,receiver.status)
+                    self.assertEqual(struct.unpack_from('<II',receiver.frames.memory,8),(96,64))
+                    pixels=bytes(receiver.frames.memory[64:64+64*96*4])
+                    self.assertNotEqual(pixels,previous)
+                    previous=pixels
+                    advance.set()
+            finally:
+                done.set();advance.set();receiver.close()
+        thread.join(4);self.assertEqual(errors,[])
+
+    @unittest.skipUnless(os.environ.get('FRAMEPHONE_FFMPEG') or shutil.which('ffmpeg'),'FFmpeg integration runs in native CI/package checks')
     def test_encrypted_h264_decodes_and_publishes_without_screenshot_files(self):
         command,env,_=decoder_base()
         clip=subprocess.check_output([*command,'-hide_banner','-loglevel','error','-filter_threads','1','-threads','1','-f','lavfi','-i',
-            'testsrc=size=64x96:rate=30','-frames:v','2','-c:v','libx264','-preset','ultrafast',
+            'testsrc=size=64x96:rate=30','-frames:v','1','-c:v','libx264','-preset','ultrafast',
             '-tune','zerolatency','-g','1','-pix_fmt','yuv420p','-f','h264','pipe:1'],env=env)
         done=threading.Event()
         def send(peer):
@@ -174,7 +217,8 @@ class VideoTLSTests(unittest.TestCase):
             try:
                 limit=time.monotonic()+4
                 while receiver.decoded<1 and time.monotonic()<limit:time.sleep(.01)
-                self.assertGreater(receiver.decoded,0,receiver.status)
+                self.assertEqual(receiver.decoded,1,
+                                 'one complete frame must display without a second frame or EOF: '+receiver.status)
                 w,h=struct.unpack_from('<II',receiver.frames.memory,8)
                 self.assertEqual((w,h),(64,96))
                 time.sleep(.7)
